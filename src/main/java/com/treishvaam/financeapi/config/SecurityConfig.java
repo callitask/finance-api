@@ -1,3 +1,5 @@
+// finance-api/src/main/java/com/treishvaam/financeapi/config/SecurityConfig.java
+
 package com.treishvaam.financeapi.config;
 
 import com.treishvaam.financeapi.security.JwtTokenFilter;
@@ -8,6 +10,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -40,34 +43,36 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            .cors().and()
-            .csrf().disable()
-            .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS).and()
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            .csrf(AbstractHttpConfigurer::disable)
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authorize -> authorize
-                // Allow public access to auth, docs, and viewing uploaded images
-                .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/api/uploads/**").permitAll() 
-                // Allow public GET requests to view posts
-                .requestMatchers(HttpMethod.GET, "/api/posts/**").permitAll()
-                // Explicitly allow authenticated POST requests to upload images
-                .requestMatchers(HttpMethod.POST, "/api/upload").authenticated()
-                // All other requests must be authenticated
+                // Allow anyone to view posts and uploaded files
+                .requestMatchers(HttpMethod.GET, "/api/posts/**", "/files/**").permitAll()
+                // Allow anyone to attempt to log in
+                .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
+                // All other requests require a valid token
                 .anyRequest().authenticated()
-            );
-
-        http.addFilterBefore(jwtTokenFilter, UsernamePasswordAuthenticationFilter.class);
+            )
+            .addFilterBefore(jwtTokenFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
 
     @Bean
-    public CorsFilter corsFilter() {
+    public UrlBasedCorsConfigurationSource corsConfigurationSource() {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowCredentials(true);
-        config.addAllowedOrigin("http://localhost:3000"); // Your React app's origin
+        config.addAllowedOrigin("http://localhost:3000"); // Your frontend's origin
         config.addAllowedHeader("*");
         config.addAllowedMethod("*");
         source.registerCorsConfiguration("/**", config);
-        return new CorsFilter(source);
+        return source;
+    }
+
+    @Bean
+    public CorsFilter corsFilter() {
+        return new CorsFilter(corsConfigurationSource());
     }
 }
