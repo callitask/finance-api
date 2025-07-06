@@ -47,8 +47,8 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authorize -> authorize
-                // Allow anyone to view posts and uploaded files
-                .requestMatchers(HttpMethod.GET, "/api/posts/**", "/files/**").permitAll()
+                // Allow public viewing of posts and all uploaded files at the correct path
+                .requestMatchers(HttpMethod.GET, "/api/posts/**", "/api/files/**").permitAll()
                 // Allow anyone to attempt to log in
                 .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                 // All other requests require a valid token
