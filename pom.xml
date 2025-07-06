@@ -6,8 +6,7 @@
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
 		<version>3.5.3</version>
-		<relativePath/> <!-- lookup parent from repository -->
-	</parent>
+		<relativePath/> </parent>
 	<groupId>com.treishvaam</groupId>
 	<artifactId>finance-api</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
@@ -33,7 +32,6 @@
 		<spring-ai.version>1.0.0</spring-ai.version>
 	</properties>
 	<dependencies>
-        <!-- Core Spring Boot Starters -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
@@ -47,28 +45,28 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Lombok for reducing boilerplate code -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
 
-        <!-- MariaDB Driver -->
         <dependency>
             <groupId>org.mariadb.jdbc</groupId>
             <artifactId>mariadb-java-client</artifactId>
             <scope>runtime</scope>
         </dependency>
 
-        <!-- For WAR deployment: Mark the embedded tomcat server as provided -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-tomcat</artifactId>
             <scope>provided</scope>
         </dependency>
 
-        <!-- JWT (JSON Web Token) Dependencies -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>
@@ -87,7 +85,6 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Recommended Future Dependencies -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
@@ -115,7 +112,6 @@
             <version>1.5</version>
         </dependency>
 
-        <!-- Advanced & Modern Dependencies -->
         <dependency>
             <groupId>org.liquibase</groupId>
             <artifactId>liquibase-core</artifactId>
@@ -144,7 +140,6 @@
             <artifactId>zipkin-reporter-brave</artifactId>
         </dependency>
 
-        <!-- Default Test Starter -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

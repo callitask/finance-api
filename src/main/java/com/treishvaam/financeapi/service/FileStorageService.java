@@ -1,9 +1,12 @@
 package com.treishvaam.financeapi.service;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
+import java.net.MalformedURLException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -41,4 +44,24 @@ public class FileStorageService {
             throw new RuntimeException("Could not store file " + fileName + ". Please try again!", ex);
         }
     }
+
+    // --- MODIFICATION START ---
+    // Added loadAsResource method to retrieve files
+    public Resource loadAsResource(String fileName) {
+        try {
+            Path filePath = this.fileStorageLocation.resolve(fileName).normalize();
+            Resource resource = new UrlResource(filePath.toUri());
+            if (resource.exists()) {
+                return resource;
+            } else {
+                // If the file does not exist, return null or throw a specific exception
+                // For now, returning null as per FileController's check
+                return null;
+            }
+        } catch (MalformedURLException ex) {
+            // Handle malformed URL exception
+            throw new RuntimeException("File not found " + fileName, ex);
+        }
+    }
+    // --- MODIFICATION END ---
 }

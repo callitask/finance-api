@@ -1,5 +1,3 @@
-// finance-api/src/main/java/com/treishvaam/financeapi/config/SecurityConfig.java
-
 package com.treishvaam.financeapi.config;
 
 import com.treishvaam.financeapi.security.JwtTokenFilter;
@@ -47,10 +45,13 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authorize -> authorize
-                // Allow public viewing of posts and all uploaded files at the correct path
-                .requestMatchers(HttpMethod.GET, "/api/posts/**", "/api/files/**").permitAll()
+                // Allow public viewing of posts and uploaded files
+                .requestMatchers(HttpMethod.GET, "/", "/index.html", "/api/posts/**", "/api/uploads/**").permitAll() 
                 // Allow anyone to attempt to log in
                 .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
+                // MODIFIED: Allow POST and PUT to /api/posts/** for authenticated users
+                .requestMatchers(HttpMethod.POST, "/api/posts").authenticated() // For creating posts
+                .requestMatchers(HttpMethod.PUT, "/api/posts/**").authenticated() // For updating posts
                 // All other requests require a valid token
                 .anyRequest().authenticated()
             )

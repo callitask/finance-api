@@ -1,5 +1,3 @@
-// finance-api/src/main/java/com/treishvaam/financeapi/controller/FileController.java
-
 package com.treishvaam.financeapi.controller;
 
 import com.treishvaam.financeapi.service.FileStorageService;
@@ -18,7 +16,7 @@ public class FileController {
         this.fileStorageService = fileStorageService;
     }
 
-    @GetMapping("/files/{filename:.+}")
+    @GetMapping("/uploads/{filename:.+}") // MODIFIED: Changed from /files to /uploads
     @ResponseBody
     public ResponseEntity<Resource> serveFile(@PathVariable String filename) {
         Resource file = fileStorageService.loadAsResource(filename);
