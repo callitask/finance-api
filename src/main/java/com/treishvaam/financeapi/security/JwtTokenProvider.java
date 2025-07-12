@@ -5,8 +5,15 @@ import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
+import org.springframework.security.core.GrantedAuthority;
+
 import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.stream.Collectors;
 import javax.crypto.SecretKey;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 @Component
 public class JwtTokenProvider {
@@ -24,7 +31,15 @@ public class JwtTokenProvider {
         Date now = new Date();
         Date validity = new Date(now.getTime() + validityInMilliseconds);
 
+        // Add roles to claims
+        List<String> roles = authentication.getAuthorities().stream()
+            .map(GrantedAuthority::getAuthority)
+            .collect(Collectors.toList());
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("roles", roles);
+
         return Jwts.builder()
+            .setClaims(claims)
             .setSubject(username)
             .setIssuedAt(now)
             .setExpiration(validity)
@@ -43,5 +58,16 @@ public class JwtTokenProvider {
         } catch (JwtException | IllegalArgumentException e) {
             return false;
         }
+    }
+
+    public java.util.List<String> getRoles(String token) {
+        Claims claims = Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(token).getBody();
+        Object rolesObj = claims.get("roles");
+        if (rolesObj instanceof java.util.List<?>) {
+            return ((java.util.List<?>) rolesObj).stream()
+                .map(Object::toString)
+                .collect(java.util.stream.Collectors.toList());
+        }
+        return java.util.Collections.emptyList();
     }
 }
