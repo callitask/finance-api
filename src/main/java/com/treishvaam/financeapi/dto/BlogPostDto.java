@@ -1,41 +1,90 @@
 package com.treishvaam.financeapi.dto;
 
-public class BlogPostDto { 
-    private String title; 
-    private String content; 
-    private String author; 
+import java.time.LocalDateTime;
+
+public class BlogPostDto {
+    private Long id;
+    private String title;
+    private String content;
     private String category;
-    private boolean isFeatured;
+    private String thumbnailUrl;
+    private String coverImageUrl;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+    private boolean featured; // <-- ADD THIS LINE
 
     // Getters and Setters
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
     public String getTitle() {
         return title;
     }
+
     public void setTitle(String title) {
         this.title = title;
     }
+
     public String getContent() {
         return content;
     }
+
     public void setContent(String content) {
         this.content = content;
     }
-    public String getAuthor() {
-        return author;
-    }
-    public void setAuthor(String author) {
-        this.author = author;
-    }
+
     public String getCategory() {
         return category;
     }
+
     public void setCategory(String category) {
         this.category = category;
     }
-    public boolean isFeatured() {
-        return isFeatured;
+
+    public String getThumbnailUrl() {
+        return thumbnailUrl;
     }
-    public void setFeatured(boolean isFeatured) {
-        this.isFeatured = isFeatured;
+
+    public void setThumbnailUrl(String thumbnailUrl) {
+        this.thumbnailUrl = thumbnailUrl;
+    }
+
+    public String getCoverImageUrl() {
+        return coverImageUrl;
+    }
+
+    public void setCoverImageUrl(String coverImageUrl) {
+        this.coverImageUrl = coverImageUrl;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+
+    // v-- ADD THESE GETTER AND SETTER METHODS --v
+    public boolean isFeatured() {
+        return featured;
+    }
+
+    public void setFeatured(boolean featured) {
+        this.featured = featured;
     }
 }

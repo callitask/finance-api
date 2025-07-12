@@ -1,10 +1,18 @@
 package com.treishvaam.financeapi.model;
 
 import jakarta.persistence.*;
+import lombok.Data;
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
+
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "blog_posts")
+@Data
+@FilterDef(name = "tenantFilter", parameters = @ParamDef(name = "tenantId", type = String.class))
+@Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
 public class BlogPost {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -17,16 +25,29 @@ public class BlogPost {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
+    @Column(nullable = false)
     private String author;
-    
+
+    @Column
     private String category;
-    
-    private boolean isFeatured;
 
-    private String imageUrl;
+    @Column
+    private boolean featured;
 
+    @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    @Column(name = "tenant_id", nullable = false)
+    private String tenantId;
+
+    // --- MODIFICATION START ---
+    // Renamed imageUrl to thumbnailUrl for clarity and added coverImageUrl
+    private String thumbnailUrl;
+    private String coverImageUrl;
+    // --- MODIFICATION END ---
 
     // --- Getters and Setters ---
 
@@ -45,17 +66,26 @@ public class BlogPost {
     public String getCategory() { return category; }
     public void setCategory(String category) { this.category = category; }
 
-    public boolean isFeatured() { return isFeatured; }
-    public void setFeatured(boolean isFeatured) { this.isFeatured = isFeatured; }
-
-    public String getImageUrl() { return imageUrl; }
-    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+    public boolean isFeatured() { return featured; }
+    public void setFeatured(boolean featured) { this.featured = featured; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    public String getTenantId() { return tenantId; }
+    public void setTenantId(String tenantId) { this.tenantId = tenantId; }
+
+    // --- MODIFICATION START ---
+    // Updated getters/setters for new image fields
+    public String getThumbnailUrl() { return thumbnailUrl; }
+    public void setThumbnailUrl(String thumbnailUrl) { this.thumbnailUrl = thumbnailUrl; }
+
+    public String getCoverImageUrl() { return coverImageUrl; }
+    public void setCoverImageUrl(String coverImageUrl) { this.coverImageUrl = coverImageUrl; }
+    // --- MODIFICATION END ---
 
     @PrePersist
     protected void onCreate() {
