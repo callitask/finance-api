@@ -6,12 +6,13 @@ public class BlogPostDto {
     private Long id;
     private String title;
     private String content;
+    private String author; // ADDED THIS LINE
     private String category;
     private String thumbnailUrl;
     private String coverImageUrl;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
-    private boolean featured; // <-- ADD THIS LINE
+    private boolean featured;
 
     // Getters and Setters
 
@@ -37,6 +38,15 @@ public class BlogPostDto {
 
     public void setContent(String content) {
         this.content = content;
+    }
+
+    // ADDED GETTER AND SETTER FOR AUTHOR
+    public String getAuthor() {
+        return author;
+    }
+
+    public void setAuthor(String author) {
+        this.author = author;
     }
 
     public String getCategory() {
@@ -79,7 +89,6 @@ public class BlogPostDto {
         this.updatedAt = updatedAt;
     }
 
-    // v-- ADD THESE GETTER AND SETTER METHODS --v
     public boolean isFeatured() {
         return featured;
     }

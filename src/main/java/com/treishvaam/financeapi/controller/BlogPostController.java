@@ -8,6 +8,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.io.IOException;
 import java.util.List;
@@ -41,19 +43,24 @@ public class BlogPostController {
 
         BlogPost blogPost = objectMapper.readValue(blogPostJson, BlogPost.class);
 
-        // --- MODIFICATION START ---
-        // Handle post thumbnail upload and set thumbnailUrl
-        if (postThumbnail != null && !postThumbnail.isEmpty()) {
-            String fileName = fileStorageService.storeFile(postThumbnail);
-            blogPost.setThumbnailUrl("/api/uploads/" + fileName); // Store the path
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.isAuthenticated()) {
+            blogPost.setAuthor(authentication.getName());
         }
 
-        // Handle cover image upload and set coverImageUrl
+        // ✅ FIX: Set the tenant_id before saving.
+        // Replace with actual tenant ID source if available
+        blogPost.setTenantId("some-tenant-identifier");
+
+        if (postThumbnail != null && !postThumbnail.isEmpty()) {
+            String fileName = fileStorageService.storeFile(postThumbnail);
+            blogPost.setThumbnailUrl("/api/uploads/" + fileName);
+        }
+
         if (coverImage != null && !coverImage.isEmpty()) {
             String fileName = fileStorageService.storeFile(coverImage);
-            blogPost.setCoverImageUrl("/api/uploads/" + fileName); // Store the path
+            blogPost.setCoverImageUrl("/api/uploads/" + fileName);
         }
-        // --- MODIFICATION END ---
 
         BlogPost savedPost = blogPostRepository.save(blogPost);
         return ResponseEntity.ok(savedPost);
@@ -84,26 +91,22 @@ public class BlogPostController {
 
         existingPost.setTitle(updatedDetails.getTitle());
         existingPost.setContent(updatedDetails.getContent());
-        existingPost.setAuthor(updatedDetails.getAuthor());
         existingPost.setCategory(updatedDetails.getCategory());
         existingPost.setFeatured(updatedDetails.isFeatured());
 
-        // --- MODIFICATION START ---
-        // Handle post thumbnail update
         if (postThumbnail != null && !postThumbnail.isEmpty()) {
             String fileName = fileStorageService.storeFile(postThumbnail);
-            existingPost.setThumbnailUrl("/api/uploads/" + fileName); // Update the path
-        } else if (updatedDetails.getThumbnailUrl() != null) { // If no new file, but JSON has a URL (e.g., keeping existing)
+            existingPost.setThumbnailUrl("/api/uploads/" + fileName);
+        } else if (updatedDetails.getThumbnailUrl() != null) {
             existingPost.setThumbnailUrl(updatedDetails.getThumbnailUrl());
         }
-        // Handle cover image update
+
         if (coverImage != null && !coverImage.isEmpty()) {
             String fileName = fileStorageService.storeFile(coverImage);
-            existingPost.setCoverImageUrl("/api/uploads/" + fileName); // Update the path
-        } else if (updatedDetails.getCoverImageUrl() != null) { // If no new file, but JSON has a URL (e.g., keeping existing)
+            existingPost.setCoverImageUrl("/api/uploads/" + fileName);
+        } else if (updatedDetails.getCoverImageUrl() != null) {
             existingPost.setCoverImageUrl(updatedDetails.getCoverImageUrl());
         }
-        // --- MODIFICATION END ---
 
         BlogPost savedPost = blogPostRepository.save(existingPost);
         return ResponseEntity.ok(savedPost);

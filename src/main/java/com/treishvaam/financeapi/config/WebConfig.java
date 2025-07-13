@@ -6,13 +6,13 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
-
+    // Uncommented and updated addCorsMappings to allow CORS requests from your live frontend domain with all necessary methods and headers
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**") // This applies the CORS rules to all of your API endpoints
-                .allowedOrigins("http://localhost:3000") // The address of your React frontend
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS") // The HTTP methods you want to allow
-                .allowedHeaders("*") // Allows all headers in the request
-                .allowCredentials(true); // Allows cookies and authorization headers
+        registry.addMapping("/api/**")
+                .allowedOrigins("https://treishfin.treishvaamgroup.com")
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                .allowedHeaders("*")
+                .allowCredentials(true);
     }
 }
