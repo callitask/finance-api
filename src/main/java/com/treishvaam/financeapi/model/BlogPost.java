@@ -43,13 +43,8 @@ public class BlogPost {
     @Column(name = "tenant_id", nullable = false)
     private String tenantId;
 
-    // --- MODIFICATION START ---
-    // Renamed imageUrl to thumbnailUrl for clarity and added coverImageUrl
     private String thumbnailUrl;
     private String coverImageUrl;
-    // --- MODIFICATION END ---
-
-    // --- Getters and Setters ---
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -78,14 +73,11 @@ public class BlogPost {
     public String getTenantId() { return tenantId; }
     public void setTenantId(String tenantId) { this.tenantId = tenantId; }
 
-    // --- MODIFICATION START ---
-    // Updated getters/setters for new image fields
     public String getThumbnailUrl() { return thumbnailUrl; }
     public void setThumbnailUrl(String thumbnailUrl) { this.thumbnailUrl = thumbnailUrl; }
 
     public String getCoverImageUrl() { return coverImageUrl; }
     public void setCoverImageUrl(String coverImageUrl) { this.coverImageUrl = coverImageUrl; }
-    // --- MODIFICATION END ---
 
     @PrePersist
     protected void onCreate() {

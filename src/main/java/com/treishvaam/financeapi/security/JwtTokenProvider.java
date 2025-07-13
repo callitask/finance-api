@@ -1,6 +1,9 @@
 package com.treishvaam.financeapi.security;
 
-import io.jsonwebtoken.*;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
@@ -21,7 +24,10 @@ public class JwtTokenProvider {
     private final SecretKey key;
     private final long validityInMilliseconds;
 
-    public JwtTokenProvider(@Value("${jwt.secret}") String secret, @Value("${jwt.expiration.ms}") long validityInMilliseconds) {
+    public JwtTokenProvider(
+            @Value("${jwt.secret}") String secret,
+            @Value("${jwt.expiration.ms:86400000}") long validityInMilliseconds
+    ) {
         this.key = Keys.hmacShaKeyFor(secret.getBytes());
         this.validityInMilliseconds = validityInMilliseconds;
     }
@@ -31,7 +37,6 @@ public class JwtTokenProvider {
         Date now = new Date();
         Date validity = new Date(now.getTime() + validityInMilliseconds);
 
-        // Add roles to claims
         List<String> roles = authentication.getAuthorities().stream()
             .map(GrantedAuthority::getAuthority)
             .collect(Collectors.toList());

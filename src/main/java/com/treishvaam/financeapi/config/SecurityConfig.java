@@ -1,9 +1,12 @@
 package com.treishvaam.financeapi.config;
 
 import com.treishvaam.financeapi.security.JwtTokenFilter;
+import com.treishvaam.financeapi.security.InternalSecretFilter;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 import org.springframework.http.HttpMethod; // --- THIS IMPORT WAS ADDED ---
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -28,12 +31,21 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtTokenFilter jwtTokenFilter;
+    private final InternalSecretFilter internalSecretFilter;
 
-    @Value("#{'${app.cors.allowed-origins}'.split(',')}")
-    private List<String> allowedOrigins;
+    // --- TEMPORARY DIAGNOSTIC CHANGE START ---
+    // Remove @Value and directly assign the list
+    // @Value("#{'${app.cors.allowed-origins}'.split(',')}")
+    private final List<String> allowedOrigins = Arrays.asList(
+            "https://treishfin.treishvaamgroup.com",
+            "https://export.treishvaamgroup.com",
+            "http://localhost:3000"
+    );
+    // --- TEMPORARY DIAGNOSTIC CHANGE END ---
 
-    public SecurityConfig(JwtTokenFilter jwtTokenFilter) {
+    public SecurityConfig(JwtTokenFilter jwtTokenFilter, InternalSecretFilter internalSecretFilter) {
         this.jwtTokenFilter = jwtTokenFilter;
+        this.internalSecretFilter = internalSecretFilter;
     }
 
     @Bean
@@ -59,6 +71,8 @@ public class SecurityConfig {
                 .anyRequest().authenticated()
             );
 
+        // Add both filters before UsernamePasswordAuthenticationFilter
+        http.addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(jwtTokenFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -67,13 +81,12 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(allowedOrigins);
+        configuration.setAllowedOrigins(allowedOrigins); // Uses the hardcoded list (TEMPORARY DIAGNOSTIC)
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        // --- "X-Internal-Secret" WAS ADDED TO THIS LIST ---
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "x-requested-with", "X-Internal-Secret"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
-        return source;
+        return source; // CORRECTED: Return the source, not the configuration
     }
 }

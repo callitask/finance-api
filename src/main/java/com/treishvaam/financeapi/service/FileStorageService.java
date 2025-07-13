@@ -1,6 +1,5 @@
 package com.treishvaam.financeapi.service;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.stereotype.Service;
@@ -17,14 +16,18 @@ public class FileStorageService {
 
     private final Path fileStorageLocation;
 
-    public FileStorageService(@Value("${file.upload-dir}") String uploadDir) {
-        this.fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
+    // --- TEMPORARY DIAGNOSTIC CHANGE START ---
+    // Remove @Value and directly assign the path
+    public FileStorageService() {
+        String temporaryUploadDir = "C:/finance_uploads_test"; // CHOOSE A SIMPLE PATH ON YOUR VM
+        this.fileStorageLocation = Paths.get(temporaryUploadDir).toAbsolutePath().normalize();
         try {
             Files.createDirectories(this.fileStorageLocation);
         } catch (Exception ex) {
             throw new RuntimeException("Could not create the directory where the uploaded files will be stored.", ex);
         }
     }
+    // --- TEMPORARY DIAGNOSTIC CHANGE END ---
 
     public String storeFile(MultipartFile file) {
         // Generate a unique file name to avoid collisions
