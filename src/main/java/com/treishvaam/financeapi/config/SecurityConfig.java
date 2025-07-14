@@ -1,16 +1,13 @@
 package com.treishvaam.financeapi.config;
 
-import com.treishvaam.financeapi.security.JwtTokenFilter;
 import com.treishvaam.financeapi.security.InternalSecretFilter;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import com.treishvaam.financeapi.security.JwtTokenFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.Ordered;
-import org.springframework.http.HttpMethod; // --- THIS IMPORT WAS ADDED ---
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
-import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity; // --- ADD THIS IMPORT ---
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -23,25 +20,14 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
-import java.util.List;
 
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity // --- ADD THIS ANNOTATION ---
+@EnableMethodSecurity
 public class SecurityConfig {
 
     private final JwtTokenFilter jwtTokenFilter;
     private final InternalSecretFilter internalSecretFilter;
-
-    // --- TEMPORARY DIAGNOSTIC CHANGE START ---
-    // Remove @Value and directly assign the list
-    // @Value("#{'${app.cors.allowed-origins}'.split(',')}")
-    private final List<String> allowedOrigins = Arrays.asList(
-            "https://treishfin.treishvaamgroup.com",
-            "https://export.treishvaamgroup.com",
-            "http://localhost:3000"
-    );
-    // --- TEMPORARY DIAGNOSTIC CHANGE END ---
 
     public SecurityConfig(JwtTokenFilter jwtTokenFilter, InternalSecretFilter internalSecretFilter) {
         this.jwtTokenFilter = jwtTokenFilter;
@@ -65,13 +51,15 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
-                // --- THIS LINE WAS ADDED TO ALLOW ALL PREFLIGHT REQUESTS ---
-                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/posts", "/api/posts/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/posts").hasAuthority("ROLE_ADMIN")
+                // ✅ FIX: Allow admins to UPDATE posts (PUT requests)
+                .requestMatchers(HttpMethod.PUT, "/api/posts/**").hasAuthority("ROLE_ADMIN")
                 .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/api/files/view/**").permitAll()
                 .anyRequest().authenticated()
             );
 
-        // Add both filters before UsernamePasswordAuthenticationFilter
         http.addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(jwtTokenFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -81,12 +69,16 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(allowedOrigins); // Uses the hardcoded list (TEMPORARY DIAGNOSTIC)
+        configuration.setAllowedOrigins(Arrays.asList(
+            "https://treishfin.treishvaamgroup.com",
+            "https://export.treishvaamgroup.com",
+            "http://localhost:3000"
+        ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "x-requested-with", "X-Internal-Secret"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
-        return source; // CORRECTED: Return the source, not the configuration
+        return source;
     }
 }
