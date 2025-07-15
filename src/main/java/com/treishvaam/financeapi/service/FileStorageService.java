@@ -19,8 +19,8 @@ public class FileStorageService {
     // --- TEMPORARY DIAGNOSTIC CHANGE START ---
     // Remove @Value and directly assign the path
     public FileStorageService() {
-        String temporaryUploadDir = "C:/finance_uploads_test"; // CHOOSE A SIMPLE PATH ON YOUR VM
-        this.fileStorageLocation = Paths.get(temporaryUploadDir).toAbsolutePath().normalize();
+        String uploadDir = System.getProperty("user.home") + "/uploads";
+        this.fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
         try {
             Files.createDirectories(this.fileStorageLocation);
         } catch (Exception ex) {
