@@ -2,6 +2,7 @@ package com.treishvaam.financeapi.controller;
 
 import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
+import net.coobird.thumbnailator.Thumbnails;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -9,6 +10,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,7 +55,7 @@ public class BlogPostController {
             @RequestParam(value = "featured", defaultValue = "false") boolean featured,
             @RequestParam(value = "coverImage", required = false) MultipartFile coverImage,
             @RequestParam(value = "thumbnail", required = false) MultipartFile thumbnail) {
-        
+
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String authorName = authentication.getName();
 
@@ -81,9 +83,6 @@ public class BlogPostController {
         return new ResponseEntity<>(savedPost, HttpStatus.CREATED);
     }
 
-    /**
-     * ✅ FIX: This new method handles updating an existing post.
-     */
     @PutMapping("/{id}")
     public ResponseEntity<BlogPost> updatePost(@PathVariable Long id,
             @RequestParam("title") String title,
@@ -116,14 +115,40 @@ public class BlogPostController {
         }).orElse(ResponseEntity.notFound().build());
     }
 
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deletePost(@PathVariable Long id) {
+        if (blogPostRepository.existsById(id)) {
+            blogPostRepository.deleteById(id);
+            return ResponseEntity.noContent().build();
+        } else {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    /**
+     * This method now automatically resizes and compresses images upon upload.
+     */
     private String storeFile(MultipartFile file) {
-        String fileName = UUID.randomUUID().toString() + "_" + file.getOriginalFilename();
+        String originalFileName = file.getOriginalFilename();
+        // Sanitize file name to ensure it ends with a proper extension, defaulting to .jpg
+        String extension = ".jpg";
+        if (originalFileName != null && originalFileName.contains(".")) {
+            extension = originalFileName.substring(originalFileName.lastIndexOf("."));
+        }
+        String fileName = UUID.randomUUID().toString() + extension;
+
         try {
             if (fileName.contains("..")) {
                 throw new RuntimeException("Sorry! Filename contains invalid path sequence " + fileName);
             }
-            Path targetLocation = this.fileStorageLocation.resolve(fileName);
-            Files.copy(file.getInputStream(), targetLocation);
+            File targetFile = this.fileStorageLocation.resolve(fileName).toFile();
+
+            // ✅ FIX: Use Thumbnailator to resize and compress the image
+            Thumbnails.of(file.getInputStream())
+                    .size(1200, 1200) // Resizes the image to be max 1200x1200 pixels
+                    .outputQuality(0.85) // Compresses to 85% quality
+                    .toFile(targetFile); // Saves the new, optimized image
+
             return "/uploads/" + fileName;
         } catch (IOException ex) {
             throw new RuntimeException("Could not store file " + fileName + ". Please try again!", ex);
