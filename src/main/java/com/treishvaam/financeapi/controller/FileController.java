@@ -1,12 +1,15 @@
 package com.treishvaam.financeapi.controller;
 
 import com.treishvaam.financeapi.service.FileStorageService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -14,6 +17,9 @@ import java.util.Map;
 public class FileController {
 
     private final FileStorageService fileStorageService;
+
+    @Value("${app.api-base-url}")
+    private String apiBaseUrl;
 
     public FileController(FileStorageService fileStorageService) {
         this.fileStorageService = fileStorageService;
@@ -40,11 +46,23 @@ public class FileController {
     }
 
     @PostMapping("/files/upload")
-    public ResponseEntity<Map<String, String>> handleFileUpload(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<Map<String, Object>> handleFileUpload(@RequestParam("file") MultipartFile file) {
         if (file.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "File is empty"));
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("errorMessage", "File is empty");
+            return ResponseEntity.badRequest().body(errorResponse);
         }
         String fileName = fileStorageService.storeFile(file);
-        return ResponseEntity.ok(Map.of("url", "/uploads/" + fileName));
+        String fileDownloadUri = apiBaseUrl + "/uploads/" + fileName;
+
+        Map<String, Object> fileInfo = new HashMap<>();
+        fileInfo.put("url", fileDownloadUri);
+        fileInfo.put("name", fileName);
+        fileInfo.put("size", file.getSize());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("result", Collections.singletonList(fileInfo));
+
+        return ResponseEntity.ok(response);
     }
 }
