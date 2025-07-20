@@ -53,11 +53,11 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
-                // ✅ DEBUGGING FIX: Make the file upload endpoint public for this test
-                .requestMatchers("/api/files/upload").permitAll()
+                // Secure the file upload endpoint: only ADMIN can upload files
+                .requestMatchers("/api/files/upload").hasAuthority("ROLE_ADMIN")
                 
                 // Publicly accessible paths
-                .requestMatchers(HttpMethod.GET, "/uploads/**", "/api/posts", "/api/posts/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/uploads/**", "/api/posts", "/api/posts/**", "/api/categories").permitAll()
                 .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
 
                 // Admin-only paths
