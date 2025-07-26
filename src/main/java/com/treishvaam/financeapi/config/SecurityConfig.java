@@ -10,6 +10,7 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -41,6 +42,14 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
+    // --- FIX: Add a WebSecurityCustomizer to ignore the sitemap path ---
+    @Bean
+    public WebSecurityCustomizer webSecurityCustomizer() {
+        // This makes Spring Security completely ignore the specified paths.
+        // It's the best way to handle public, non-sensitive endpoints like a sitemap.
+        return (web) -> web.ignoring().requestMatchers("/sitemap.xml");
+    }
+
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration) throws Exception {
         return authenticationConfiguration.getAuthenticationManager();
@@ -55,16 +64,15 @@ public class SecurityConfig {
             .authorizeHttpRequests(authz -> authz
                 // Secure the file upload endpoint: only ADMIN can upload files
                 .requestMatchers("/api/files/upload").hasAuthority("ROLE_ADMIN")
-                
-                // Publicly accessible paths
+                // Publicly accessible API paths
                 .requestMatchers(HttpMethod.GET, "/uploads/**", "/api/posts", "/api/posts/**", "/api/categories").permitAll()
-                .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
-
-                // Admin-only paths
+                .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/api/oauth2/**").permitAll()
+                // Explicitly allow public access to uploaded images
+                .requestMatchers("/api/uploads/**").permitAll()
+                // Admin-only API paths
                 .requestMatchers(HttpMethod.POST, "/api/posts").hasAuthority("ROLE_ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/api/posts/**").hasAuthority("ROLE_ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/posts/**").hasAuthority("ROLE_ADMIN")
-                
                 // Any other request must be authenticated
                 .anyRequest().authenticated()
             );

@@ -2,7 +2,6 @@ package com.treishvaam.financeapi.model;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.persistence.*;
-import lombok.Data;
 import org.hibernate.annotations.Filter;
 import org.hibernate.annotations.FilterDef;
 import org.hibernate.annotations.ParamDef;
@@ -12,7 +11,6 @@ import java.util.List;
 
 @Entity
 @Table(name = "blog_posts")
-@Data
 @FilterDef(name = "tenantFilter", parameters = @ParamDef(name = "tenantId", type = String.class))
 @Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
 public class BlogPost {
@@ -55,6 +53,13 @@ public class BlogPost {
     @Column(name = "tag")
     private List<String> tags;
 
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
+    @Column(name = "scheduled_time")
+    private Instant scheduledTime; // For scheduling posts
+
+    @Column(nullable = false)
+    private boolean published = true; // True for immediate, false for scheduled
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = Instant.now();
@@ -65,4 +70,36 @@ public class BlogPost {
     protected void onUpdate() {
         this.updatedAt = Instant.now();
     }
+
+    // --- MODIFICATION START ---
+    // Manually added Getters and Setters to ensure compilation
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getTitle() { return title; }
+    public void setTitle(String title) { this.title = title; }
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
+    public String getAuthor() { return author; }
+    public void setAuthor(String author) { this.author = author; }
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
+    public boolean isFeatured() { return featured; }
+    public void setFeatured(boolean featured) { this.featured = featured; }
+    public Instant getCreatedAt() { return createdAt; }
+    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+    public Instant getScheduledTime() { return scheduledTime; }
+    public void setScheduledTime(Instant scheduledTime) { this.scheduledTime = scheduledTime; }
+    public boolean isPublished() { return published; }
+    public void setPublished(boolean published) { this.published = published; }
+    public String getTenantId() { return tenantId; }
+    public void setTenantId(String tenantId) { this.tenantId = tenantId; }
+    public String getThumbnailUrl() { return thumbnailUrl; }
+    public void setThumbnailUrl(String thumbnailUrl) { this.thumbnailUrl = thumbnailUrl; }
+    public String getCoverImageUrl() { return coverImageUrl; }
+    public void setCoverImageUrl(String coverImageUrl) { this.coverImageUrl = coverImageUrl; }
+    public List<String> getTags() { return tags; }
+    public void setTags(List<String> tags) { this.tags = tags; }
+    // --- MODIFICATION END ---
 }

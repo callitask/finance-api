@@ -1,5 +1,6 @@
 package com.treishvaam.financeapi.dto;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 public class BlogPostDto {
@@ -13,6 +14,8 @@ public class BlogPostDto {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private boolean featured;
+    private Instant scheduledTime;
+    private boolean published;
 
     // Getters and Setters
 
@@ -95,5 +98,21 @@ public class BlogPostDto {
 
     public void setFeatured(boolean featured) {
         this.featured = featured;
+    }
+
+    public Instant getScheduledTime() {
+        return scheduledTime;
+    }
+
+    public void setScheduledTime(Instant scheduledTime) {
+        this.scheduledTime = scheduledTime;
+    }
+
+    public boolean isPublished() {
+        return published;
+    }
+
+    public void setPublished(boolean published) {
+        this.published = published;
     }
 }
