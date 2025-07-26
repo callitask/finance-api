@@ -174,3 +174,5 @@ databaseChangeLog:
             referencedTableName: blog_posts
             referencedColumnNames: id
             onDelete: CASCADE
+  - include:
+      file: db/changelog/008-add-scheduling-to-posts.xml

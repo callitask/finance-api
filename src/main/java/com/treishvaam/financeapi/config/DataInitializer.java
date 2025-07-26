@@ -6,6 +6,8 @@ import com.treishvaam.financeapi.model.User;
 import com.treishvaam.financeapi.repository.RoleRepository;
 import com.treishvaam.financeapi.repository.UserRepository;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.DependsOn;
+import org.springframework.context.annotation.Profile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
@@ -13,6 +15,8 @@ import java.util.HashSet;
 import java.util.Set;
 
 @Component
+@DependsOn("liquibase")
+@Profile("!test")
 public class DataInitializer implements CommandLineRunner {
 
     private final UserRepository userRepository;
