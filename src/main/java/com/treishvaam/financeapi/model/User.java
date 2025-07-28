@@ -2,7 +2,7 @@ package com.treishvaam.financeapi.model;
 
 import jakarta.persistence.*;
 import lombok.Data;
-import lombok.NoArgsConstructor;
+// import lombok.NoArgsConstructor; // Keeping this is fine, but the explicit constructor is safer.
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
@@ -13,7 +13,7 @@ import java.util.Set;
            @UniqueConstraint(columnNames = "email")
        })
 @Data
-@NoArgsConstructor
+// @NoArgsConstructor // This annotation is causing issues in the build, so we add a manual constructor.
 public class User {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -31,7 +31,7 @@ public class User {
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(name = "user_roles",
                joinColumns = @JoinColumn(name = "user_id"),
-               inverseJoinColumns = @JoinColumn(name = "role_id")) // Corrected this line
+               inverseJoinColumns = @JoinColumn(name = "role_id"))
     private Set<Role> roles = new HashSet<>();
 
     @Column(name = "linkedin_access_token", length = 1024)
@@ -42,6 +42,11 @@ public class User {
 
     @Column(name = "linkedin_urn")
     private String linkedinUrn;
+    
+    // --- FIX START: Added required no-argument constructor for JPA ---
+    public User() {
+    }
+    // --- FIX END ---
 
     public User(String email, String password) {
         this.email = email;
@@ -49,7 +54,7 @@ public class User {
         this.enabled = true;
     }
 
-    // Explicit Getters and Setters (even with Lombok, can help with compilation if IDE/build is flaky)
+    // Explicit Getters and Setters (Lombok's @Data also provides these)
     public Long getId() {
         return id;
     }

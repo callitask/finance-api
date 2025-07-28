@@ -1,6 +1,6 @@
 package com.treishvaam.financeapi.service;
 
-import com.treishvaam.financeapi.model.BlogPost; // This import must be correct
+import com.treishvaam.financeapi.model.BlogPost;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -15,10 +15,12 @@ public class LinkedInService {
 
     private final WebClient webClient;
 
-    @Value("${linkedin.api.accessToken}")
+    // MODIFICATION: Added ':' to make properties optional.
+    // This prevents the application from crashing if the values are not in the properties file.
+    @Value("${linkedin.api.accessToken:}")
     private String accessToken;
 
-    @Value("${linkedin.api.authorUrn}")
+    @Value("${linkedin.api.authorUrn:}")
     private String authorUrn;
 
     public LinkedInService(WebClient.Builder webClientBuilder) {
@@ -26,6 +28,14 @@ public class LinkedInService {
     }
 
     public Mono<String> sharePost(BlogPost post, String customMessage, java.util.List<String> tags) {
+        // MODIFICATION: Added a check to ensure configuration is present.
+        // If properties are missing, the feature is disabled and will not proceed.
+        if (accessToken == null || accessToken.isEmpty() || authorUrn == null || authorUrn.isEmpty()) {
+            String errorMessage = "LinkedIn sharing is disabled due to missing API configuration.";
+            System.err.println(errorMessage);
+            return Mono.just(errorMessage);
+        }
+
         String postUrl = "https://treishfin.treishvaamgroup.com/blog/" + post.getId();
 
         StringBuilder textBuilder = new StringBuilder();

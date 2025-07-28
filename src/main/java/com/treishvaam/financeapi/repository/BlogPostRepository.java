@@ -20,4 +20,10 @@ public interface BlogPostRepository extends JpaRepository<BlogPost, Long> {
      */
     List<BlogPost> findAllByPublishedTrueOrderByCreatedAtDesc();
 
+    /**
+     * --- NEW METHOD ---
+     * Finds all posts, ordered by the most recent creation date.
+     * This is used for the admin panel to show all posts.
+     */
+    List<BlogPost> findAllByOrderByCreatedAtDesc();
 }

@@ -25,7 +25,8 @@ public class BlogPostController {
     @Autowired
     private BlogPostService blogPostService;
 
-    @Autowired
+    // --- MODIFICATION: Made the LinkedInService dependency optional ---
+    @Autowired(required = false)
     private LinkedInService linkedInService;
 
     /**
@@ -49,8 +50,6 @@ public class BlogPostController {
 
     @GetMapping("/{id}")
     public ResponseEntity<BlogPost> getPostById(@PathVariable Long id) {
-        // This findById should also ideally check if the post is published or if the user is an admin
-        // For now, leaving as is, but this could be a future enhancement.
         Optional<BlogPost> post = blogPostService.findById(id);
         return post.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
@@ -123,6 +122,11 @@ public class BlogPostController {
     @PostMapping("/{id}/share")
     @PreAuthorize("hasRole('ADMIN')")
     public Mono<ResponseEntity<String>> sharePost(@PathVariable Long id, @RequestBody ShareRequest shareRequest) {
+        // --- MODIFICATION: Check if the LinkedIn service is enabled ---
+        if (linkedInService == null) {
+            return Mono.just(ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).body("LinkedIn integration is currently disabled."));
+        }
+
         Optional<BlogPost> postOpt = blogPostService.findById(id);
         if (!postOpt.isPresent()) {
             return Mono.just(ResponseEntity.status(HttpStatus.NOT_FOUND).body("Post not found."));
