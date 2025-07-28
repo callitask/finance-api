@@ -19,10 +19,9 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import org.springframework.web.servlet.config.annotation.CorsRegistry;
-import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -42,11 +41,8 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    // --- FIX: Add a WebSecurityCustomizer to ignore the sitemap path ---
     @Bean
     public WebSecurityCustomizer webSecurityCustomizer() {
-        // This makes Spring Security completely ignore the specified paths.
-        // It's the best way to handle public, non-sensitive endpoints like a sitemap.
         return (web) -> web.ignoring().requestMatchers("/sitemap.xml");
     }
 
@@ -62,18 +58,14 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
-                // Secure the file upload endpoint: only ADMIN can upload files
                 .requestMatchers("/api/files/upload").hasAuthority("ROLE_ADMIN")
-                // Publicly accessible API paths
-                .requestMatchers(HttpMethod.GET, "/uploads/**", "/api/posts", "/api/posts/**", "/api/categories").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/uploads/**", "/api/posts", "/api/posts/**", "/api/categories").permitAll()
                 .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/api/oauth2/**").permitAll()
-                // Explicitly allow public access to uploaded images
-                .requestMatchers("/api/uploads/**").permitAll()
-                // Admin-only API paths
                 .requestMatchers(HttpMethod.POST, "/api/posts").hasAuthority("ROLE_ADMIN")
+                // --- FIX: Added rule to allow admins to create categories ---
+                .requestMatchers(HttpMethod.POST, "/api/categories").hasAuthority("ROLE_ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/api/posts/**").hasAuthority("ROLE_ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/posts/**").hasAuthority("ROLE_ADMIN")
-                // Any other request must be authenticated
                 .anyRequest().authenticated()
             );
 
@@ -86,30 +78,15 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList(
+        configuration.setAllowedOrigins(List.of(
             "https://treishfin.treishvaamgroup.com",
-            "https://export.treishvaamgroup.com",
             "http://localhost:3000"
         ));
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "x-requested-with", "X-Internal-Secret"));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "x-requested-with", "X-Internal-Secret"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
-    }
-
-    @Bean
-    public WebMvcConfigurer corsConfigurer() {
-        return new WebMvcConfigurer() {
-            @Override
-            public void addCorsMappings(CorsRegistry registry) {
-                registry.addMapping("/**")
-                    .allowedOrigins("https://treishfin.treishvaamgroup.com")
-                    .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-                    .allowedHeaders("*")
-                    .allowCredentials(true);
-            }
-        };
     }
 }

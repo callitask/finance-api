@@ -12,7 +12,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 @Service
 public class BlogPostServiceImpl implements BlogPostService {
@@ -22,25 +21,19 @@ public class BlogPostServiceImpl implements BlogPostService {
     @Autowired
     private BlogPostRepository blogPostRepository;
 
+    // --- MODIFICATION: Replaced FileStorageService with ImageService ---
     @Autowired
-    private FileStorageService fileStorageService;
+    private ImageService imageService;
 
-    /**
-     * This method now correctly returns only PUBLISHED posts for the public blog.
-     */
     @Override
     public List<BlogPost> findAll() {
         return blogPostRepository.findAllByPublishedTrueOrderByCreatedAtDesc();
     }
     
-    /**
-     * This new method returns ALL posts for the admin dashboard, sorted by creation date.
-     */
     @Override
     public List<BlogPost> findAllForAdmin() {
-        return blogPostRepository.findAll().stream()
-                .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
-                .collect(Collectors.toList());
+        // --- MODIFICATION: Switched to the more efficient repository method ---
+        return blogPostRepository.findAllByOrderByCreatedAtDesc();
     }
 
     @Override
@@ -48,33 +41,26 @@ public class BlogPostServiceImpl implements BlogPostService {
         return blogPostRepository.findById(id);
     }
 
-    /**
-     * This method now contains the corrected logic for saving scheduled posts.
-     */
     @Override
     public BlogPost save(BlogPost blogPost, MultipartFile thumbnail, MultipartFile coverImage) {
-        if (blogPost.getId() == null) {
-            blogPost.setCreatedAt(Instant.now());
+        // --- MODIFICATION: This block now uses the new ImageService correctly ---
+        if (thumbnail != null && !thumbnail.isEmpty()) {
+            String thumbnailUrl = imageService.saveImage(thumbnail);
+            blogPost.setThumbnailUrl(thumbnailUrl);
         }
-        blogPost.setUpdatedAt(Instant.now());
+        if (coverImage != null && !coverImage.isEmpty()) {
+            String coverImageUrl = imageService.saveImage(coverImage);
+            blogPost.setCoverImageUrl(coverImageUrl);
+        }
+        // --- End of ImageService logic ---
 
-        // --- FIX: Logic to handle scheduling ---
         if (blogPost.getScheduledTime() != null && blogPost.getScheduledTime().isAfter(Instant.now())) {
             blogPost.setPublished(false);
         } else {
             blogPost.setPublished(true);
-            blogPost.setScheduledTime(null); // Clear schedule time if publishing now
+            blogPost.setScheduledTime(null);
         }
-        // --- END FIX ---
-
-        if (thumbnail != null && !thumbnail.isEmpty()) {
-            String thumbnailUrl = fileStorageService.storeFile(thumbnail);
-            blogPost.setThumbnailUrl(thumbnailUrl);
-        }
-        if (coverImage != null && !coverImage.isEmpty()) {
-            String coverImageUrl = fileStorageService.storeFile(coverImage);
-            blogPost.setCoverImageUrl(coverImageUrl);
-        }
+        
         return blogPostRepository.save(blogPost);
     }
 
@@ -84,8 +70,9 @@ public class BlogPostServiceImpl implements BlogPostService {
     }
 
     @Override
-    @Scheduled(fixedRate = 60000) // Runs every minute
+    @Scheduled(fixedRate = 60000)
     public void checkAndPublishScheduledPosts() {
+        // This scheduled method is preserved from your original file
         logger.info("Checking for scheduled posts to publish...");
         List<BlogPost> postsToPublish = blogPostRepository.findByPublishedFalseAndScheduledTimeBefore(Instant.now());
         
