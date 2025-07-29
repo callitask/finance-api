@@ -57,8 +57,11 @@ public class BlogPost {
     @Column(name = "scheduled_time")
     private Instant scheduledTime; // For scheduling posts
 
+    // --- MODIFICATION START: Replace boolean with PostStatus enum ---
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private boolean published = true; // True for immediate, false for scheduled
+    private PostStatus status = PostStatus.DRAFT;
+    // --- MODIFICATION END ---
 
     @PrePersist
     protected void onCreate() {
@@ -91,8 +94,9 @@ public class BlogPost {
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
     public Instant getScheduledTime() { return scheduledTime; }
     public void setScheduledTime(Instant scheduledTime) { this.scheduledTime = scheduledTime; }
-    public boolean isPublished() { return published; }
-    public void setPublished(boolean published) { this.published = published; }
+    // Replace the old isPublished()/setPublished() with status getter/setter
+    public PostStatus getStatus() { return status; }
+    public void setStatus(PostStatus status) { this.status = status; }
     public String getTenantId() { return tenantId; }
     public void setTenantId(String tenantId) { this.tenantId = tenantId; }
     public String getThumbnailUrl() { return thumbnailUrl; }
