@@ -1,12 +1,16 @@
 package com.treishvaam.financeapi.service;
 
+import com.treishvaam.financeapi.dto.BlogPostDto;
 import com.treishvaam.financeapi.model.BlogPost;
+import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Instant;
@@ -21,18 +25,16 @@ public class BlogPostServiceImpl implements BlogPostService {
     @Autowired
     private BlogPostRepository blogPostRepository;
 
-    // --- MODIFICATION: Replaced FileStorageService with ImageService ---
     @Autowired
     private ImageService imageService;
 
     @Override
     public List<BlogPost> findAll() {
-        return blogPostRepository.findAllByPublishedTrueOrderByCreatedAtDesc();
+        return blogPostRepository.findAllByStatusOrderByCreatedAtDesc(PostStatus.PUBLISHED);
     }
     
     @Override
     public List<BlogPost> findAllForAdmin() {
-        // --- MODIFICATION: Switched to the more efficient repository method ---
         return blogPostRepository.findAllByOrderByCreatedAtDesc();
     }
 
@@ -42,8 +44,36 @@ public class BlogPostServiceImpl implements BlogPostService {
     }
 
     @Override
+    public List<BlogPost> findDrafts() {
+        return blogPostRepository.findAllByStatusOrderByUpdatedAtDesc(PostStatus.DRAFT);
+    }
+
+    @Override
+    @Transactional
+    public BlogPost createDraft(BlogPostDto blogPostDto) {
+        BlogPost newPost = new BlogPost();
+        newPost.setTitle(blogPostDto.getTitle() != null && !blogPostDto.getTitle().isEmpty() ? blogPostDto.getTitle() : "Untitled Draft");
+        newPost.setContent(blogPostDto.getContent() != null ? blogPostDto.getContent() : "");
+        newPost.setStatus(PostStatus.DRAFT);
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+        newPost.setAuthor(username);
+        newPost.setTenantId(username);
+        return blogPostRepository.save(newPost);
+    }
+
+    @Override
+    @Transactional
+    public BlogPost updateDraft(Long id, BlogPostDto blogPostDto) {
+        BlogPost existingPost = blogPostRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Post not found with id: " + id));
+        existingPost.setTitle(blogPostDto.getTitle());
+        existingPost.setContent(blogPostDto.getContent());
+        return blogPostRepository.save(existingPost);
+    }
+
+    @Override
+    @Transactional
     public BlogPost save(BlogPost blogPost, MultipartFile thumbnail, MultipartFile coverImage) {
-        // --- MODIFICATION: This block now uses the new ImageService correctly ---
         if (thumbnail != null && !thumbnail.isEmpty()) {
             String thumbnailUrl = imageService.saveImage(thumbnail);
             blogPost.setThumbnailUrl(thumbnailUrl);
@@ -52,38 +82,35 @@ public class BlogPostServiceImpl implements BlogPostService {
             String coverImageUrl = imageService.saveImage(coverImage);
             blogPost.setCoverImageUrl(coverImageUrl);
         }
-        // --- End of ImageService logic ---
-
         if (blogPost.getScheduledTime() != null && blogPost.getScheduledTime().isAfter(Instant.now())) {
-            blogPost.setPublished(false);
+            blogPost.setStatus(PostStatus.SCHEDULED);
         } else {
-            blogPost.setPublished(true);
+            blogPost.setStatus(PostStatus.PUBLISHED);
             blogPost.setScheduledTime(null);
         }
-        
         return blogPostRepository.save(blogPost);
     }
 
+    // --- MODIFICATION START: Implement the missing deleteById method ---
     @Override
+    @Transactional
     public void deleteById(Long id) {
         blogPostRepository.deleteById(id);
     }
+    // --- MODIFICATION END ---
 
     @Override
     @Scheduled(fixedRate = 60000)
+    @Transactional
     public void checkAndPublishScheduledPosts() {
-        // This scheduled method is preserved from your original file
         logger.info("Checking for scheduled posts to publish...");
-        List<BlogPost> postsToPublish = blogPostRepository.findByPublishedFalseAndScheduledTimeBefore(Instant.now());
-        
+        List<BlogPost> postsToPublish = blogPostRepository.findByStatusAndScheduledTimeBefore(PostStatus.SCHEDULED, Instant.now());
         if (postsToPublish.isEmpty()) {
             return;
         }
-
         logger.info("Found {} post(s) to publish.", postsToPublish.size());
         for (BlogPost post : postsToPublish) {
-            post.setPublished(true);
-            post.setUpdatedAt(Instant.now());
+            post.setStatus(PostStatus.PUBLISHED);
             blogPostRepository.save(post);
             logger.info("Published post with ID: {} and title: {}", post.getId(), post.getTitle());
         }

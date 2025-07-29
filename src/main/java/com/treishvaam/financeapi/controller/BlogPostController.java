@@ -4,6 +4,7 @@ import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.service.BlogPostService;
 import com.treishvaam.financeapi.dto.ShareRequest;
 import com.treishvaam.financeapi.service.LinkedInService;
+import com.treishvaam.financeapi.dto.BlogPostDto;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -54,33 +55,38 @@ public class BlogPostController {
         return post.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    // --- MODIFICATION START: Add new endpoints for drafts ---
+    /**
+     * Gets all DRAFT posts for the logged-in user.
+     */
+    @GetMapping("/admin/drafts")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<BlogPost>> getDrafts() {
+        return ResponseEntity.ok(blogPostService.findDrafts());
+    }
+    // --- MODIFICATION END ---
+
+    // --- MODIFICATION START: Change POST to create a draft from a DTO ---
+    /**
+     * Creates a new blog post, starting as a DRAFT.
+     */
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<BlogPost> createPost(
-            @RequestParam("title") String title,
-            @RequestParam("content") String content,
-            @RequestParam("category") String category,
-            @RequestParam(value = "tags", required = false) List<String> tags,
-            @RequestParam("featured") boolean featured,
-            @RequestParam(value = "thumbnail", required = false) MultipartFile thumbnail,
-            @RequestParam(value = "coverImage", required = false) MultipartFile coverImage,
-            @RequestParam(value = "scheduledTime", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant scheduledTime) {
-        
-        BlogPost newPost = new BlogPost();
-        newPost.setTitle(title);
-        newPost.setContent(content);
-        newPost.setCategory(category);
-        newPost.setTags(tags);
-        newPost.setFeatured(featured);
-        newPost.setScheduledTime(scheduledTime);
-        
-        String username = SecurityContextHolder.getContext().getAuthentication().getName();
-        newPost.setAuthor(username);
-        newPost.setTenantId(username); 
-
-        BlogPost createdPost = blogPostService.save(newPost, thumbnail, coverImage);
-        return ResponseEntity.ok(createdPost);
+    public ResponseEntity<BlogPost> createDraft(@RequestBody BlogPostDto postDto) {
+        BlogPost createdPost = blogPostService.createDraft(postDto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdPost);
     }
+
+    /**
+     * Updates the content of a DRAFT post (for auto-saving).
+     */
+    @PutMapping("/draft/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<BlogPost> updateDraft(@PathVariable Long id, @RequestBody BlogPostDto postDto) {
+        BlogPost updatedDraft = blogPostService.updateDraft(id, postDto);
+        return ResponseEntity.ok(updatedDraft);
+    }
+    // --- MODIFICATION END ---
 
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
