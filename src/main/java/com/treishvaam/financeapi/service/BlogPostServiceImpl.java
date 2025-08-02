@@ -54,6 +54,8 @@ public class BlogPostServiceImpl implements BlogPostService {
         BlogPost newPost = new BlogPost();
         newPost.setTitle(blogPostDto.getTitle() != null && !blogPostDto.getTitle().isEmpty() ? blogPostDto.getTitle() : "Untitled Draft");
         newPost.setContent(blogPostDto.getContent() != null ? blogPostDto.getContent() : "");
+        // --- MODIFICATION: Set custom snippet ---
+        newPost.setCustomSnippet(blogPostDto.getCustomSnippet());
         newPost.setStatus(PostStatus.DRAFT);
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         newPost.setAuthor(username);
@@ -68,6 +70,8 @@ public class BlogPostServiceImpl implements BlogPostService {
                 .orElseThrow(() -> new RuntimeException("Post not found with id: " + id));
         existingPost.setTitle(blogPostDto.getTitle());
         existingPost.setContent(blogPostDto.getContent());
+        // --- MODIFICATION: Update custom snippet ---
+        existingPost.setCustomSnippet(blogPostDto.getCustomSnippet());
         return blogPostRepository.save(existingPost);
     }
 
@@ -91,13 +95,11 @@ public class BlogPostServiceImpl implements BlogPostService {
         return blogPostRepository.save(blogPost);
     }
 
-    // --- MODIFICATION START: Implement the missing deleteById method ---
     @Override
     @Transactional
     public void deleteById(Long id) {
         blogPostRepository.deleteById(id);
     }
-    // --- MODIFICATION END ---
 
     @Override
     @Scheduled(fixedRate = 60000)

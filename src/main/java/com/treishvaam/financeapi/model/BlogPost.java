@@ -25,6 +25,12 @@ public class BlogPost {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
+    // --- MODIFICATION START: Added customSnippet field ---
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String customSnippet;
+    // --- MODIFICATION END ---
+
     @Column(nullable = false)
     private String author;
 
@@ -55,13 +61,11 @@ public class BlogPost {
 
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
     @Column(name = "scheduled_time")
-    private Instant scheduledTime; // For scheduling posts
+    private Instant scheduledTime;
 
-    // --- MODIFICATION START: Replace boolean with PostStatus enum ---
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private PostStatus status = PostStatus.DRAFT;
-    // --- MODIFICATION END ---
 
     @PrePersist
     protected void onCreate() {
@@ -74,14 +78,15 @@ public class BlogPost {
         this.updatedAt = Instant.now();
     }
 
-    // --- MODIFICATION START ---
-    // Manually added Getters and Setters to ensure compilation
+    // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
+    public String getCustomSnippet() { return customSnippet; } // Getter for new field
+    public void setCustomSnippet(String customSnippet) { this.customSnippet = customSnippet; } // Setter for new field
     public String getAuthor() { return author; }
     public void setAuthor(String author) { this.author = author; }
     public String getCategory() { return category; }
@@ -94,7 +99,6 @@ public class BlogPost {
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
     public Instant getScheduledTime() { return scheduledTime; }
     public void setScheduledTime(Instant scheduledTime) { this.scheduledTime = scheduledTime; }
-    // Replace the old isPublished()/setPublished() with status getter/setter
     public PostStatus getStatus() { return status; }
     public void setStatus(PostStatus status) { this.status = status; }
     public String getTenantId() { return tenantId; }
@@ -105,5 +109,4 @@ public class BlogPost {
     public void setCoverImageUrl(String coverImageUrl) { this.coverImageUrl = coverImageUrl; }
     public List<String> getTags() { return tags; }
     public void setTags(List<String> tags) { this.tags = tags; }
-    // --- MODIFICATION END ---
 }

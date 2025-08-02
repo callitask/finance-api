@@ -7,7 +7,8 @@ public class BlogPostDto {
     private Long id;
     private String title;
     private String content;
-    private String author; // ADDED THIS LINE
+    private String customSnippet; // --- MODIFICATION: Added customSnippet field ---
+    private String author;
     private String category;
     private String thumbnailUrl;
     private String coverImageUrl;
@@ -42,8 +43,17 @@ public class BlogPostDto {
     public void setContent(String content) {
         this.content = content;
     }
+    
+    // --- MODIFICATION START: Added Getter and Setter for customSnippet ---
+    public String getCustomSnippet() {
+        return customSnippet;
+    }
 
-    // ADDED GETTER AND SETTER FOR AUTHOR
+    public void setCustomSnippet(String customSnippet) {
+        this.customSnippet = customSnippet;
+    }
+    // --- MODIFICATION END ---
+
     public String getAuthor() {
         return author;
     }
