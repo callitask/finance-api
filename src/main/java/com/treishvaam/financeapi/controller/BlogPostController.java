@@ -10,13 +10,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.security.core.context.SecurityContextHolder;
 import reactor.core.publisher.Mono;
 import org.springframework.http.HttpStatus;
 import org.springframework.format.annotation.DateTimeFormat;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @RestController
@@ -26,23 +26,14 @@ public class BlogPostController {
     @Autowired
     private BlogPostService blogPostService;
 
-    // --- MODIFICATION: Made the LinkedInService dependency optional ---
     @Autowired(required = false)
     private LinkedInService linkedInService;
 
-    /**
-     * This is the PUBLIC endpoint. It now only returns published posts.
-     */
     @GetMapping
     public ResponseEntity<List<BlogPost>> getAllPosts() {
         return ResponseEntity.ok(blogPostService.findAll());
     }
 
-    /**
-     * --- NEW ---
-     * This is the ADMIN endpoint. It returns all posts (published and scheduled).
-     * It requires the user to have an ADMIN role.
-     */
     @GetMapping("/admin/all")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<BlogPost>> getAllPostsForAdmin() {
@@ -55,21 +46,27 @@ public class BlogPostController {
         return post.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    // --- MODIFICATION START: Add new endpoints for drafts ---
-    /**
-     * Gets all DRAFT posts for the logged-in user.
-     */
+    @GetMapping("/slug/{slug}")
+    public ResponseEntity<BlogPost> getPostBySlug(@PathVariable String slug) {
+        return blogPostService.findBySlug(slug)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+    
+    // --- NEW ADMIN ENDPOINT TO BACKFILL SLUGS ---
+    @PostMapping("/admin/backfill-slugs")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, String>> backfillSlugs() {
+        int count = blogPostService.backfillSlugs();
+        return ResponseEntity.ok(Map.of("message", "Successfully updated " + count + " posts with new slugs."));
+    }
+
     @GetMapping("/admin/drafts")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<BlogPost>> getDrafts() {
         return ResponseEntity.ok(blogPostService.findDrafts());
     }
-    // --- MODIFICATION END ---
 
-    // --- MODIFICATION START: Change POST to create a draft from a DTO ---
-    /**
-     * Creates a new blog post, starting as a DRAFT.
-     */
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<BlogPost> createDraft(@RequestBody BlogPostDto postDto) {
@@ -77,16 +74,12 @@ public class BlogPostController {
         return ResponseEntity.status(HttpStatus.CREATED).body(createdPost);
     }
 
-    /**
-     * Updates the content of a DRAFT post (for auto-saving).
-     */
     @PutMapping("/draft/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<BlogPost> updateDraft(@PathVariable Long id, @RequestBody BlogPostDto postDto) {
         BlogPost updatedDraft = blogPostService.updateDraft(id, postDto);
         return ResponseEntity.ok(updatedDraft);
     }
-    // --- MODIFICATION END ---
 
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
@@ -128,7 +121,6 @@ public class BlogPostController {
     @PostMapping("/{id}/share")
     @PreAuthorize("hasRole('ADMIN')")
     public Mono<ResponseEntity<String>> sharePost(@PathVariable Long id, @RequestBody ShareRequest shareRequest) {
-        // --- MODIFICATION: Check if the LinkedIn service is enabled ---
         if (linkedInService == null) {
             return Mono.just(ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).body("LinkedIn integration is currently disabled."));
         }

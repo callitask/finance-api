@@ -21,15 +21,17 @@ public class BlogPost {
     @Column(nullable = false)
     private String title;
 
+    // --- ADDED THIS FIELD ---
+    @Column(unique = true)
+    private String slug;
+
     @Lob
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
-
-    // --- MODIFICATION START: Added customSnippet field ---
+    
     @Lob
     @Column(columnDefinition = "TEXT")
     private String customSnippet;
-    // --- MODIFICATION END ---
 
     @Column(nullable = false)
     private String author;
@@ -83,10 +85,12 @@ public class BlogPost {
     public void setId(Long id) { this.id = id; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
+    public String getSlug() { return slug; } // Getter for slug
+    public void setSlug(String slug) { this.slug = slug; } // Setter for slug
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
-    public String getCustomSnippet() { return customSnippet; } // Getter for new field
-    public void setCustomSnippet(String customSnippet) { this.customSnippet = customSnippet; } // Setter for new field
+    public String getCustomSnippet() { return customSnippet; }
+    public void setCustomSnippet(String customSnippet) { this.customSnippet = customSnippet; }
     public String getAuthor() { return author; }
     public void setAuthor(String author) { this.author = author; }
     public String getCategory() { return category; }

@@ -6,6 +6,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import java.util.List;
+
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
 
@@ -14,7 +16,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        // This registers our interceptor to run for all API endpoints
-        registry.addInterceptor(tenantInterceptor).addPathPatterns("/api/**");
+        // Re-enable the TenantInterceptor with exclusions
+        registry.addInterceptor(tenantInterceptor)
+            .addPathPatterns("/api/**")
+            .excludePathPatterns(
+                "/api/sitemap.xml",
+                "/api/logo" 
+            ); 
     }
 }

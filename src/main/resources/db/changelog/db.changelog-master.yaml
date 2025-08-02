@@ -177,7 +177,6 @@ databaseChangeLog:
   - include:
       file: db/changelog/008-add-scheduling-to-posts.xml
 
-  # --- MODIFICATION START: Added changeset for the new custom_snippet column ---
   - changeSet:
       id: 7-add-custom-snippet
       author: gemini-dev
@@ -188,4 +187,17 @@ databaseChangeLog:
               - column:
                   name: custom_snippet
                   type: TEXT
-  # --- MODIFICATION END ---
+
+  # --- FINAL FIX: Adds the missing slug column to the database ---
+  - changeSet:
+      id: 9
+      author: gemini-dev
+      changes:
+        - addColumn:
+            tableName: blog_posts
+            columns:
+              - column:
+                  name: slug
+                  type: VARCHAR(255)
+                  constraints:
+                    unique: true

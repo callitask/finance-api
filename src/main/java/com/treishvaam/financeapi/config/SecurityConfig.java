@@ -10,7 +10,6 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -42,11 +41,6 @@ public class SecurityConfig {
     }
 
     @Bean
-    public WebSecurityCustomizer webSecurityCustomizer() {
-        return (web) -> web.ignoring().requestMatchers("/sitemap.xml");
-    }
-
-    @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration) throws Exception {
         return authenticationConfiguration.getAuthenticationManager();
     }
@@ -58,11 +52,21 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
-                .requestMatchers("/api/files/upload").hasAuthority("ROLE_ADMIN")
-                .requestMatchers(HttpMethod.GET, "/api/uploads/**", "/api/posts", "/api/posts/**", "/api/categories").permitAll()
+                // --- FINAL FIX START ---
+                // General public endpoints
+                .requestMatchers("/health", "/sitemap.xml").permitAll()
+                // Public API GET endpoints
+                .requestMatchers(
+                    HttpMethod.GET, 
+                    "/api/uploads/**", 
+                    "/api/posts", 
+                    "/api/posts/**", 
+                    "/api/categories"
+                ).permitAll()
+                // --- FINAL FIX END ---
                 .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/api/oauth2/**").permitAll()
+                .requestMatchers("/api/files/upload").hasAuthority("ROLE_ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/posts").hasAuthority("ROLE_ADMIN")
-                // --- FIX: Added rule to allow admins to create categories ---
                 .requestMatchers(HttpMethod.POST, "/api/categories").hasAuthority("ROLE_ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/api/posts/**").hasAuthority("ROLE_ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/posts/**").hasAuthority("ROLE_ADMIN")

@@ -5,19 +5,19 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
-import org.springframework.web.filter.OncePerRequestFilter;
-import org.springframework.core.annotation.Order; // ADD THIS IMPORT
-import org.springframework.core.Ordered; // ADD THIS IMPORT
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.Collections;
 
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE - 1) // ADD THIS LINE: Ensures it runs before other important filters
+@Order(Ordered.HIGHEST_PRECEDENCE - 1) 
 public class InternalSecretFilter extends OncePerRequestFilter {
 
     @Value("${app.security.internal-secret}")
@@ -25,9 +25,21 @@ public class InternalSecretFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        // Only filter POST to /api/posts
-        return !("POST".equalsIgnoreCase(request.getMethod()) &&
-                 request.getRequestURI().equals("/api/posts"));
+        String path = request.getRequestURI();
+        
+        // --- FIX START: Logic updated for clarity and correctness ---
+        
+        // 1. Do NOT filter the public sitemap URL.
+        if ("/api/sitemap.xml".equals(path)) {
+            return true; // Tells the filter to skip this request.
+        }
+
+        // 2. ONLY apply this filter to its intended endpoint.
+        // The filter should ONLY RUN for POST requests to /api/posts.
+        boolean shouldFilter = "POST".equalsIgnoreCase(request.getMethod()) && path.equals("/api/posts");
+
+        return !shouldFilter; // Return true to skip filtering for all other requests.
+        // --- FIX END ---
     }
 
     @Override
@@ -38,7 +50,6 @@ public class InternalSecretFilter extends OncePerRequestFilter {
 
         String headerSecret = request.getHeader("X-Internal-Secret");
 
-        // Authenticate if secret is valid
         if (headerSecret != null && headerSecret.equals(expectedSecret)) {
             UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                 "INTERNAL_SERVICE",
@@ -47,7 +58,7 @@ public class InternalSecretFilter extends OncePerRequestFilter {
             );
             SecurityContextHolder.getContext().setAuthentication(auth);
         }
-        // Continue the filter chain regardless
+        
         filterChain.doFilter(request, response);
     }
 }
