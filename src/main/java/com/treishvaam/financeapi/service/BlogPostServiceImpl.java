@@ -1,11 +1,11 @@
-package com.treishvaam.financeapi.service; // <-- THIS IS THE CORRECTED PACKAGE
+package com.treishvaam.financeapi.service;
 
 import com.treishvaam.financeapi.dto.BlogPostDto;
+import com.treishvaam.financeapi.dto.PostThumbnailDto;
 import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.PostStatus;
+import com.treishvaam.financeapi.model.PostThumbnail;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
-import com.treishvaam.financeapi.service.BlogPostService;
-import com.treishvaam.financeapi.service.ImageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,9 +17,13 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class BlogPostServiceImpl implements BlogPostService {
@@ -92,27 +96,60 @@ public class BlogPostServiceImpl implements BlogPostService {
         }
         return blogPostRepository.save(existingPost);
     }
-
+    
     @Override
     @Transactional
-    public BlogPost save(BlogPost blogPost, MultipartFile thumbnail, MultipartFile coverImage) {
-        if (thumbnail != null && !thumbnail.isEmpty()) {
-            String thumbnailUrl = imageService.saveImage(thumbnail);
-            blogPost.setThumbnailUrl(thumbnailUrl);
+    public BlogPost save(BlogPost blogPost, List<MultipartFile> newThumbnails, List<PostThumbnailDto> thumbnailDtos) {
+        Map<String, MultipartFile> newFilesMap = newThumbnails != null ?
+                newThumbnails.stream().collect(Collectors.toMap(MultipartFile::getOriginalFilename, Function.identity())) :
+                Map.of();
+
+        List<PostThumbnail> finalThumbnails = new ArrayList<>();
+        
+        for (PostThumbnailDto dto : thumbnailDtos) {
+            PostThumbnail thumbnail;
+            if ("new".equals(dto.getSource())) {
+                MultipartFile file = newFilesMap.get(dto.getFileName());
+                if (file != null && !file.isEmpty()) {
+                    String baseFilename = imageService.saveImage(file);
+                    thumbnail = new PostThumbnail();
+                    thumbnail.setImageUrl(baseFilename);
+                } else {
+                    continue;
+                }
+            } else { 
+                thumbnail = blogPost.getThumbnails().stream()
+                        .filter(t -> t.getImageUrl().equals(dto.getUrl()))
+                        .findFirst()
+                        .orElse(new PostThumbnail());
+                 if(thumbnail.getId() == null) {
+                     thumbnail.setImageUrl(dto.getUrl());
+                 }
+            }
+            
+            thumbnail.setBlogPost(blogPost);
+            thumbnail.setAltText(dto.getAltText());
+            thumbnail.setDisplayOrder(dto.getDisplayOrder());
+            finalThumbnails.add(thumbnail);
         }
-        if (coverImage != null && !coverImage.isEmpty()) {
-            String coverImageUrl = imageService.saveImage(coverImage);
-            blogPost.setCoverImageUrl(coverImageUrl);
-        }
+        
+        blogPost.getThumbnails().clear();
+        blogPost.getThumbnails().addAll(finalThumbnails);
+
         if (blogPost.getSlug() == null || blogPost.getSlug().isEmpty()) {
             blogPost.setSlug(generateUniqueSlug());
         }
+        
+        // --- FIX: Corrected publishing logic ---
         if (blogPost.getScheduledTime() != null && blogPost.getScheduledTime().isAfter(Instant.now())) {
             blogPost.setStatus(PostStatus.SCHEDULED);
         } else {
+            // If not scheduled for the future, it should be published.
+            // This removes the faulty check `if (blogPost.getStatus() != PostStatus.DRAFT)`
             blogPost.setStatus(PostStatus.PUBLISHED);
-            blogPost.setScheduledTime(null);
+            blogPost.setScheduledTime(null); 
         }
+        
         return blogPostRepository.save(blogPost);
     }
 

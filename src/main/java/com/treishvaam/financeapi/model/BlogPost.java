@@ -7,6 +7,7 @@ import org.hibernate.annotations.FilterDef;
 import org.hibernate.annotations.ParamDef;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 @Entity
@@ -53,8 +54,17 @@ public class BlogPost {
     @Column(name = "tenant_id", nullable = false)
     private String tenantId;
 
-    private String thumbnailUrl;
-    private String coverImageUrl;
+    // --- REMOVED FIELDS ---
+    // private String thumbnailUrl;
+    // private String coverImageUrl;
+
+    // --- NEW FIELDS ---
+    @OneToMany(mappedBy = "blogPost", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @OrderBy("displayOrder ASC")
+    private List<PostThumbnail> thumbnails = new ArrayList<>();
+
+    @Column(name = "thumbnail_orientation")
+    private String thumbnailOrientation;
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "post_tags", joinColumns = @JoinColumn(name = "post_id"))
@@ -107,10 +117,10 @@ public class BlogPost {
     public void setStatus(PostStatus status) { this.status = status; }
     public String getTenantId() { return tenantId; }
     public void setTenantId(String tenantId) { this.tenantId = tenantId; }
-    public String getThumbnailUrl() { return thumbnailUrl; }
-    public void setThumbnailUrl(String thumbnailUrl) { this.thumbnailUrl = thumbnailUrl; }
-    public String getCoverImageUrl() { return coverImageUrl; }
-    public void setCoverImageUrl(String coverImageUrl) { this.coverImageUrl = coverImageUrl; }
+    public List<PostThumbnail> getThumbnails() { return thumbnails; }
+    public void setThumbnails(List<PostThumbnail> thumbnails) { this.thumbnails = thumbnails; }
+    public String getThumbnailOrientation() { return thumbnailOrientation; }
+    public void setThumbnailOrientation(String thumbnailOrientation) { this.thumbnailOrientation = thumbnailOrientation; }
     public List<String> getTags() { return tags; }
     public void setTags(List<String> tags) { this.tags = tags; }
 }

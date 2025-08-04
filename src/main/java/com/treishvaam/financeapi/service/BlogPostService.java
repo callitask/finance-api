@@ -1,6 +1,7 @@
 package com.treishvaam.financeapi.service;
 
 import com.treishvaam.financeapi.dto.BlogPostDto;
+import com.treishvaam.financeapi.dto.PostThumbnailDto;
 import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.PostStatus;
 import org.springframework.web.multipart.MultipartFile;
@@ -17,7 +18,7 @@ public interface BlogPostService {
 
     Optional<BlogPost> findBySlug(String slug);
 
-    BlogPost save(BlogPost blogPost, MultipartFile thumbnail, MultipartFile coverImage);
+    BlogPost save(BlogPost blogPost, List<MultipartFile> newThumbnails, List<PostThumbnailDto> thumbnailDtos);
 
     void deleteById(Long id);
 

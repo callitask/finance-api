@@ -201,3 +201,7 @@ databaseChangeLog:
                   type: VARCHAR(255)
                   constraints:
                     unique: true
+
+  # --- NEW STORY THUMBNAILS FEATURE ---
+  - include:
+      file: db/changelog/010-add-story-thumbnails.xml

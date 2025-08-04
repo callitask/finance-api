@@ -5,6 +5,9 @@ import com.treishvaam.financeapi.service.BlogPostService;
 import com.treishvaam.financeapi.dto.ShareRequest;
 import com.treishvaam.financeapi.service.LinkedInService;
 import com.treishvaam.financeapi.dto.BlogPostDto;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.treishvaam.financeapi.dto.PostThumbnailDto;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -14,6 +17,7 @@ import reactor.core.publisher.Mono;
 import org.springframework.http.HttpStatus;
 import org.springframework.format.annotation.DateTimeFormat;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +32,9 @@ public class BlogPostController {
 
     @Autowired(required = false)
     private LinkedInService linkedInService;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @GetMapping
     public ResponseEntity<List<BlogPost>> getAllPosts() {
@@ -87,13 +94,15 @@ public class BlogPostController {
             @PathVariable Long id,
             @RequestParam("title") String title,
             @RequestParam("content") String content,
+            @RequestParam(value = "customSnippet", required = false) String customSnippet,
             @RequestParam("category") String category,
             @RequestParam(value = "tags", required = false) List<String> tags,
             @RequestParam("featured") boolean featured,
-            @RequestParam(value = "thumbnail", required = false) MultipartFile thumbnail,
-            @RequestParam(value = "coverImage", required = false) MultipartFile coverImage,
-            @RequestParam(value = "scheduledTime", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant scheduledTime) {
-        
+            @RequestParam(value = "scheduledTime", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant scheduledTime,
+            @RequestParam(value = "newThumbnails", required = false) List<MultipartFile> newThumbnails,
+            @RequestParam(value = "thumbnailMetadata", required = false) String thumbnailMetadataJson,
+            @RequestParam(value = "thumbnailOrientation", required = false) String thumbnailOrientation) throws IOException {
+
         Optional<BlogPost> existingPostOpt = blogPostService.findById(id);
         if (!existingPostOpt.isPresent()) {
             return ResponseEntity.notFound().build();
@@ -102,12 +111,18 @@ public class BlogPostController {
         BlogPost existingPost = existingPostOpt.get();
         existingPost.setTitle(title);
         existingPost.setContent(content);
+        existingPost.setCustomSnippet(customSnippet);
         existingPost.setCategory(category);
         existingPost.setTags(tags);
         existingPost.setFeatured(featured);
         existingPost.setScheduledTime(scheduledTime);
-        
-        BlogPost updatedPost = blogPostService.save(existingPost, thumbnail, coverImage);
+        existingPost.setThumbnailOrientation(thumbnailOrientation);
+
+        List<PostThumbnailDto> thumbnailDtos = thumbnailMetadataJson != null ?
+                objectMapper.readValue(thumbnailMetadataJson, new TypeReference<List<PostThumbnailDto>>() {}) :
+                List.of();
+
+        BlogPost updatedPost = blogPostService.save(existingPost, newThumbnails, thumbnailDtos);
         return ResponseEntity.ok(updatedPost);
     }
 
