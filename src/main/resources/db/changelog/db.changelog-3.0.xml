@@ -44,4 +44,25 @@
 
     </changeSet>
 
+    <changeSet id="9" author="your-name">
+        <modifyDataType
+            tableName="blog_posts"
+            columnName="status"
+            newDataType="ENUM('draft', 'published', 'scheduled')"/>
+    </changeSet>
+
+    <changeSet id="fix-roles-name-type" author="your-name">
+        <modifyDataType
+            tableName="roles"
+            columnName="name"
+            newDataType="ENUM('role_user', 'role_admin')"/>
+    </changeSet>
+
+    <changeSet id="fix-linkedin-token-expiry-type" author="your-name">
+        <modifyDataType
+            tableName="users"
+            columnName="linkedin_token_expiry"
+            newDataType="DATETIME(6)"/>
+    </changeSet>
+
 </databaseChangeLog>

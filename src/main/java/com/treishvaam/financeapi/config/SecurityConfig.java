@@ -19,7 +19,6 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.Arrays;
 import java.util.List;
 
 @Configuration
@@ -49,21 +48,20 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
-            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            .cors(cors -> cors.configurationSource(corsConfigurationSource())) // This line enables CORS
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
-                // --- FINAL FIX START ---
                 // General public endpoints
-                .requestMatchers("/health", "/sitemap.xml").permitAll()
+                .requestMatchers("/health", "/sitemap.xml", "/api/logo").permitAll()
                 // Public API GET endpoints
                 .requestMatchers(
-                    HttpMethod.GET, 
-                    "/api/uploads/**", 
-                    "/api/posts", 
-                    "/api/posts/**", 
-                    "/api/categories"
+                    HttpMethod.GET,
+                    "/api/uploads/**",
+                    "/api/posts",
+                    "/api/posts/**",
+                    "/api/categories",
+                    "/api/market/**"
                 ).permitAll()
-                // --- FINAL FIX END ---
                 .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/api/oauth2/**").permitAll()
                 .requestMatchers("/api/files/upload").hasAuthority("ROLE_ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/posts").hasAuthority("ROLE_ADMIN")

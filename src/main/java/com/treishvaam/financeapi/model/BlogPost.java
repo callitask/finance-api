@@ -22,7 +22,6 @@ public class BlogPost {
     @Column(nullable = false)
     private String title;
 
-    // --- ADDED THIS FIELD ---
     @Column(unique = true)
     private String slug;
 
@@ -54,11 +53,6 @@ public class BlogPost {
     @Column(name = "tenant_id", nullable = false)
     private String tenantId;
 
-    // --- REMOVED FIELDS ---
-    // private String thumbnailUrl;
-    // private String coverImageUrl;
-
-    // --- NEW FIELDS ---
     @OneToMany(mappedBy = "blogPost", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @OrderBy("displayOrder ASC")
     private List<PostThumbnail> thumbnails = new ArrayList<>();
@@ -75,7 +69,7 @@ public class BlogPost {
     @Column(name = "scheduled_time")
     private Instant scheduledTime;
 
-    @Enumerated(EnumType.STRING)
+    @Enumerated(EnumType.STRING) // This annotation ensures the enum is stored as a String
     @Column(nullable = false)
     private PostStatus status = PostStatus.DRAFT;
 
@@ -95,8 +89,8 @@ public class BlogPost {
     public void setId(Long id) { this.id = id; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
-    public String getSlug() { return slug; } // Getter for slug
-    public void setSlug(String slug) { this.slug = slug; } // Setter for slug
+    public String getSlug() { return slug; }
+    public void setSlug(String slug) { this.slug = slug; }
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
     public String getCustomSnippet() { return customSnippet; }
