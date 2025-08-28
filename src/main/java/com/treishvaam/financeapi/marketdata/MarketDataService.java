@@ -1,9 +1,5 @@
-package com.treishvaam.finance.marketdata.service;
+package com.treishvaam.financeapi.marketdata;
 
-import com.treishvaam.finance.marketdata.entity.MarketData;
-import com.treishvaam.finance.marketdata.provider.MarketDataFactory;
-import com.treishvaam.finance.marketdata.provider.MarketDataProvider;
-import com.treishvaam.finance.marketdata.repository.MarketDataRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;

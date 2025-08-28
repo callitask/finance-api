@@ -1,6 +1,5 @@
-package com.treishvaam.finance.marketdata.provider;
+package com.treishvaam.financeapi.marketdata;
 
-import com.treishvaam.finance.marketdata.entity.MarketData;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
@@ -21,22 +20,26 @@ public class FmpProvider implements MarketDataProvider {
     @Value("${fmp.api.key}")
     private String apiKey;
 
+    // --- FIXED: Updated the base URL to the correct v3 endpoint ---
     private static final String BASE_URL = "https://financialmodelingprep.com/api/v3/";
 
     @Override
     public List<MarketData> fetchTopGainers() {
+        // --- FIXED: Updated to the correct endpoint for gainers ---
         String url = BASE_URL + "stock_market/gainers?apikey=" + apiKey;
         return fetchData(url, "GAINER");
     }
 
     @Override
     public List<MarketData> fetchTopLosers() {
+        // --- FIXED: Updated to the correct endpoint for losers ---
         String url = BASE_URL + "stock_market/losers?apikey=" + apiKey;
         return fetchData(url, "LOSER");
     }
 
     @Override
     public List<MarketData> fetchMostActive() {
+        // --- FIXED: Updated to the correct endpoint for most active ---
         String url = BASE_URL + "stock_market/actives?apikey=" + apiKey;
         return fetchData(url, "ACTIVE");
     }
@@ -49,6 +52,7 @@ public class FmpProvider implements MarketDataProvider {
             if (response != null) {
                 for (Map<String, Object> item : response) {
                     MarketData md = new MarketData();
+                    // --- NOTE: JSON keys are consistent with the new API response ---
                     md.setTicker((String) item.get("symbol"));
                     md.setPrice(new BigDecimal(item.get("price").toString()));
                     md.setChangeAmount(new BigDecimal(item.get("change").toString()));

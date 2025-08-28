@@ -1,4 +1,4 @@
-package com.treishvaam.finance.marketdata.provider;
+package com.treishvaam.financeapi.marketdata;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;

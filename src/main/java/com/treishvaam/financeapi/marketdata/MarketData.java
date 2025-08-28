@@ -1,4 +1,4 @@
-package com.treishvaam.finance.marketdata.entity;
+package com.treishvaam.financeapi.marketdata;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;

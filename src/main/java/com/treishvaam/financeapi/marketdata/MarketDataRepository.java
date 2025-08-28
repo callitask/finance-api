@@ -1,6 +1,5 @@
-package com.treishvaam.finance.marketdata.repository;
+package com.treishvaam.financeapi.marketdata;
 
-import com.treishvaam.finance.marketdata.entity.MarketData;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;

@@ -1,6 +1,5 @@
-package com.treishvaam.finance.marketdata.provider;
+package com.treishvaam.financeapi.marketdata;
 
-import com.treishvaam.finance.marketdata.entity.MarketData;
 import java.util.List;
 
 public interface MarketDataProvider {
