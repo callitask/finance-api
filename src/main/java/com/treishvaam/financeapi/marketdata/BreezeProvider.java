@@ -5,12 +5,13 @@ import org.springframework.stereotype.Component;
 import java.util.Collections;
 import java.util.List;
 
-@Component("breezeProvider")
+// --- UPDATED: Gave this component a unique bean name to resolve the conflict ---
+@Component("apiBreezeProvider")
 public class BreezeProvider implements MarketDataProvider {
 
     // TODO: Implement the ICICIdirect Breeze SDK here.
     // This will involve initializing the BreezeConnect object with your API keys,
-    // establishing a session, and then making the necessary calls to fetch
+    // establishing a session, and then making thFe necessary calls to fetch
     // EOD prices for a list of NSE stocks to calculate the top movers.
 
     @Override

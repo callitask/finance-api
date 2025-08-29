@@ -1,8 +1,7 @@
 package com.treishvaam.financeapi.marketdata;
 
-import com.treishvaam.financeapi.marketdata.MarketData;
-import com.treishvaam.financeapi.marketdata.MarketDataService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -15,15 +14,18 @@ import org.springframework.web.client.RestTemplate;
 import java.util.List;
 import java.util.Map;
 
-@RestController
+@RestController("apiMarketDataController")
 @RequestMapping("/api/market")
 public class MarketDataController {
 
     @Autowired
+    // --- UPDATED: This now points to the correctly named service bean ---
+    @Qualifier("apiMarketDataService")
     private MarketDataService marketDataService;
 
     @Value("${fmp.api.key}")
     private String apiKey;
+
     private final RestTemplate restTemplate = new RestTemplate();
 
     @GetMapping("/top-gainers")
@@ -50,12 +52,10 @@ public class MarketDataController {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", e.getMessage()));
         }
     }
-
-    // --- FIXED DEBUGGING ENDPOINT ---
+    
     @GetMapping("/test-fmp")
     public ResponseEntity<?> testFmpEndpoint(@RequestParam String path) {
-        // --- FIXED: Updated to use the correct v3 base URL ---
-        String url = "https://financialmodelingprep.com/api/v3/" + path + "?apikey=" + apiKey;
+        String url = "https://financialmodelingprep.com/api/v4/" + path + "?apikey=" + apiKey;
         try {
             Object response = restTemplate.getForObject(url, Object.class);
             return ResponseEntity.ok(response);

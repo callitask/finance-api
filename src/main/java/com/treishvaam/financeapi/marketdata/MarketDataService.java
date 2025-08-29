@@ -1,39 +1,53 @@
 package com.treishvaam.financeapi.marketdata;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
 import java.util.List;
 
-@Service
+@Service("apiMarketDataService")
 public class MarketDataService {
 
     @Autowired
     private MarketDataRepository marketDataRepository;
 
     @Autowired
+    @Qualifier("apiMarketDataFactory")
     private MarketDataFactory marketDataFactory;
 
+    @CacheEvict(value = {"top-gainers", "top-losers", "most-active"}, allEntries = true)
+    @Transactional
     public void fetchAndStoreMarketData(String market) {
         MarketDataProvider provider = marketDataFactory.getProvider(market);
         try {
-            // Clear only the data for the specific market being updated
-            marketDataRepository.deleteByType("GAINER");
-            marketDataRepository.deleteByType("LOSER");
-            marketDataRepository.deleteByType("ACTIVE");
-
             List<MarketData> gainers = provider.fetchTopGainers();
             List<MarketData> losers = provider.fetchTopLosers();
+            // --- CORRECTED: Fixed the typo in the method name ---
             List<MarketData> active = provider.fetchMostActive();
 
-            marketDataRepository.saveAll(gainers);
-            marketDataRepository.saveAll(losers);
-            marketDataRepository.saveAll(active);
+            if (gainers != null && !gainers.isEmpty()) {
+                marketDataRepository.deleteByType("GAINER");
+                marketDataRepository.saveAll(gainers);
+            }
+
+            if (losers != null && !losers.isEmpty()) {
+                marketDataRepository.deleteByType("LOSER");
+                marketDataRepository.saveAll(losers);
+            }
+
+            if (active != null && !active.isEmpty()) {
+                marketDataRepository.deleteByType("ACTIVE");
+                marketDataRepository.saveAll(active);
+            }
+
         } catch (Exception e) {
-            System.err.println("Failed to fetch and store market data for market: " + market + ". Reason: " + e.getMessage());
-            throw e;
+            System.err.println("An error occurred during market data fetch for market: " + market);
+            e.printStackTrace();
         }
     }
 

@@ -4,15 +4,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
-@Component
+// --- UPDATED: Gave this component a unique bean name to resolve the conflict ---
+@Component("apiMarketDataFactory")
 public class MarketDataFactory {
 
     @Autowired
-    @Qualifier("fmpProvider")
+    @Qualifier("apiFmpProvider")
     private MarketDataProvider fmpProvider;
 
     @Autowired
-    @Qualifier("breezeProvider")
+    @Qualifier("apiBreezeProvider")
     private MarketDataProvider breezeProvider;
 
     public MarketDataProvider getProvider(String market) {

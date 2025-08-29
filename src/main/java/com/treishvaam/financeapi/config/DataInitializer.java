@@ -5,6 +5,7 @@ import com.treishvaam.financeapi.model.Role;
 import com.treishvaam.financeapi.model.User;
 import com.treishvaam.financeapi.repository.RoleRepository;
 import com.treishvaam.financeapi.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Value; // --- IMPORT THIS ---
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.context.annotation.Profile;
@@ -23,6 +24,13 @@ public class DataInitializer implements CommandLineRunner {
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
 
+    // --- UPDATED: Inject admin credentials from application properties ---
+    @Value("${app.admin.email}")
+    private String adminEmail;
+
+    @Value("${app.admin.password}")
+    private String adminPassword;
+
     public DataInitializer(UserRepository userRepository, RoleRepository roleRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
@@ -39,9 +47,9 @@ public class DataInitializer implements CommandLineRunner {
             roleRepository.save(new Role(ERole.ROLE_USER));
         }
 
-        // Create admin user if it doesn't exist and assign the admin role
-        if (userRepository.findByEmail("callitask@gmail.com").isEmpty()) {
-            User adminUser = new User("callitask@gmail.com", passwordEncoder.encode("callitask123"));
+        // --- UPDATED: Use the injected properties to create the admin user ---
+        if (userRepository.findByEmail(adminEmail).isEmpty()) {
+            User adminUser = new User(adminEmail, passwordEncoder.encode(adminPassword));
 
             Set<Role> roles = new HashSet<>();
             Role adminRole = roleRepository.findByName(ERole.ROLE_ADMIN)

@@ -1,75 +1,100 @@
 package com.treishvaam.financeapi.marketdata;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature; // --- IMPORT THIS ---
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
-import java.math.BigDecimal;
+import java.io.IOException;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
+import java.util.stream.Collectors;
 
-@Component("fmpProvider")
+@Component("apiFmpProvider")
 public class FmpProvider implements MarketDataProvider {
-
-    private final RestTemplate restTemplate = new RestTemplate();
 
     @Value("${fmp.api.key}")
     private String apiKey;
 
-    // --- FIXED: Updated the base URL to the correct v3 endpoint ---
-    private static final String BASE_URL = "https://financialmodelingprep.com/api/v3/";
+    private final RestTemplate restTemplate = new RestTemplate();
+    private final ObjectMapper objectMapper; // We will configure this in the constructor
+
+    // --- CONSTRUCTOR to configure ObjectMapper ---
+    public FmpProvider() {
+        this.objectMapper = new ObjectMapper();
+        // This is the fix: tells the parser to not fail on unknown properties
+        this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    }
+
+    private static final String FMP_BASE_URL = "https://financialmodelingprep.com/stable";
 
     @Override
     public List<MarketData> fetchTopGainers() {
-        // --- FIXED: Updated to the correct endpoint for gainers ---
-        String url = BASE_URL + "stock_market/gainers?apikey=" + apiKey;
+        String url = FMP_BASE_URL + "/biggest-gainers?apikey=" + apiKey;
         return fetchData(url, "GAINER");
     }
 
     @Override
     public List<MarketData> fetchTopLosers() {
-        // --- FIXED: Updated to the correct endpoint for losers ---
-        String url = BASE_URL + "stock_market/losers?apikey=" + apiKey;
+        String url = FMP_BASE_URL + "/biggest-losers?apikey=" + apiKey;
         return fetchData(url, "LOSER");
     }
 
     @Override
     public List<MarketData> fetchMostActive() {
-        // --- FIXED: Updated to the correct endpoint for most active ---
-        String url = BASE_URL + "stock_market/actives?apikey=" + apiKey;
+        String url = FMP_BASE_URL + "/most-actives?apikey=" + apiKey;
         return fetchData(url, "ACTIVE");
     }
 
     private List<MarketData> fetchData(String url, String type) {
         try {
-            List<Map<String, Object>> response = restTemplate.getForObject(url, List.class);
-            List<MarketData> marketDataList = new ArrayList<>();
+            String jsonResponse = restTemplate.getForObject(url, String.class);
 
-            if (response != null) {
-                for (Map<String, Object> item : response) {
-                    MarketData md = new MarketData();
-                    // --- NOTE: JSON keys are consistent with the new API response ---
-                    md.setTicker((String) item.get("symbol"));
-                    md.setPrice(new BigDecimal(item.get("price").toString()));
-                    md.setChangeAmount(new BigDecimal(item.get("change").toString()));
-                    md.setChangePercentage(String.format("%.2f%%", (Double) item.get("changesPercentage")));
-                    md.setType(type);
-                    md.setLastUpdated(LocalDateTime.now());
-                    marketDataList.add(md);
-                }
+            if (jsonResponse == null || jsonResponse.trim().isEmpty()) {
+                System.err.println("Empty or null response from FMP API for URL: " + url);
+                return Collections.emptyList();
             }
-            return marketDataList;
-        } catch (HttpClientErrorException e) {
-            System.err.println("Error fetching data from FMP. Status: " + e.getStatusCode());
-            System.err.println("Response Body: " + e.getResponseBodyAsString());
-            throw new RuntimeException("Failed to fetch from FMP: " + e.getResponseBodyAsString(), e);
+
+            if (!jsonResponse.trim().startsWith("[")) {
+                throw new IOException("FMP API returned an error: " + jsonResponse);
+            }
+
+            List<FmpMarketDataDto> fmpData = objectMapper.readValue(jsonResponse, new TypeReference<List<FmpMarketDataDto>>() {});
+
+            return fmpData.stream()
+                    .map(dto -> {
+                        MarketData marketData = new MarketData();
+                        marketData.setTicker(dto.getSymbol());
+                        marketData.setPrice(dto.getPrice());
+                        marketData.setChangeAmount(dto.getChange());
+                        marketData.setChangePercentage(String.format("%.2f%%", dto.getChangesPercentage()));
+                        marketData.setType(type);
+                        marketData.setLastUpdated(LocalDateTime.now());
+                        return marketData;
+                    })
+                    .collect(Collectors.toList());
         } catch (Exception e) {
-            System.err.println("A general error occurred while fetching from FMP: " + e.getMessage());
-            throw new RuntimeException("An unexpected error occurred: " + e.getMessage(), e);
+            throw new RuntimeException("Failed to fetch and parse data from FMP API at " + url, e);
         }
+    }
+
+    // This DTO no longer needs any changes
+    private static class FmpMarketDataDto {
+        public String symbol;
+        public java.math.BigDecimal price;
+        public java.math.BigDecimal change;
+        public Double changesPercentage;
+
+        public String getSymbol() { return symbol; }
+        public void setSymbol(String symbol) { this.symbol = symbol; }
+        public java.math.BigDecimal getPrice() { return price; }
+        public void setPrice(java.math.BigDecimal price) { this.price = price; }
+        public java.math.BigDecimal getChange() { return change; }
+        public void setChange(java.math.BigDecimal change) { this.change = change; }
+        public Double getChangesPercentage() { return changesPercentage; }
+        public void setChangesPercentage(Double changesPercentage) { this.changesPercentage = changesPercentage; }
     }
 }

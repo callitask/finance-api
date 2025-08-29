@@ -7,13 +7,20 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.ComponentScan; // --- 1. Import ComponentScan ---
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
 @EnableScheduling
-// --- 2. Add the ComponentScan annotation to explicitly define the base package ---
-@ComponentScan(basePackages = "com.treishvaam.financeapi")
+// --- UPDATED: This now scans both base packages BUT excludes the old duplicate marketdata package ---
+@ComponentScan(
+    basePackages = {"com.treishvaam.financeapi", "com.treishvaam.finance"},
+    excludeFilters = @ComponentScan.Filter(
+        type = FilterType.REGEX,
+        pattern = "com\\.treishvaam\\.finance\\.marketdata\\..*"
+    )
+)
 public class FinanceApiApplication extends SpringBootServletInitializer {
 
 	@Override
