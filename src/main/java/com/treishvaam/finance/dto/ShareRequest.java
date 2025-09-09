@@ -1,4 +1,4 @@
-package com.treishva.finance.dto;
+package com.treishvaam.finance.dto;
 
 import java.util.List;
 

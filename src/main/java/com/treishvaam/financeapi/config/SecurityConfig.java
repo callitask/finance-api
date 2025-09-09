@@ -48,24 +48,22 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
-            .cors(cors -> cors.configurationSource(corsConfigurationSource())) // This line enables CORS
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
-                // General public endpoints
                 .requestMatchers("/health", "/sitemap.xml", "/api/logo").permitAll()
-                // Public API GET endpoints
                 .requestMatchers(
                     HttpMethod.GET,
                     "/api/uploads/**",
                     "/api/posts",
                     "/api/posts/**",
                     "/api/categories",
-                    "/api/market/**"
+                    "/api/market/**",
+                    "/api/news/highlights",
+                    "/api/news/archive"
                 ).permitAll()
                 .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/api/oauth2/**").permitAll()
-                .requestMatchers("/api/files/upload").hasAuthority("ROLE_ADMIN")
-                .requestMatchers(HttpMethod.POST, "/api/posts").hasAuthority("ROLE_ADMIN")
-                .requestMatchers(HttpMethod.POST, "/api/categories").hasAuthority("ROLE_ADMIN")
+                .requestMatchers("/api/files/upload", "/api/posts", "/api/categories", "/api/news/admin/**").hasAuthority("ROLE_ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/api/posts/**").hasAuthority("ROLE_ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/posts/**").hasAuthority("ROLE_ADMIN")
                 .anyRequest().authenticated()

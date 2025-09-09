@@ -68,9 +68,11 @@ public class FmpProvider implements MarketDataProvider {
                     .map(dto -> {
                         MarketData marketData = new MarketData();
                         marketData.setTicker(dto.getSymbol());
+                        marketData.setName(dto.getName());
                         marketData.setPrice(dto.getPrice());
                         marketData.setChangeAmount(dto.getChange());
                         marketData.setChangePercentage(String.format("%.2f%%", dto.getChangesPercentage()));
+                        marketData.setVolume(dto.getVolume());
                         marketData.setType(type);
                         marketData.setLastUpdated(LocalDateTime.now());
                         return marketData;
@@ -81,20 +83,26 @@ public class FmpProvider implements MarketDataProvider {
         }
     }
 
-    // This DTO no longer needs any changes
+    // --- UPDATED DTO to include all expected fields ---
     private static class FmpMarketDataDto {
         public String symbol;
+        public String name;
         public java.math.BigDecimal price;
         public java.math.BigDecimal change;
         public Double changesPercentage;
+        public Long volume;
 
         public String getSymbol() { return symbol; }
         public void setSymbol(String symbol) { this.symbol = symbol; }
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
         public java.math.BigDecimal getPrice() { return price; }
         public void setPrice(java.math.BigDecimal price) { this.price = price; }
         public java.math.BigDecimal getChange() { return change; }
         public void setChange(java.math.BigDecimal change) { this.change = change; }
         public Double getChangesPercentage() { return changesPercentage; }
         public void setChangesPercentage(Double changesPercentage) { this.changesPercentage = changesPercentage; }
+        public Long getVolume() { return volume; }
+        public void setVolume(Long volume) { this.volume = volume; }
     }
 }

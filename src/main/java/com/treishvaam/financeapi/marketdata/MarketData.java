@@ -17,10 +17,12 @@ public class MarketData {
     private Long id;
 
     private String ticker;
+    private String name; // --- NEW: Added company name ---
     private BigDecimal price;
     private BigDecimal changeAmount;
     private String changePercentage;
-    private String type; // "GAINER" or "LOSER"
+    private Long volume; // --- NEW: Added trading volume ---
+    private String type; // "GAINER", "LOSER", or "ACTIVE"
     private LocalDateTime lastUpdated;
 
     // Getters and Setters
@@ -38,6 +40,14 @@ public class MarketData {
 
     public void setTicker(String ticker) {
         this.ticker = ticker;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 
     public BigDecimal getPrice() {
@@ -62,6 +72,14 @@ public class MarketData {
 
     public void setChangePercentage(String changePercentage) {
         this.changePercentage = changePercentage;
+    }
+
+    public Long getVolume() {
+        return volume;
+    }
+
+    public void setVolume(Long volume) {
+        this.volume = volume;
     }
 
     public String getType() {
