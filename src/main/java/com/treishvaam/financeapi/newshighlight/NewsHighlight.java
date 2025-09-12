@@ -1,5 +1,6 @@
 package com.treishvaam.financeapi.newshighlight;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
@@ -8,7 +9,6 @@ import java.time.LocalDateTime;
     @UniqueConstraint(columnNames = {"link"})
 })
 public class NewsHighlight {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -20,13 +20,9 @@ public class NewsHighlight {
     private String link;
 
     private String source;
-
     private LocalDateTime publishedAt;
-
     private LocalDateTime createdAt = LocalDateTime.now();
 
-    // *** CRITICAL FIX: Added default constructor and manual getters/setters ***
-    
     // Default (no-argument) constructor required by Hibernate
     public NewsHighlight() {}
 
@@ -47,8 +43,14 @@ public class NewsHighlight {
     public void setLink(String link) { this.link = link; }
     public String getSource() { return source; }
     public void setSource(String source) { this.source = source; }
+
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     public LocalDateTime getPublishedAt() { return publishedAt; }
+
     public void setPublishedAt(LocalDateTime publishedAt) { this.publishedAt = publishedAt; }
+
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     public LocalDateTime getCreatedAt() { return createdAt; }
+
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 }

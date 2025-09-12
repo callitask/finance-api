@@ -18,14 +18,12 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-
 import java.util.List;
 
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
 public class SecurityConfig {
-
     private final JwtTokenFilter jwtTokenFilter;
     private final InternalSecretFilter internalSecretFilter;
 
@@ -51,7 +49,7 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
-                .requestMatchers("/health", "/sitemap.xml", "/api/logo").permitAll()
+                .requestMatchers("/health", "/sitemap.xml", "/api/logo", "/api/search").permitAll()
                 .requestMatchers(
                     HttpMethod.GET,
                     "/api/uploads/**",
@@ -68,10 +66,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.DELETE, "/api/posts/**").hasAuthority("ROLE_ADMIN")
                 .anyRequest().authenticated()
             );
-
         http.addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(jwtTokenFilter, UsernamePasswordAuthenticationFilter.class);
-
         return http.build();
     }
 
