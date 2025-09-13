@@ -49,7 +49,18 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
+                // 1. Specific public endpoints & auth endpoints
                 .requestMatchers("/health", "/sitemap.xml", "/api/logo", "/api/search").permitAll()
+                .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/api/oauth2/**").permitAll()
+
+                // 2. Stricter, role-based rules for admin actions
+                // *** FIX: SPECIFY HttpMethod.POST for creating posts ***
+                .requestMatchers(HttpMethod.POST, "/api/posts", "/api/categories", "/api/news/admin/**").hasAuthority("ROLE_ADMIN")
+                .requestMatchers("/api/files/upload").hasAuthority("ROLE_ADMIN")
+                .requestMatchers(HttpMethod.PUT, "/api/posts/**").hasAuthority("ROLE_ADMIN")
+                .requestMatchers(HttpMethod.DELETE, "/api/posts/**").hasAuthority("ROLE_ADMIN")
+
+                // 3. General public GET requests
                 .requestMatchers(
                     HttpMethod.GET,
                     "/api/uploads/**",
@@ -60,10 +71,8 @@ public class SecurityConfig {
                     "/api/news/highlights",
                     "/api/news/archive"
                 ).permitAll()
-                .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/api/oauth2/**").permitAll()
-                .requestMatchers("/api/files/upload", "/api/posts", "/api/categories", "/api/news/admin/**").hasAuthority("ROLE_ADMIN")
-                .requestMatchers(HttpMethod.PUT, "/api/posts/**").hasAuthority("ROLE_ADMIN")
-                .requestMatchers(HttpMethod.DELETE, "/api/posts/**").hasAuthority("ROLE_ADMIN")
+                
+                // 4. All other requests must be authenticated
                 .anyRequest().authenticated()
             );
         http.addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class);

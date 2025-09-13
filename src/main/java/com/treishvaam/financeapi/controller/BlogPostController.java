@@ -60,7 +60,7 @@ public class BlogPostController {
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
-    
+
     @PostMapping("/admin/backfill-slugs")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, String>> backfillSlugs() {
@@ -74,7 +74,7 @@ public class BlogPostController {
         return ResponseEntity.ok(blogPostService.findDrafts());
     }
 
-    @PostMapping("/draft") // This endpoint correctly creates a draft
+    @PostMapping("/draft")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<BlogPost> createDraft(@RequestBody BlogPostDto postDto) {
         BlogPost createdPost = blogPostService.createDraft(postDto);
@@ -87,8 +87,7 @@ public class BlogPostController {
         BlogPost updatedDraft = blogPostService.updateDraft(id, postDto);
         return ResponseEntity.ok(updatedDraft);
     }
-    
-    // --- THIS METHOD WAS MISSING ---
+
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<BlogPost> createPost(@RequestParam("title") String title, @RequestParam("content") String content, @RequestParam(value = "customSnippet", required = false) String customSnippet, @RequestParam("category") String category, @RequestParam(value = "tags", required = false) List<String> tags, @RequestParam("featured") boolean featured, @RequestParam(value = "scheduledTime", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant scheduledTime, @RequestParam(value = "newThumbnails", required = false) List<MultipartFile> newThumbnails, @RequestParam(value = "thumbnailMetadata", required = false) String thumbnailMetadataJson, @RequestParam(value = "thumbnailOrientation", required = false) String thumbnailOrientation, @RequestParam("layoutStyle") String layoutStyle, @RequestParam(value = "layoutGroupId", required = false) String layoutGroupId) throws IOException {
@@ -109,6 +108,17 @@ public class BlogPostController {
         List<PostThumbnailDto> thumbnailDtos = thumbnailMetadataJson != null ? objectMapper.readValue(thumbnailMetadataJson, new TypeReference<List<PostThumbnailDto>>() {}) : List.of();
         BlogPost savedPost = blogPostService.save(newPost, newThumbnails, thumbnailDtos);
         return ResponseEntity.status(HttpStatus.CREATED).body(savedPost);
+    }
+    
+    @PostMapping("/{id}/duplicate")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<BlogPost> duplicatePost(@PathVariable Long id) {
+        try {
+            BlogPost duplicatedPost = blogPostService.duplicatePost(id);
+            return ResponseEntity.status(HttpStatus.CREATED).body(duplicatedPost);
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
+        }
     }
 
     @PutMapping("/{id}")
@@ -138,6 +148,13 @@ public class BlogPostController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deletePost(@PathVariable Long id) {
         blogPostService.deleteById(id);
+        return ResponseEntity.noContent().build();
+    }
+    
+    @DeleteMapping("/bulk")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deleteMultiplePosts(@RequestBody List<Long> postIds) {
+        blogPostService.deletePostsInBulk(postIds);
         return ResponseEntity.noContent().build();
     }
 

@@ -15,8 +15,7 @@ public interface BlogPostService {
     List<BlogPost> findAll();
 
     List<BlogPost> findAllForAdmin();
-    
-    // --- NEW METHOD FOR PAGINATION ---
+
     Page<BlogPost> findAllPublishedPosts(Pageable pageable);
 
     Optional<BlogPost> findById(Long id);
@@ -26,6 +25,9 @@ public interface BlogPostService {
     BlogPost save(BlogPost blogPost, List<MultipartFile> newThumbnails, List<PostThumbnailDto> thumbnailDtos);
 
     void deleteById(Long id);
+    
+    // --- NEW METHOD FOR FEATURE 2: Bulk Actions ---
+    void deletePostsInBulk(List<Long> postIds);
 
     void checkAndPublishScheduledPosts();
 
@@ -34,9 +36,10 @@ public interface BlogPostService {
     BlogPost createDraft(BlogPostDto blogPostDto);
 
     BlogPost updateDraft(Long id, BlogPostDto blogPostDto);
-    
+
     List<BlogPost> findAllByStatus(PostStatus status);
 
-    // --- NEW METHOD FOR BACKFILLING SLUGS ---
     int backfillSlugs();
+
+    BlogPost duplicatePost(Long id);
 }
