@@ -7,7 +7,7 @@ public class BlogPostDto {
     private Long id;
     private String title;
     private String content;
-    private String customSnippet; // --- MODIFICATION: Added customSnippet field ---
+    private String customSnippet;
     private String author;
     private String category;
     private String thumbnailUrl;
@@ -17,6 +17,11 @@ public class BlogPostDto {
     private boolean featured;
     private Instant scheduledTime;
     private boolean published;
+
+    // --- NEW FIELDS ADDED ---
+    private String layoutStyle;
+    private String layoutGroupId;
+
 
     // Getters and Setters
 
@@ -44,7 +49,6 @@ public class BlogPostDto {
         this.content = content;
     }
     
-    // --- MODIFICATION START: Added Getter and Setter for customSnippet ---
     public String getCustomSnippet() {
         return customSnippet;
     }
@@ -52,7 +56,6 @@ public class BlogPostDto {
     public void setCustomSnippet(String customSnippet) {
         this.customSnippet = customSnippet;
     }
-    // --- MODIFICATION END ---
 
     public String getAuthor() {
         return author;
@@ -124,5 +127,23 @@ public class BlogPostDto {
 
     public void setPublished(boolean published) {
         this.published = published;
+    }
+
+    // --- GETTERS AND SETTERS FOR NEW FIELDS ---
+
+    public String getLayoutStyle() {
+        return layoutStyle;
+    }
+
+    public void setLayoutStyle(String layoutStyle) {
+        this.layoutStyle = layoutStyle;
+    }
+
+    public String getLayoutGroupId() {
+        return layoutGroupId;
+    }
+
+    public void setLayoutGroupId(String layoutGroupId) {
+        this.layoutGroupId = layoutGroupId;
     }
 }

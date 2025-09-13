@@ -9,6 +9,8 @@ import com.treishvaam.financeapi.repository.BlogPostRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -48,6 +50,12 @@ public class BlogPostServiceImpl implements BlogPostService {
         return blogPostRepository.findAllByStatusOrderByCreatedAtDesc(PostStatus.PUBLISHED);
     }
 
+    // --- NEW METHOD IMPLEMENTATION FOR PAGINATION ---
+    @Override
+    public Page<BlogPost> findAllPublishedPosts(Pageable pageable) {
+        return blogPostRepository.findAllByStatus(PostStatus.PUBLISHED, pageable);
+    }
+
     @Override
     public List<BlogPost> findAllForAdmin() {
         return blogPostRepository.findAllByOrderByCreatedAtDesc();
@@ -80,6 +88,8 @@ public class BlogPostServiceImpl implements BlogPostService {
         newPost.setAuthor(username);
         newPost.setTenantId(username);
         newPost.setSlug(generateUniqueSlug());
+        // Set default layout style for new drafts
+        newPost.setLayoutStyle("DEFAULT");
         return blogPostRepository.save(newPost);
     }
 
@@ -140,15 +150,16 @@ public class BlogPostServiceImpl implements BlogPostService {
             blogPost.setSlug(generateUniqueSlug());
         }
         
-        // --- FIX: Corrected publishing logic ---
         if (blogPost.getScheduledTime() != null && blogPost.getScheduledTime().isAfter(Instant.now())) {
             blogPost.setStatus(PostStatus.SCHEDULED);
         } else {
-            // If not scheduled for the future, it should be published.
-            // This removes the faulty check `if (blogPost.getStatus() != PostStatus.DRAFT)`
             blogPost.setStatus(PostStatus.PUBLISHED);
             blogPost.setScheduledTime(null); 
         }
+
+        // --- MODIFICATION: Persist layout style from the incoming object ---
+        // The controller will be responsible for setting these values on the blogPost object
+        // before calling save().
         
         return blogPostRepository.save(blogPost);
     }

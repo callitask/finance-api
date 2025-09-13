@@ -4,6 +4,8 @@ import com.treishvaam.financeapi.dto.BlogPostDto;
 import com.treishvaam.financeapi.dto.PostThumbnailDto;
 import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.PostStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -13,6 +15,9 @@ public interface BlogPostService {
     List<BlogPost> findAll();
 
     List<BlogPost> findAllForAdmin();
+    
+    // --- NEW METHOD FOR PAGINATION ---
+    Page<BlogPost> findAllPublishedPosts(Pageable pageable);
 
     Optional<BlogPost> findById(Long id);
 

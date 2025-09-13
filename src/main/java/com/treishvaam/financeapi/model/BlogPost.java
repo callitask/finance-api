@@ -69,9 +69,16 @@ public class BlogPost {
     @Column(name = "scheduled_time")
     private Instant scheduledTime;
 
-    @Enumerated(EnumType.STRING) // This annotation ensures the enum is stored as a String
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private PostStatus status = PostStatus.DRAFT;
+
+    // --- NEW FIELDS ADDED ---
+    @Column(name = "layout_style")
+    private String layoutStyle = "DEFAULT"; // e.g., "DEFAULT", "BANNER", "MULTI_COLUMN"
+
+    @Column(name = "layout_group_id")
+    private String layoutGroupId; // Groups posts for multi-column rows
 
     @PrePersist
     protected void onCreate() {
@@ -117,4 +124,10 @@ public class BlogPost {
     public void setThumbnailOrientation(String thumbnailOrientation) { this.thumbnailOrientation = thumbnailOrientation; }
     public List<String> getTags() { return tags; }
     public void setTags(List<String> tags) { this.tags = tags; }
+
+    // --- GETTERS AND SETTERS FOR NEW FIELDS ---
+    public String getLayoutStyle() { return layoutStyle; }
+    public void setLayoutStyle(String layoutStyle) { this.layoutStyle = layoutStyle; }
+    public String getLayoutGroupId() { return layoutGroupId; }
+    public void setLayoutGroupId(String layoutGroupId) { this.layoutGroupId = layoutGroupId; }
 }

@@ -2,6 +2,8 @@ package com.treishvaam.financeapi.repository;
 
 import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.PostStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
@@ -16,5 +18,8 @@ public interface BlogPostRepository extends JpaRepository<BlogPost, Long> {
     List<BlogPost> findAllByStatusOrderByUpdatedAtDesc(PostStatus status);
     List<BlogPost> findByStatusAndScheduledTimeBefore(PostStatus status, Instant now);
     List<BlogPost> findByTitleContainingIgnoreCaseAndStatus(String title, PostStatus status);
+
+    // --- NEW METHOD ADDED FOR PAGINATION ---
+    Page<BlogPost> findAllByStatus(PostStatus status, Pageable pageable);
 
 }
