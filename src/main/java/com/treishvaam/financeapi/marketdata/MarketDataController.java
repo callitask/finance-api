@@ -1,5 +1,8 @@
-package com.treishvaam.financeapi.marketdata;
+package com.treishvaam.financeapi.marketdata; // --- THIS LINE IS THE FIX ---
 
+import com.treishvaam.financeapi.apistatus.PasswordDto;
+import com.treishvaam.financeapi.model.MarketData;
+import com.treishvaam.financeapi.service.MarketDataService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
@@ -10,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
-@RestController("apiMarketDataController")
+@RestController
 @RequestMapping("/api/market")
 public class MarketDataController {
 
@@ -39,18 +42,53 @@ public class MarketDataController {
             Object data = marketDataService.fetchHistoricalData(ticker);
             return ResponseEntity.ok(data);
         } catch (Exception e) {
-            // THIS IS THE FIX: Send a proper error status code (503)
-            // This tells the frontend that something actually went wrong.
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", true, "message", e.getMessage()));
         }
     }
 
-    @PostMapping("/admin/refresh-us")
+    @PostMapping("/admin/refresh-movers")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ResponseEntity<?> refreshUsMarketData() {
+    public ResponseEntity<?> refreshMoversData() {
         try {
             marketDataService.fetchAndStoreMarketData("US", "MANUAL");
-            return ResponseEntity.ok(Map.of("message", "US market data refresh triggered successfully."));
+            return ResponseEntity.ok(Map.of("message", "Market movers data refresh triggered successfully."));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", true, "message", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/admin/refresh-indices")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<?> refreshIndicesData() {
+        try {
+            marketDataService.refreshIndices();
+            return ResponseEntity.ok(Map.of("message", "Market indices data refresh triggered successfully."));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", true, "message", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/admin/flush-movers")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<?> flushMoversData(@RequestBody PasswordDto passwordDto) {
+        try {
+            marketDataService.flushMoversData(passwordDto.getPassword());
+            return ResponseEntity.ok(Map.of("message", "Market movers data flushed successfully."));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", true, "message", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", true, "message", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/admin/flush-indices")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<?> flushIndicesData(@RequestBody PasswordDto passwordDto) {
+        try {
+            marketDataService.flushIndicesData(passwordDto.getPassword());
+            return ResponseEntity.ok(Map.of("message", "Market indices data flushed successfully."));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", true, "message", e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", true, "message", e.getMessage()));
         }

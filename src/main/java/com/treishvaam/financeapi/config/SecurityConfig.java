@@ -15,7 +15,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-// --- IMPORT THE CORRECT FIREWALL CLASS ---
 import org.springframework.security.web.firewall.StrictHttpFirewall;
 import org.springframework.security.web.firewall.HttpFirewall;
 import org.springframework.web.cors.CorsConfiguration;
@@ -45,11 +44,9 @@ public class SecurityConfig {
         return authenticationConfiguration.getAuthenticationManager();
     }
     
-    // --- CORRECTED FIREWALL BEAN ---
     @Bean
     public HttpFirewall httpFirewall() {
         StrictHttpFirewall firewall = new StrictHttpFirewall();
-        // This will allow characters like '^' (encoded as %5E) in the URL path.
         firewall.setAllowUrlEncodedPercent(true);
         firewall.setAllowUrlEncodedSlash(true); 
         firewall.setAllowSemicolon(true);
@@ -63,7 +60,6 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
-                // --- SIMPLIFIED AND CORRECTED RULES ---
                 .requestMatchers(
                     HttpMethod.GET,
                     "/api/posts/**", 
@@ -75,7 +71,8 @@ public class SecurityConfig {
                 ).permitAll()
                 .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 
-                // --- ALL OTHER REQUESTS MUST BE AUTHENTICATED ---
+                .requestMatchers("/api/market/admin/**", "/api/status/**").hasAuthority("ROLE_ADMIN")
+
                 .anyRequest().authenticated()
             );
         http.addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class);

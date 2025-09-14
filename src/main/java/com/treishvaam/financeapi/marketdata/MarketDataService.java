@@ -4,15 +4,19 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treishvaam.financeapi.apistatus.ApiFetchStatus;
 import com.treishvaam.financeapi.apistatus.ApiFetchStatusRepository;
+import com.treishvaam.financeapi.model.User;
+import com.treishvaam.financeapi.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -34,9 +38,14 @@ public class MarketDataService {
     @Autowired
     private ApiFetchStatusRepository apiFetchStatusRepository;
     
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @CacheEvict(value = {"top-gainers", "top-losers", "most-active"}, allEntries = true)
     @Transactional
     public void fetchAndStoreMarketData(String market, String triggerSource) {
         MarketDataProvider provider = marketDataFactory.getMoversProvider(market);
@@ -44,8 +53,8 @@ public class MarketDataService {
 
         try {
             List<MarketData> gainers = provider.fetchTopGainers();
+            marketDataRepository.deleteByType("GAINER");
             if (gainers != null && !gainers.isEmpty()) {
-                marketDataRepository.deleteByType("GAINER");
                 marketDataRepository.saveAll(gainers);
             }
             apiFetchStatusRepository.save(new ApiFetchStatus("Market Data - Top Gainers" + marketSuffix, "SUCCESS", triggerSource, "Data fetched successfully."));
@@ -55,8 +64,8 @@ public class MarketDataService {
 
         try {
             List<MarketData> losers = provider.fetchTopLosers();
+            marketDataRepository.deleteByType("LOSER");
             if (losers != null && !losers.isEmpty()) {
-                marketDataRepository.deleteByType("LOSER");
                 marketDataRepository.saveAll(losers);
             }
             apiFetchStatusRepository.save(new ApiFetchStatus("Market Data - Top Losers" + marketSuffix, "SUCCESS", triggerSource, "Data fetched successfully."));
@@ -66,8 +75,8 @@ public class MarketDataService {
 
         try {
             List<MarketData> active = provider.fetchMostActive();
+            marketDataRepository.deleteByType("ACTIVE");
             if (active != null && !active.isEmpty()) {
-                marketDataRepository.deleteByType("ACTIVE");
                 marketDataRepository.saveAll(active);
             }
             apiFetchStatusRepository.save(new ApiFetchStatus("Market Data - Most Active" + marketSuffix, "SUCCESS", triggerSource, "Data fetched successfully."));
@@ -87,7 +96,7 @@ public class MarketDataService {
                 try {
                     return objectMapper.readValue(cachedData.getData(), Object.class);
                 } catch (JsonProcessingException e) {
-                    // Fall through to fetch new data if parsing fails
+                    // Fall through
                 }
             }
         }
@@ -95,31 +104,63 @@ public class MarketDataService {
         MarketDataProvider provider = marketDataFactory.getHistoricalDataProvider();
         try {
             Object freshDataObject = provider.fetchHistoricalData(ticker);
-            
             String freshDataJson = objectMapper.writeValueAsString(freshDataObject);
             HistoricalDataCache newCacheEntry = new HistoricalDataCache(ticker, freshDataJson, LocalDateTime.now());
             historicalDataCacheRepository.save(newCacheEntry);
-            
             return freshDataObject;
-
         } catch (Exception e) {
-            apiFetchStatusRepository.save(new ApiFetchStatus("Market Chart (" + ticker + ")", "FAILURE", "AUTOMATIC", e.getMessage()));
+            apiFetchStatusRepository.save(new ApiFetchStatus("Market Chart (" + ticker + ")", "FAILURE", "MANUAL", e.getMessage()));
             throw new RuntimeException("Failed to fetch historical data for " + ticker + ": " + e.getMessage(), e);
         }
     }
 
+    @Transactional
+    public void refreshIndices() {
+        List<String> indices = Arrays.asList("^GSPC", "^DJI", "^IXIC");
+        for (String ticker : indices) {
+            try {
+                fetchHistoricalData(ticker);
+                apiFetchStatusRepository.save(new ApiFetchStatus("Market Chart (" + ticker + ")", "SUCCESS", "MANUAL", "Data refreshed successfully."));
+            } catch (Exception e) {
+                // Error is logged inside fetchHistoricalData
+            }
+        }
+    }
 
-    @Cacheable("top-gainers")
+    @Transactional
+    public void flushMoversData(String password) {
+        if (!isPasswordValid(password)) {
+            throw new SecurityException("Invalid password.");
+        }
+        marketDataRepository.deleteByType("GAINER");
+        marketDataRepository.deleteByType("LOSER");
+        marketDataRepository.deleteByType("ACTIVE");
+    }
+
+    @Transactional
+    public void flushIndicesData(String password) {
+        if (!isPasswordValid(password)) {
+            throw new SecurityException("Invalid password.");
+        }
+        historicalDataCacheRepository.deleteAll();
+    }
+
+    private boolean isPasswordValid(String rawPassword) {
+        UserDetails userDetails = (UserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        String username = userDetails.getUsername();
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("Authenticated user not found in database"));
+        return passwordEncoder.matches(rawPassword, user.getPassword());
+    }
+
     public List<MarketData> getTopGainers() {
         return marketDataRepository.findByType("GAINER");
     }
 
-    @Cacheable("top-losers")
     public List<MarketData> getTopLosers() {
         return marketDataRepository.findByType("LOSER");
     }
 
-    @Cacheable("most-active")
     public List<MarketData> getMostActive() {
         return marketDataRepository.findByType("ACTIVE");
     }

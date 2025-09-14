@@ -5,7 +5,7 @@ import com.treishvaam.financeapi.model.Role;
 import com.treishvaam.financeapi.model.User;
 import com.treishvaam.financeapi.repository.RoleRepository;
 import com.treishvaam.financeapi.repository.UserRepository;
-import org.springframework.beans.factory.annotation.Value; // --- IMPORT THIS ---
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.context.annotation.Profile;
@@ -24,7 +24,10 @@ public class DataInitializer implements CommandLineRunner {
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
 
-    // --- UPDATED: Inject admin credentials from application properties ---
+    // --- NEW: Injected admin username from application properties ---
+    @Value("${app.admin.username}")
+    private String adminUsername;
+
     @Value("${app.admin.email}")
     private String adminEmail;
 
@@ -39,7 +42,6 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
-        // Create roles if they don't exist
         if (roleRepository.findByName(ERole.ROLE_ADMIN).isEmpty()) {
             roleRepository.save(new Role(ERole.ROLE_ADMIN));
         }
@@ -47,9 +49,9 @@ public class DataInitializer implements CommandLineRunner {
             roleRepository.save(new Role(ERole.ROLE_USER));
         }
 
-        // --- UPDATED: Use the injected properties to create the admin user ---
         if (userRepository.findByEmail(adminEmail).isEmpty()) {
-            User adminUser = new User(adminEmail, passwordEncoder.encode(adminPassword));
+            // --- FIX: Use the new User constructor with three arguments ---
+            User adminUser = new User(adminUsername, adminEmail, passwordEncoder.encode(adminPassword));
 
             Set<Role> roles = new HashSet<>();
             Role adminRole = roleRepository.findByName(ERole.ROLE_ADMIN)

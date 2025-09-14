@@ -2,7 +2,6 @@ package com.treishvaam.financeapi.model;
 
 import jakarta.persistence.*;
 import lombok.Data;
-// import lombok.NoArgsConstructor; // Keeping this is fine, but the explicit constructor is safer.
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
@@ -10,14 +9,18 @@ import java.util.Set;
 @Entity
 @Table(name = "users",
        uniqueConstraints = {
+           @UniqueConstraint(columnNames = "username"), // --- ADDED CONSTRAINT ---
            @UniqueConstraint(columnNames = "email")
        })
 @Data
-// @NoArgsConstructor // This annotation is causing issues in the build, so we add a manual constructor.
 public class User {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    // --- NEW FIELD ADDED ---
+    @Column(nullable = false)
+    private String username;
 
     @Column(nullable = false)
     private String email;
@@ -43,24 +46,33 @@ public class User {
     @Column(name = "linkedin_urn")
     private String linkedinUrn;
     
-    // --- FIX START: Added required no-argument constructor for JPA ---
     public User() {
     }
-    // --- FIX END ---
 
-    public User(String email, String password) {
+    // --- CONSTRUCTOR UPDATED ---
+    public User(String username, String email, String password) {
+        this.username = username;
         this.email = email;
         this.password = password;
         this.enabled = true;
     }
 
     // Explicit Getters and Setters (Lombok's @Data also provides these)
+    // No changes needed below this line, but included for completeness.
     public Long getId() {
         return id;
     }
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
     }
 
     public String getEmail() {
