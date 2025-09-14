@@ -1,6 +1,7 @@
 package com.treishvaam.financeapi.marketdata;
+
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.DeserializationFeature; // --- IMPORT THIS ---
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -10,35 +11,47 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
+
 @Component("apiFmpProvider")
 public class FmpProvider implements MarketDataProvider {
    @Value("${fmp.api.key}")
    private String apiKey;
    private final RestTemplate restTemplate = new RestTemplate();
-   private final ObjectMapper objectMapper; // We will configure this in the constructor
-   // --- CONSTRUCTOR to configure ObjectMapper ---
+   private final ObjectMapper objectMapper;
+
    public FmpProvider() {
        this.objectMapper = new ObjectMapper();
-       // This is the fix: tells the parser to not fail on unknown properties
        this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
    }
-   private static final String FMP_BASE_URL = "https://financialmodelingprep.com/stable";
+
+   private static final String FMP_API_URL = "https://financialmodelingprep.com/api/v3";
+
    @Override
    public List<MarketData> fetchTopGainers() {
-       String url = FMP_BASE_URL + "/biggest-gainers?apikey=" + apiKey;
+       String url = FMP_API_URL + "/stock_market/gainers?apikey=" + apiKey;
        return fetchData(url, "GAINER");
    }
+
    @Override
    public List<MarketData> fetchTopLosers() {
-       String url = FMP_BASE_URL + "/biggest-losers?apikey=" + apiKey;
+       String url = FMP_API_URL + "/stock_market/losers?apikey=" + apiKey;
        return fetchData(url, "LOSER");
    }
+
    @Override
    public List<MarketData> fetchMostActive() {
-       String url = FMP_BASE_URL + "/most-actives?apikey=" + apiKey;
+       String url = FMP_API_URL + "/stock_market/actives?apikey=" + apiKey;
        return fetchData(url, "ACTIVE");
    }
+
+   // --- MODIFICATION: This provider does not support historical data ---
+   @Override
+   public Object fetchHistoricalData(String ticker) {
+       throw new UnsupportedOperationException("FmpProvider does not support historical data fetching.");
+   }
+
    private List<MarketData> fetchData(String url, String type) {
+       // ... (rest of the method is unchanged)
        try {
            String jsonResponse = restTemplate.getForObject(url, String.class);
            if (jsonResponse == null || jsonResponse.trim().isEmpty()) {
@@ -67,7 +80,7 @@ public class FmpProvider implements MarketDataProvider {
            throw new RuntimeException("Failed to fetch and parse data from FMP API at " + url, e);
        }
    }
-   // --- UPDATED DTO to include all expected fields ---
+
    private static class FmpMarketDataDto {
        public String symbol;
        public String name;
@@ -75,6 +88,7 @@ public class FmpProvider implements MarketDataProvider {
        public java.math.BigDecimal change;
        public Double changesPercentage;
        public Long volume;
+       // Getters and Setters ...
        public String getSymbol() { return symbol; }
        public void setSymbol(String symbol) { this.symbol = symbol; }
        public String getName() { return name; }

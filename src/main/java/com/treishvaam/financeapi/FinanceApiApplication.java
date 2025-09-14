@@ -13,7 +13,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
 @EnableScheduling
-// --- UPDATED: This now scans both base packages BUT excludes the old duplicate marketdata package ---
 @ComponentScan(
     basePackages = {"com.treishvaam.financeapi", "com.treishvaam.finance"},
     excludeFilters = @ComponentScan.Filter(

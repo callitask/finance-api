@@ -2,14 +2,10 @@ package com.treishvaam.financeapi.marketdata;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
@@ -19,14 +15,8 @@ import java.util.Map;
 public class MarketDataController {
 
     @Autowired
-    // --- UPDATED: This now points to the correctly named service bean ---
     @Qualifier("apiMarketDataService")
     private MarketDataService marketDataService;
-
-    @Value("${fmp.api.key}")
-    private String apiKey;
-
-    private final RestTemplate restTemplate = new RestTemplate();
 
     @GetMapping("/top-gainers")
     public ResponseEntity<List<MarketData>> getTopGainers() {
@@ -42,26 +32,27 @@ public class MarketDataController {
     public ResponseEntity<List<MarketData>> getMostActive() {
         return ResponseEntity.ok(marketDataService.getMostActive());
     }
-
-    @GetMapping("/refresh-us")
-    public ResponseEntity<?> refreshUsMarketData() {
+    
+    @GetMapping("/historical/{ticker}")
+    public ResponseEntity<?> getHistoricalData(@PathVariable String ticker) {
         try {
-            marketDataService.fetchAndStoreMarketData("US");
-            return ResponseEntity.ok(Map.of("message", "US market data refresh triggered successfully."));
+            Object data = marketDataService.fetchHistoricalData(ticker);
+            return ResponseEntity.ok(data);
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", e.getMessage()));
+            // THIS IS THE FIX: Send a proper error status code (503)
+            // This tells the frontend that something actually went wrong.
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", true, "message", e.getMessage()));
         }
     }
-    
-    @GetMapping("/test-fmp")
-    public ResponseEntity<?> testFmpEndpoint(@RequestParam String path) {
-        String url = "https://financialmodelingprep.com/api/v4/" + path + "?apikey=" + apiKey;
+
+    @PostMapping("/admin/refresh-us")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<?> refreshUsMarketData() {
         try {
-            Object response = restTemplate.getForObject(url, Object.class);
-            return ResponseEntity.ok(response);
+            marketDataService.fetchAndStoreMarketData("US", "MANUAL");
+            return ResponseEntity.ok(Map.of("message", "US market data refresh triggered successfully."));
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to fetch from FMP: " + e.getMessage(), "url", url));
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", true, "message", e.getMessage()));
         }
     }
 }

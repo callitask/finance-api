@@ -29,6 +29,14 @@ public class NewsHighlightController {
         return ResponseEntity.ok(highlights);
     }
 
+    // --- NEW ENDPOINT FOR MANUAL REFRESH ---
+    @PostMapping("/admin/refresh")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<?> refreshNews() {
+        newsHighlightService.fetchAndSaveNewHighlights("MANUAL");
+        return ResponseEntity.ok(Map.of("message", "News highlights refresh triggered successfully."));
+    }
+
     @PostMapping("/admin/deduplicate")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<?> deduplicateNews() {

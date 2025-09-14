@@ -15,6 +15,9 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+// --- IMPORT THE CORRECT FIREWALL CLASS ---
+import org.springframework.security.web.firewall.StrictHttpFirewall;
+import org.springframework.security.web.firewall.HttpFirewall;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -41,6 +44,17 @@ public class SecurityConfig {
     public AuthenticationManager authenticationManager(AuthenticationConfiguration authenticationConfiguration) throws Exception {
         return authenticationConfiguration.getAuthenticationManager();
     }
+    
+    // --- CORRECTED FIREWALL BEAN ---
+    @Bean
+    public HttpFirewall httpFirewall() {
+        StrictHttpFirewall firewall = new StrictHttpFirewall();
+        // This will allow characters like '^' (encoded as %5E) in the URL path.
+        firewall.setAllowUrlEncodedPercent(true);
+        firewall.setAllowUrlEncodedSlash(true); 
+        firewall.setAllowSemicolon(true);
+        return firewall;
+    }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -49,30 +63,19 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
-                // 1. Specific public endpoints & auth endpoints
-                .requestMatchers("/health", "/sitemap.xml", "/api/logo", "/api/search").permitAll()
-                .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**", "/api/oauth2/**").permitAll()
-
-                // 2. Stricter, role-based rules for admin actions
-                // *** FIX: SPECIFY HttpMethod.POST for creating posts ***
-                .requestMatchers(HttpMethod.POST, "/api/posts", "/api/categories", "/api/news/admin/**").hasAuthority("ROLE_ADMIN")
-                .requestMatchers("/api/files/upload").hasAuthority("ROLE_ADMIN")
-                .requestMatchers(HttpMethod.PUT, "/api/posts/**").hasAuthority("ROLE_ADMIN")
-                .requestMatchers(HttpMethod.DELETE, "/api/posts/**").hasAuthority("ROLE_ADMIN")
-
-                // 3. General public GET requests
+                // --- SIMPLIFIED AND CORRECTED RULES ---
                 .requestMatchers(
                     HttpMethod.GET,
+                    "/api/posts/**", 
+                    "/api/categories", 
                     "/api/uploads/**",
-                    "/api/posts",
-                    "/api/posts/**",
-                    "/api/categories",
                     "/api/market/**",
-                    "/api/news/highlights",
-                    "/api/news/archive"
+                    "/api/news/**",
+                    "/sitemap.xml"
                 ).permitAll()
+                .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 
-                // 4. All other requests must be authenticated
+                // --- ALL OTHER REQUESTS MUST BE AUTHENTICATED ---
                 .anyRequest().authenticated()
             );
         http.addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class);
