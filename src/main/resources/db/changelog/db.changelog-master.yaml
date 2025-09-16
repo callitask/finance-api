@@ -188,7 +188,6 @@ databaseChangeLog:
                   name: custom_snippet
                   type: TEXT
 
-  # --- FINAL FIX: Adds the missing slug column to the database ---
   - changeSet:
       id: 9
       author: gemini-dev
@@ -202,6 +201,9 @@ databaseChangeLog:
                   constraints:
                     unique: true
 
-  # --- NEW STORY THUMBNAILS FEATURE ---
   - include:
       file: db/changelog/010-add-story-thumbnails.xml
+
+  # --- FINAL FIX: Includes the new page_content table migration ---
+  - include:
+      file: db/changelog/V12__add_page_content_table.xml

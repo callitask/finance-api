@@ -60,6 +60,9 @@ public class BlogPost {
     @Column(name = "thumbnail_orientation")
     private String thumbnailOrientation;
 
+    @Column(name = "cover_image_url")
+    private String coverImageUrl;
+    
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "post_tags", joinColumns = @JoinColumn(name = "post_id"))
     @Column(name = "tag")
@@ -122,6 +125,8 @@ public class BlogPost {
     public void setThumbnails(List<PostThumbnail> thumbnails) { this.thumbnails = thumbnails; }
     public String getThumbnailOrientation() { return thumbnailOrientation; }
     public void setThumbnailOrientation(String thumbnailOrientation) { this.thumbnailOrientation = thumbnailOrientation; }
+    public String getCoverImageUrl() { return coverImageUrl; }
+    public void setCoverImageUrl(String coverImageUrl) { this.coverImageUrl = coverImageUrl; }
     public List<String> getTags() { return tags; }
     public void setTags(List<String> tags) { this.tags = tags; }
 

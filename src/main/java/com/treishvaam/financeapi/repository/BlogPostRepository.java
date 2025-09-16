@@ -12,6 +12,7 @@ import java.time.Instant;
 
 public interface BlogPostRepository extends JpaRepository<BlogPost, Long> {
 
+    // Keep existing methods
     List<BlogPost> findAllByStatusOrderByCreatedAtDesc(PostStatus status);
     List<BlogPost> findAllByOrderByCreatedAtDesc();
     Optional<BlogPost> findBySlug(String slug);
@@ -19,11 +20,11 @@ public interface BlogPostRepository extends JpaRepository<BlogPost, Long> {
     List<BlogPost> findByStatusAndScheduledTimeBefore(PostStatus status, Instant now);
     List<BlogPost> findByTitleContainingIgnoreCaseAndStatus(String title, PostStatus status);
 
+    // This is the key method for pagination
     Page<BlogPost> findAllByStatus(PostStatus status, Pageable pageable);
 
     long countByLayoutGroupId(String layoutGroupId);
 
-    // --- THIS METHOD WAS MISSING AND IS NOW CORRECTLY ADDED ---
     @Transactional
     void deleteByIdIn(List<Long> ids);
 }

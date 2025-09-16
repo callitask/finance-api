@@ -11,7 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.ZoneId; // <-- ADD THIS IMPORT
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
@@ -23,14 +23,13 @@ public class SitemapController {
 
     private static final String BASE_URL = "https://treishfin.treishvaamgroup.com";
 
+    // UPDATED: Removed /services and /education
     private static final List<String> STATIC_PAGES = List.of(
             "/",
             "/about",
             "/vision",
             "/contact",
-            "/services",
-            "/blog",
-            "/education"
+            "/blog"
     );
 
     @GetMapping(value = "/sitemap.xml", produces = MediaType.APPLICATION_XML_VALUE)
@@ -46,10 +45,12 @@ public class SitemapController {
         List<BlogPost> publishedPosts = blogPostService.findAllByStatus(PostStatus.PUBLISHED);
 
         for (BlogPost post : publishedPosts) {
+            if (post.getSlug() == null || post.getSlug().isEmpty()) {
+                continue; // Skip posts without a slug
+            }
             String postUrl = BASE_URL + "/blog/" + post.getSlug();
             String lastMod = null;
             if (post.getUpdatedAt() != null) {
-                // --- FIX: Correctly format the Instant object ---
                 lastMod = post.getUpdatedAt()
                               .atZone(ZoneId.of("UTC"))
                               .toLocalDate()

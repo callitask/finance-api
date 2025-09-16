@@ -1,8 +1,9 @@
-package com.treishvaam.financeapi.marketdata; // --- THIS LINE IS THE FIX ---
+package com.treishvaam.financeapi.marketdata;
 
 import com.treishvaam.financeapi.apistatus.PasswordDto;
-import com.treishvaam.financeapi.model.MarketData;
-import com.treishvaam.financeapi.service.MarketDataService;
+// CORRECTED IMPORTS: Pointing to the correct sub-package
+import com.treishvaam.financeapi.marketdata.MarketData;
+import com.treishvaam.financeapi.marketdata.MarketDataService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;

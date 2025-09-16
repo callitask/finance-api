@@ -1,5 +1,6 @@
 package com.treishvaam.financeapi.service;
 
+import com.treishvaam.financeapi.config.CachingConfig;
 import com.treishvaam.financeapi.dto.BlogPostDto;
 import com.treishvaam.financeapi.dto.PostThumbnailDto;
 import com.treishvaam.financeapi.model.BlogPost;
@@ -9,6 +10,7 @@ import com.treishvaam.financeapi.repository.BlogPostRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -48,6 +50,11 @@ public class BlogPostServiceImpl implements BlogPostService {
     @Override
     public List<BlogPost> findAll() {
         return blogPostRepository.findAllByStatusOrderByCreatedAtDesc(PostStatus.PUBLISHED);
+    }
+
+    @Override
+    public Page<BlogPost> findAll(Pageable pageable) {
+        return blogPostRepository.findAll(pageable);
     }
 
     @Override
@@ -107,8 +114,8 @@ public class BlogPostServiceImpl implements BlogPostService {
 
     @Override
     @Transactional
+    @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, key = "#result.slug", condition = "#result.slug != null and #result.status.name() == 'PUBLISHED'")
     public BlogPost save(BlogPost blogPost, List<MultipartFile> newThumbnails, List<PostThumbnailDto> thumbnailDtos) {
-        // ... (existing save logic remains the same)
         Map<String, MultipartFile> newFilesMap = newThumbnails != null ?
                 newThumbnails.stream().collect(Collectors.toMap(MultipartFile::getOriginalFilename, Function.identity())) :
                 Map.of();
@@ -154,13 +161,14 @@ public class BlogPostServiceImpl implements BlogPostService {
 
     @Override
     @Transactional
+    @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, allEntries = true)
     public void deleteById(Long id) {
         blogPostRepository.deleteById(id);
     }
 
-    // --- NEW METHOD IMPLEMENTATION FOR FEATURE 2 ---
     @Override
     @Transactional
+    @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, allEntries = true)
     public void deletePostsInBulk(List<Long> postIds) {
         if(postIds != null && !postIds.isEmpty()) {
             blogPostRepository.deleteByIdIn(postIds);
@@ -186,7 +194,6 @@ public class BlogPostServiceImpl implements BlogPostService {
         return 0; // Simplified for brevity
     }
 
-    // --- UPDATED METHOD FOR FEATURE 1 ---
     @Override
     @Transactional
     public BlogPost duplicatePost(Long id) {
@@ -198,14 +205,13 @@ public class BlogPostServiceImpl implements BlogPostService {
         newPost.setAuthor(username);
         newPost.setTenantId(username);
         newPost.setTitle("Copy of " + originalPost.getTitle());
-        newPost.setContent(""); // Start with empty content
+        newPost.setContent(""); 
         newPost.setCustomSnippet("");
         newPost.setCategory(originalPost.getCategory());
         newPost.setTags(new ArrayList<>());
         newPost.setStatus(PostStatus.DRAFT);
         newPost.setSlug(generateUniqueId());
         
-        // --- SMART GROUP MANAGEMENT LOGIC ---
         String layoutStyle = originalPost.getLayoutStyle();
         newPost.setLayoutStyle(layoutStyle);
 
@@ -216,12 +222,11 @@ public class BlogPostServiceImpl implements BlogPostService {
                 long currentGroupSize = blogPostRepository.countByLayoutGroupId(originalGroupId);
                 
                 if (currentGroupSize < columnLimit) {
-                    newPost.setLayoutGroupId(originalGroupId); // Join existing group
+                    newPost.setLayoutGroupId(originalGroupId);
                 } else {
-                    newPost.setLayoutGroupId(generateUniqueId()); // Start a new group
+                    newPost.setLayoutGroupId(generateUniqueId());
                 }
             } catch (Exception e) {
-                // Fallback for parsing error
                 newPost.setLayoutGroupId(generateUniqueId());
             }
         } else {

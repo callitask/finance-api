@@ -1,0 +1,5 @@
+# This rule proxies sitemap requests to your backend server
+/sitemap.xml    https://backend.treishvaamgroup.com/sitemap.xml   200
+
+# This is the fallback rule for your React application
+/* /index.html     

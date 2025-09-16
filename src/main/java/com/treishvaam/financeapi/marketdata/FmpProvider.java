@@ -44,18 +44,15 @@ public class FmpProvider implements MarketDataProvider {
        return fetchData(url, "ACTIVE");
    }
 
-   // --- MODIFICATION: This provider does not support historical data ---
    @Override
    public Object fetchHistoricalData(String ticker) {
        throw new UnsupportedOperationException("FmpProvider does not support historical data fetching.");
    }
 
    private List<MarketData> fetchData(String url, String type) {
-       // ... (rest of the method is unchanged)
        try {
            String jsonResponse = restTemplate.getForObject(url, String.class);
            if (jsonResponse == null || jsonResponse.trim().isEmpty()) {
-               System.err.println("Empty or null response from FMP API for URL: " + url);
                return Collections.emptyList();
            }
            if (!jsonResponse.trim().startsWith("[")) {
@@ -88,7 +85,7 @@ public class FmpProvider implements MarketDataProvider {
        public java.math.BigDecimal change;
        public Double changesPercentage;
        public Long volume;
-       // Getters and Setters ...
+       // Getters and Setters
        public String getSymbol() { return symbol; }
        public void setSymbol(String symbol) { this.symbol = symbol; }
        public String getName() { return name; }

@@ -60,6 +60,24 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
+                // Rule for static assets (CSS, JS, images, etc.)
+                .requestMatchers(
+                    "/static/**", 
+                    "/favicon.ico", 
+                    "/logo.png",
+                    "/logo192.png", 
+                    "/logo512.png",
+                    "/manifest.json",
+                    "/amitsagar-kandpal-photo.png" // <-- ADDED THIS LINE
+                ).permitAll()
+                // Rule for public frontend pages served by ViewController and LogoController
+                .requestMatchers(
+                    HttpMethod.GET,
+                    "/", "/about", "/services", "/vision", "/education",
+                    "/contact", "/login", "/blog", "/blog/**", "/ssr-test",
+                    "/api/logo"
+                ).permitAll()
+                // Rule for public API endpoints
                 .requestMatchers(
                     HttpMethod.GET,
                     "/api/posts/**", 

@@ -14,6 +14,8 @@ import java.util.Optional;
 public interface BlogPostService {
     List<BlogPost> findAll();
 
+    Page<BlogPost> findAll(Pageable pageable);
+
     List<BlogPost> findAllForAdmin();
 
     Page<BlogPost> findAllPublishedPosts(Pageable pageable);
