@@ -24,7 +24,6 @@ public class DataInitializer implements CommandLineRunner {
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
 
-    // --- NEW: Injected admin username from application properties ---
     @Value("${app.admin.username}")
     private String adminUsername;
 
@@ -50,7 +49,6 @@ public class DataInitializer implements CommandLineRunner {
         }
 
         if (userRepository.findByEmail(adminEmail).isEmpty()) {
-            // --- FIX: Use the new User constructor with three arguments ---
             User adminUser = new User(adminUsername, adminEmail, passwordEncoder.encode(adminPassword));
 
             Set<Role> roles = new HashSet<>();
