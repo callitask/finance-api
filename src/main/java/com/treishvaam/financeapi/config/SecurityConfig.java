@@ -68,28 +68,31 @@ public class SecurityConfig {
                     "/logo192.png", 
                     "/logo512.png",
                     "/manifest.json",
-                    "/amitsagar-kandpal-photo.png" // <-- ADDED THIS LINE
+                    "/amitsagar-kandpal-photo.png"
                 ).permitAll()
-                // Rule for public frontend pages served by ViewController and LogoController
+                // Rule for public frontend pages served by ViewController
                 .requestMatchers(
                     HttpMethod.GET,
                     "/", "/about", "/services", "/vision", "/education",
                     "/contact", "/login", "/blog", "/blog/**", "/ssr-test",
-                    "/api/logo"
+                    "/dashboard/**" // Allows loading dashboard pages
                 ).permitAll()
                 // Rule for public API endpoints
                 .requestMatchers(
                     HttpMethod.GET,
-                    "/api/posts/**", 
+                    "/api/posts", // Public list of posts
+                    "/api/posts/slug/**", // Public single post
                     "/api/categories", 
                     "/api/uploads/**",
                     "/api/market/**",
                     "/api/news/**",
-                    "/sitemap.xml"
+                    "/sitemap.xml",
+                    "/api/logo"
                 ).permitAll()
                 .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 
-                .requestMatchers("/api/market/admin/**", "/api/status/**").hasAuthority("ROLE_ADMIN")
+                // ** THIS IS THE NEW SECURITY RULE FOR ADMIN APIs **
+                .requestMatchers("/api/posts/admin/**", "/api/market/admin/**", "/api/status/**").hasAuthority("ROLE_ADMIN")
 
                 .anyRequest().authenticated()
             );
