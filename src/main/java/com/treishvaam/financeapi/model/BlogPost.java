@@ -25,10 +25,13 @@ public class BlogPost {
     @Column(unique = true)
     private String slug;
 
+    @Column(name = "user_friendly_slug")
+    private String userFriendlySlug;
+
     @Lob
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
-    
+
     @Lob
     @Column(columnDefinition = "TEXT")
     private String customSnippet;
@@ -62,7 +65,10 @@ public class BlogPost {
 
     @Column(name = "cover_image_url")
     private String coverImageUrl;
-    
+
+    @Column(name = "cover_image_alt_text")
+    private String coverImageAltText;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "post_tags", joinColumns = @JoinColumn(name = "post_id"))
     @Column(name = "tag")
@@ -76,12 +82,11 @@ public class BlogPost {
     @Column(nullable = false)
     private PostStatus status = PostStatus.DRAFT;
 
-    // --- NEW FIELDS ADDED ---
     @Column(name = "layout_style")
-    private String layoutStyle = "DEFAULT"; // e.g., "DEFAULT", "BANNER", "MULTI_COLUMN"
+    private String layoutStyle = "DEFAULT";
 
     @Column(name = "layout_group_id")
-    private String layoutGroupId; // Groups posts for multi-column rows
+    private String layoutGroupId;
 
     @PrePersist
     protected void onCreate() {
@@ -101,6 +106,8 @@ public class BlogPost {
     public void setTitle(String title) { this.title = title; }
     public String getSlug() { return slug; }
     public void setSlug(String slug) { this.slug = slug; }
+    public String getUserFriendlySlug() { return userFriendlySlug; }
+    public void setUserFriendlySlug(String userFriendlySlug) { this.userFriendlySlug = userFriendlySlug; }
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
     public String getCustomSnippet() { return customSnippet; }
@@ -127,10 +134,10 @@ public class BlogPost {
     public void setThumbnailOrientation(String thumbnailOrientation) { this.thumbnailOrientation = thumbnailOrientation; }
     public String getCoverImageUrl() { return coverImageUrl; }
     public void setCoverImageUrl(String coverImageUrl) { this.coverImageUrl = coverImageUrl; }
+    public String getCoverImageAltText() { return coverImageAltText; }
+    public void setCoverImageAltText(String coverImageAltText) { this.coverImageAltText = coverImageAltText; }
     public List<String> getTags() { return tags; }
     public void setTags(List<String> tags) { this.tags = tags; }
-
-    // --- GETTERS AND SETTERS FOR NEW FIELDS ---
     public String getLayoutStyle() { return layoutStyle; }
     public void setLayoutStyle(String layoutStyle) { this.layoutStyle = layoutStyle; }
     public String getLayoutGroupId() { return layoutGroupId; }

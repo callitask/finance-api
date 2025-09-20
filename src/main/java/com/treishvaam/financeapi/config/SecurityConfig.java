@@ -62,7 +62,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(authz -> authz
                 // Rule for static assets (CSS, JS, images, etc.)
                 .requestMatchers(
-                    "/static/**", 
+                    "/static/**", // Allows access to JS, CSS, and the new banner
                     "/favicon.ico", 
                     "/logo.png",
                     "/logo192.png", 
@@ -75,13 +75,13 @@ public class SecurityConfig {
                     HttpMethod.GET,
                     "/", "/about", "/services", "/vision", "/education",
                     "/contact", "/login", "/blog", "/blog/**", "/ssr-test",
-                    "/dashboard/**" // Allows loading dashboard pages
+                    "/dashboard/**"
                 ).permitAll()
                 // Rule for public API endpoints
                 .requestMatchers(
                     HttpMethod.GET,
-                    "/api/posts", // Public list of posts
-                    "/api/posts/slug/**", // Public single post
+                    "/api/posts",
+                    "/api/posts/slug/**",
                     "/api/categories", 
                     "/api/uploads/**",
                     "/api/market/**",
@@ -91,7 +91,6 @@ public class SecurityConfig {
                 ).permitAll()
                 .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 
-                // ** THIS IS THE NEW SECURITY RULE FOR ADMIN APIs **
                 .requestMatchers("/api/posts/admin/**", "/api/market/admin/**", "/api/status/**").hasAuthority("ROLE_ADMIN")
 
                 .anyRequest().authenticated()

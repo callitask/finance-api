@@ -48,6 +48,16 @@ public class BlogPostServiceImpl implements BlogPostService {
     }
 
     @Override
+    public String generateUserFriendlySlug(String title) {
+        if (title == null) return "";
+        return title.toLowerCase()
+                    .replaceAll("\\s+", "-")
+                    .replaceAll("[^a-z0-9-]", "")
+                    .replaceAll("-+", "-")
+                    .replaceAll("^-|-$", "");
+    }
+
+    @Override
     public List<BlogPost> findAll() {
         return blogPostRepository.findAllByStatusOrderByCreatedAtDesc(PostStatus.PUBLISHED);
     }
@@ -95,6 +105,8 @@ public class BlogPostServiceImpl implements BlogPostService {
         newPost.setTenantId(username);
         newPost.setSlug(generateUniqueId());
         newPost.setLayoutStyle("DEFAULT");
+        // Also generate the user-friendly slug on draft creation
+        newPost.setUserFriendlySlug(generateUserFriendlySlug(newPost.getTitle()));
         return blogPostRepository.save(newPost);
     }
 
@@ -109,13 +121,20 @@ public class BlogPostServiceImpl implements BlogPostService {
         if (existingPost.getSlug() == null || existingPost.getSlug().isEmpty()) {
             existingPost.setSlug(generateUniqueId());
         }
+        // Update the user-friendly slug as well
+        existingPost.setUserFriendlySlug(generateUserFriendlySlug(existingPost.getTitle()));
         return blogPostRepository.save(existingPost);
     }
 
     @Override
     @Transactional
     @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, key = "#result.slug", condition = "#result.slug != null and #result.status.name() == 'PUBLISHED'")
-    public BlogPost save(BlogPost blogPost, List<MultipartFile> newThumbnails, List<PostThumbnailDto> thumbnailDtos) {
+    public BlogPost save(BlogPost blogPost, List<MultipartFile> newThumbnails, List<PostThumbnailDto> thumbnailDtos, MultipartFile coverImage) {
+        if (coverImage != null && !coverImage.isEmpty()) {
+            String coverImageName = imageService.saveImage(coverImage);
+            blogPost.setCoverImageUrl(coverImageName);
+        }
+
         Map<String, MultipartFile> newFilesMap = newThumbnails != null ?
                 newThumbnails.stream().collect(Collectors.toMap(MultipartFile::getOriginalFilename, Function.identity())) :
                 Map.of();
@@ -147,9 +166,14 @@ public class BlogPostServiceImpl implements BlogPostService {
         }
         blogPost.getThumbnails().clear();
         blogPost.getThumbnails().addAll(finalThumbnails);
+
         if (blogPost.getSlug() == null || blogPost.getSlug().isEmpty()) {
             blogPost.setSlug(generateUniqueId());
         }
+        if (blogPost.getUserFriendlySlug() == null || blogPost.getUserFriendlySlug().isEmpty()) {
+            blogPost.setUserFriendlySlug(generateUserFriendlySlug(blogPost.getTitle()));
+        }
+
         if (blogPost.getScheduledTime() != null && blogPost.getScheduledTime().isAfter(Instant.now())) {
             blogPost.setStatus(PostStatus.SCHEDULED);
         } else {
@@ -179,7 +203,13 @@ public class BlogPostServiceImpl implements BlogPostService {
     @Scheduled(fixedRate = 60000)
     @Transactional
     public void checkAndPublishScheduledPosts() {
-        // ... (existing logic remains the same)
+        List<BlogPost> postsToPublish = blogPostRepository.findByStatusAndScheduledTimeBefore(PostStatus.SCHEDULED, Instant.now());
+        for (BlogPost post : postsToPublish) {
+            post.setStatus(PostStatus.PUBLISHED);
+            post.setScheduledTime(null);
+            blogPostRepository.save(post);
+            logger.info("Published scheduled post with ID: {}", post.getId());
+        }
     }
 
     @Override
@@ -190,8 +220,16 @@ public class BlogPostServiceImpl implements BlogPostService {
     @Override
     @Transactional
     public int backfillSlugs() {
-        // ... (existing logic remains the same)
-        return 0; // Simplified for brevity
+        List<BlogPost> posts = blogPostRepository.findAll();
+        int count = 0;
+        for (BlogPost post : posts) {
+            if (post.getUserFriendlySlug() == null || post.getUserFriendlySlug().isEmpty()) {
+                post.setUserFriendlySlug(generateUserFriendlySlug(post.getTitle()));
+                blogPostRepository.save(post);
+                count++;
+            }
+        }
+        return count;
     }
 
     @Override
@@ -211,7 +249,8 @@ public class BlogPostServiceImpl implements BlogPostService {
         newPost.setTags(new ArrayList<>());
         newPost.setStatus(PostStatus.DRAFT);
         newPost.setSlug(generateUniqueId());
-        
+        newPost.setUserFriendlySlug(generateUserFriendlySlug(newPost.getTitle()));
+
         String layoutStyle = originalPost.getLayoutStyle();
         newPost.setLayoutStyle(layoutStyle);
 
@@ -220,7 +259,7 @@ public class BlogPostServiceImpl implements BlogPostService {
             try {
                 int columnLimit = Integer.parseInt(layoutStyle.split("_")[2]);
                 long currentGroupSize = blogPostRepository.countByLayoutGroupId(originalGroupId);
-                
+
                 if (currentGroupSize < columnLimit) {
                     newPost.setLayoutGroupId(originalGroupId);
                 } else {

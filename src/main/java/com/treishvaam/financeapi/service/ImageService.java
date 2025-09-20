@@ -42,13 +42,12 @@ public class ImageService {
         }
     }
 
-    /**
-     * FINAL FIX: This version uses Java's standard ImageIO to read the PNG and the
-     * TwelveMonkeys plugin to write the WebP file, bypassing Thumbnailator for this task.
-     */
     @PostConstruct
-    public void processAndCacheLogo() {
-        // This static block ensures the WebP ImageWriter is available.
+    public void onStartup() {
+        processAndCacheLogo();
+    }
+
+    private void processAndCacheLogo() {
         ImageIO.scanForPlugins();
         Path logoWebpPath = this.rootLocation.resolve("logo.webp");
 
@@ -61,22 +60,16 @@ public class ImageService {
             Resource resource = resourceLoader.getResource("classpath:static/images/logo.png");
             if (!resource.exists()) {
                 logger.error("FATAL: logo.png not found at classpath:static/images/logo.png");
-                throw new RuntimeException("logo.png not found. Please place it in src/main/resources/static/images/");
+                throw new RuntimeException("logo.png not found.");
             }
 
             try (InputStream inputStream = resource.getInputStream()) {
-                // Read the PNG using standard ImageIO
                 BufferedImage image = ImageIO.read(inputStream);
-                if (image == null) {
-                    throw new IOException("Could not read image file. The file may be corrupt or in an unsupported format.");
+                if (image == null) throw new IOException("Could not read logo.png.");
+                if (!ImageIO.write(image, "webp", logoWebpPath.toFile())) {
+                    throw new IOException("Failed to convert logo to WebP format.");
                 }
-
-                // Write the WebP file using the ImageIO plugin
-                boolean success = ImageIO.write(image, "webp", logoWebpPath.toFile());
-                if (!success) {
-                    throw new IOException("Failed to convert image to WebP format. No suitable writer found.");
-                }
-                logger.info("Successfully converted and cached logo.png to logo.webp at {}", logoWebpPath);
+                logger.info("Successfully converted and cached logo.png to logo.webp.");
             }
 
         } catch (IOException e) {
@@ -85,7 +78,6 @@ public class ImageService {
         }
     }
 
-    // The original method for user uploads remains unchanged, as it works correctly.
     public String saveImage(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             return null;

@@ -41,9 +41,8 @@ public class ViewController {
 
     @Value("${app.base-url}")
     private String appBaseUrl;
-
-    // A Base64 encoded SVG for a 1200x675 gray rectangle. This is used as a fallback.
-    private static final String GRAY_BANNER_DATA_URI = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwMCIgaGVpZ2h0PSI2NzUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2NjY2NjYyIvPjwvc3ZnPg==";
+    
+    private static final String DEFAULT_ARTICLE_IMAGE_PATH = "/static/images/default-article-banner.webp";
     private static final String DEFAULT_TITLE = "Treishfin · Treishvaam Finance | Financial News & Analysis";
     private static final String DEFAULT_DESCRIPTION = "Stay ahead with the latest financial news, market updates, and expert analysis from Treishvaam Finance. Your daily source for insights on stocks, crypto, and trading.";
     private static final String DEFAULT_OG_TITLE = "Treishfin · Treishvaam Finance | Financial News & Analysis";
@@ -62,10 +61,9 @@ public class ViewController {
             String pageTitle = "Treishfin · " + post.getTitle();
             String pageDescription = createSnippet(post.getCustomSnippet() != null && !post.getCustomSnippet().isEmpty() ? post.getCustomSnippet() : post.getContent(), 160);
             
-            // UPDATED: Use the gray banner data URI as the fallback image
             String imageUrl = (post.getCoverImageUrl() != null && !post.getCoverImageUrl().isEmpty())
                 ? appBaseUrl + "/api/uploads/" + post.getCoverImageUrl() + ".webp"
-                : GRAY_BANNER_DATA_URI;
+                : appBaseUrl + DEFAULT_ARTICLE_IMAGE_PATH;
 
             String articleSchema = generateArticleSchema(post, pageUrl, imageUrl);
 
@@ -105,7 +103,7 @@ public class ViewController {
                 .replace("__SEO_DESCRIPTION__", escapeHtml(pageDescription))
                 .replace("__OG_TITLE__", escapeHtml(pageTitle))
                 .replace("__OG_DESCRIPTION__", escapeHtml(pageDescription))
-                .replace("__OG_IMAGE__", GRAY_BANNER_DATA_URI)
+                .replace("__OG_IMAGE__", appBaseUrl + DEFAULT_ARTICLE_IMAGE_PATH)
                 .replace("__OG_URL__", escapeHtml(pageUrl))
                 .replace("__ARTICLE_SCHEMA__", webPageSchema);
         } else {
@@ -147,6 +145,10 @@ public class ViewController {
         try {
             String logoUrl = appBaseUrl + "/api/logo";
             
+            // ** FINAL FIX: Reverted author to a specific Person for better alignment with Google guidelines **
+            String authorName = "Amitsagar Kandpal";
+            String authorType = "Person";
+
             Map<String, Object> schema = new LinkedHashMap<>();
             schema.put("@context", "https://schema.org");
             schema.put("@type", "Article");
@@ -158,8 +160,8 @@ public class ViewController {
             schema.put("description", createSnippet(post.getCustomSnippet() != null && !post.getCustomSnippet().isEmpty() ? post.getCustomSnippet() : post.getContent(), 160));
             schema.put("image", imageUrl);
             schema.put("author", Map.of(
-                "@type", "Person",
-                "name", post.getAuthor()
+                "@type", authorType,
+                "name", authorName 
             ));
             schema.put("publisher", Map.of(
                 "@type", "Organization",
@@ -184,7 +186,7 @@ public class ViewController {
             .replace("__SEO_DESCRIPTION__", DEFAULT_DESCRIPTION)
             .replace("__OG_TITLE__", DEFAULT_OG_TITLE)
             .replace("__OG_DESCRIPTION__", DEFAULT_OG_DESCRIPTION)
-            .replace("__OG_IMAGE__", GRAY_BANNER_DATA_URI)
+            .replace("__OG_IMAGE__", appBaseUrl + DEFAULT_ARTICLE_IMAGE_PATH)
             .replace("__OG_URL__", pageUrl)
             .replace("__ARTICLE_SCHEMA__", "{}");
     }
