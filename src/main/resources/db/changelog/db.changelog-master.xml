@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <include file="db/changelog/V1__init.xml"/>
+    <include file="db/changelog/V2__add_users_table.xml"/>
+    <include file="db/changelog/V3__add_roles_table.xml"/>
+    <include file="db/changelog/V4__add_user_roles_table.xml"/>
+    <include file="db/changelog/V5__add_categories_table.xml"/>
+    <include file="db/changelog/V6__add_tenant_id_to_posts.xml"/>
+    <include file="db/changelog/V7__add_category_to_posts_table.xml"/>
+    <include file="db/changelog/V8__add_image_metadata_to_posts.xml"/>
+    <include file="db/changelog/V9__add_author_to_posts.xml"/>
+    <include file="db/changelog/V10__add_linkedin_token_to_users.xml"/>
+    <include file="db/changelog/V11__add_market_data_table.xml"/>
+    <include file="db/changelog/V12__add_category_column_to_blog_posts.xml"/>
+    <include file="db/changelog/V15__add_category_field_to_blog_posts.xml"/>
+
+</databaseChangeLog>

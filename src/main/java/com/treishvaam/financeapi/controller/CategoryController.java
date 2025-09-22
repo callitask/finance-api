@@ -2,9 +2,11 @@ package com.treishvaam.financeapi.controller;
 
 import com.treishvaam.financeapi.model.Category;
 import com.treishvaam.financeapi.repository.CategoryRepository;
+import com.treishvaam.financeapi.service.BlogPostService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -16,13 +18,15 @@ public class CategoryController {
 
     @Autowired
     private CategoryRepository categoryRepository;
+    
+    @Autowired
+    private BlogPostService blogPostService; // Re-using slug generator from here
 
     @GetMapping
     public ResponseEntity<List<Category>> getAllCategories() {
         return ResponseEntity.ok(categoryRepository.findAll());
     }
 
-    // --- FIX: This method now correctly reads the "name" field from the incoming JSON. ---
     @PostMapping
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<Category> createCategory(@RequestBody Map<String, String> payload) {
@@ -32,7 +36,24 @@ public class CategoryController {
         }
         Category newCategory = new Category();
         newCategory.setName(categoryName);
+        newCategory.setSlug(blogPostService.generateUserFriendlySlug(categoryName)); // Generate and set slug
         Category savedCategory = categoryRepository.save(newCategory);
         return ResponseEntity.ok(savedCategory);
+    }
+
+    @PostMapping("/admin/backfill-slugs")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    @Transactional
+    public ResponseEntity<Map<String, String>> backfillCategorySlugs() {
+        List<Category> categories = categoryRepository.findAll();
+        int count = 0;
+        for (Category category : categories) {
+            if (category.getSlug() == null || category.getSlug().isEmpty()) {
+                category.setSlug(blogPostService.generateUserFriendlySlug(category.getName()));
+                categoryRepository.save(category);
+                count++;
+            }
+        }
+        return ResponseEntity.ok(Map.of("message", "Successfully updated " + count + " categories with new slugs."));
     }
 }

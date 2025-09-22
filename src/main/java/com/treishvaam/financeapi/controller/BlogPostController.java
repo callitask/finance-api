@@ -41,7 +41,6 @@ public class BlogPostController {
     @Autowired
     private ObjectMapper objectMapper;
 
-    // MODIFIED: This endpoint now supports pagination for infinite scroll
     @GetMapping
     public ResponseEntity<Page<BlogPost>> getAllPosts(
             @RequestParam(defaultValue = "0") int page,
@@ -51,75 +50,98 @@ public class BlogPostController {
     }
 
     @GetMapping("/admin/all")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<List<BlogPost>> getAllPostsForAdmin() {
         return ResponseEntity.ok(blogPostService.findAllForAdmin());
     }
 
+    // This generic endpoint can be kept for admin/internal use
     @GetMapping("/{id}")
     public ResponseEntity<BlogPost> getPostById(@PathVariable Long id) {
         Optional<BlogPost> post = blogPostService.findById(id);
         return post.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    @GetMapping("/slug/{slug}")
-    public ResponseEntity<BlogPost> getPostBySlug(@PathVariable String slug) {
-        return blogPostService.findBySlug(slug)
+    // ** NEW SEO-FRIENDLY ENDPOINT **
+    @GetMapping("/category/{categorySlug}/{userFriendlySlug}/{id}")
+    public ResponseEntity<BlogPost> getPostByFullSlug(
+            @PathVariable String categorySlug,
+            @PathVariable String userFriendlySlug,
+            @PathVariable Long id) {
+        return blogPostService.findPostForUrl(id, categorySlug, userFriendlySlug)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
+
     @PostMapping("/admin/backfill-slugs")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<Map<String, String>> backfillSlugs() {
         int count = blogPostService.backfillSlugs();
         return ResponseEntity.ok(Map.of("message", "Successfully updated " + count + " posts with new slugs."));
     }
 
     @GetMapping("/admin/drafts")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<List<BlogPost>> getDrafts() {
         return ResponseEntity.ok(blogPostService.findDrafts());
     }
 
     @PostMapping("/draft")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<BlogPost> createDraft(@RequestBody BlogPostDto postDto) {
         BlogPost createdPost = blogPostService.createDraft(postDto);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdPost);
     }
 
     @PutMapping("/draft/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<BlogPost> updateDraft(@PathVariable Long id, @RequestBody BlogPostDto postDto) {
         BlogPost updatedDraft = blogPostService.updateDraft(id, postDto);
         return ResponseEntity.ok(updatedDraft);
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<BlogPost> createPost(@RequestParam("title") String title, @RequestParam("content") String content, @RequestParam(value = "customSnippet", required = false) String customSnippet, @RequestParam("category") String category, @RequestParam(value = "tags", required = false) List<String> tags, @RequestParam("featured") boolean featured, @RequestParam(value = "scheduledTime", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant scheduledTime, @RequestParam(value = "newThumbnails", required = false) List<MultipartFile> newThumbnails, @RequestParam(value = "thumbnailMetadata", required = false) String thumbnailMetadataJson, @RequestParam(value = "thumbnailOrientation", required = false) String thumbnailOrientation, @RequestParam("layoutStyle") String layoutStyle, @RequestParam(value = "layoutGroupId", required = false) String layoutGroupId) throws IOException {
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<BlogPost> createPost(
+            @RequestParam("title") String title,
+            @RequestParam("content") String content,
+            @RequestParam(value = "userFriendlySlug", required = false) String userFriendlySlug,
+            @RequestParam(value = "customSnippet", required = false) String customSnippet,
+            @RequestParam("category") String category,
+            @RequestParam(value = "tags", required = false) List<String> tags,
+            @RequestParam("featured") boolean featured,
+            @RequestParam(value = "scheduledTime", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant scheduledTime,
+            @RequestParam(value = "newThumbnails", required = false) List<MultipartFile> newThumbnails,
+            @RequestParam(value = "thumbnailMetadata", required = false) String thumbnailMetadataJson,
+            @RequestParam(value = "thumbnailOrientation", required = false) String thumbnailOrientation,
+            @RequestParam(value = "coverImage", required = false) MultipartFile coverImage,
+            @RequestParam(value = "coverImageAltText", required = false) String coverImageAltText,
+            @RequestParam("layoutStyle") String layoutStyle,
+            @RequestParam(value = "layoutGroupId", required = false) String layoutGroupId) throws IOException {
         BlogPost newPost = new BlogPost();
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         newPost.setAuthor(username);
         newPost.setTenantId(username);
         newPost.setTitle(title);
         newPost.setContent(content);
+        newPost.setUserFriendlySlug(userFriendlySlug);
         newPost.setCustomSnippet(customSnippet);
         newPost.setCategory(category);
         newPost.setTags(tags);
         newPost.setFeatured(featured);
         newPost.setScheduledTime(scheduledTime);
         newPost.setThumbnailOrientation(thumbnailOrientation);
+        newPost.setCoverImageAltText(coverImageAltText);
         newPost.setLayoutStyle(layoutStyle);
         newPost.setLayoutGroupId(layoutGroupId);
         List<PostThumbnailDto> thumbnailDtos = thumbnailMetadataJson != null ? objectMapper.readValue(thumbnailMetadataJson, new TypeReference<List<PostThumbnailDto>>() {}) : List.of();
-        BlogPost savedPost = blogPostService.save(newPost, newThumbnails, thumbnailDtos);
+        BlogPost savedPost = blogPostService.save(newPost, newThumbnails, thumbnailDtos, coverImage);
         return ResponseEntity.status(HttpStatus.CREATED).body(savedPost);
     }
-    
+
     @PostMapping("/{id}/duplicate")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<BlogPost> duplicatePost(@PathVariable Long id) {
         try {
             BlogPost duplicatedPost = blogPostService.duplicatePost(id);
@@ -130,8 +152,24 @@ public class BlogPostController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<BlogPost> updatePost(@PathVariable Long id, @RequestParam("title") String title, @RequestParam("content") String content, @RequestParam(value = "customSnippet", required = false) String customSnippet, @RequestParam("category") String category, @RequestParam(value = "tags", required = false) List<String> tags, @RequestParam("featured") boolean featured, @RequestParam(value = "scheduledTime", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant scheduledTime, @RequestParam(value = "newThumbnails", required = false) List<MultipartFile> newThumbnails, @RequestParam(value = "thumbnailMetadata", required = false) String thumbnailMetadataJson, @RequestParam(value = "thumbnailOrientation", required = false) String thumbnailOrientation, @RequestParam("layoutStyle") String layoutStyle, @RequestParam(value = "layoutGroupId", required = false) String layoutGroupId) throws IOException {
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<BlogPost> updatePost(
+            @PathVariable Long id,
+            @RequestParam("title") String title,
+            @RequestParam("content") String content,
+            @RequestParam(value = "userFriendlySlug", required = false) String userFriendlySlug,
+            @RequestParam(value = "customSnippet", required = false) String customSnippet,
+            @RequestParam("category") String category,
+            @RequestParam(value = "tags", required = false) List<String> tags,
+            @RequestParam("featured") boolean featured,
+            @RequestParam(value = "scheduledTime", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant scheduledTime,
+            @RequestParam(value = "newThumbnails", required = false) List<MultipartFile> newThumbnails,
+            @RequestParam(value = "thumbnailMetadata", required = false) String thumbnailMetadataJson,
+            @RequestParam(value = "thumbnailOrientation", required = false) String thumbnailOrientation,
+            @RequestParam(value = "coverImage", required = false) MultipartFile coverImage,
+            @RequestParam(value = "coverImageAltText", required = false) String coverImageAltText,
+            @RequestParam("layoutStyle") String layoutStyle,
+            @RequestParam(value = "layoutGroupId", required = false) String layoutGroupId) throws IOException {
         Optional<BlogPost> existingPostOpt = blogPostService.findById(id);
         if (!existingPostOpt.isPresent()) {
             return ResponseEntity.notFound().build();
@@ -139,35 +177,39 @@ public class BlogPostController {
         BlogPost existingPost = existingPostOpt.get();
         existingPost.setTitle(title);
         existingPost.setContent(content);
+        existingPost.setUserFriendlySlug(userFriendlySlug);
         existingPost.setCustomSnippet(customSnippet);
         existingPost.setCategory(category);
         existingPost.setTags(tags);
         existingPost.setFeatured(featured);
         existingPost.setScheduledTime(scheduledTime);
         existingPost.setThumbnailOrientation(thumbnailOrientation);
+        existingPost.setCoverImageAltText(coverImageAltText);
         existingPost.setLayoutStyle(layoutStyle);
         existingPost.setLayoutGroupId(layoutGroupId);
         List<PostThumbnailDto> thumbnailDtos = thumbnailMetadataJson != null ? objectMapper.readValue(thumbnailMetadataJson, new TypeReference<List<PostThumbnailDto>>() {}) : List.of();
-        BlogPost updatedPost = blogPostService.save(existingPost, newThumbnails, thumbnailDtos);
+        BlogPost updatedPost = blogPostService.save(existingPost, newThumbnails, thumbnailDtos, coverImage);
         return ResponseEntity.ok(updatedPost);
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<Void> deletePost(@PathVariable Long id) {
         blogPostService.deleteById(id);
         return ResponseEntity.noContent().build();
     }
-    
+
+
+
     @DeleteMapping("/bulk")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<Void> deleteMultiplePosts(@RequestBody List<Long> postIds) {
         blogPostService.deletePostsInBulk(postIds);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/share")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public Mono<ResponseEntity<String>> sharePost(@PathVariable Long id, @RequestBody ShareRequest shareRequest) {
         if (linkedInService == null) {
             return Mono.just(ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).body("LinkedIn integration is currently disabled."));

@@ -204,6 +204,30 @@ databaseChangeLog:
   - include:
       file: db/changelog/010-add-story-thumbnails.xml
 
-  # --- FINAL FIX: Includes the new page_content table migration ---
   - include:
       file: db/changelog/V12__add_page_content_table.xml
+
+  - include:
+      file: db/changelog/V13__modify_alt_text_column.xml
+
+  - include:
+      file: db/changelog/V14__add_user_friendly_slug.xml
+
+  - changeSet:
+      id: 15-add-slug-to-categories
+      author: gemini-dev
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists:
+                tableName: categories
+                columnName: slug
+      changes:
+        - addColumn:
+            tableName: categories
+            columns:
+              - column:
+                  name: slug
+                  type: VARCHAR(255)
+                  constraints:
+                    unique: true

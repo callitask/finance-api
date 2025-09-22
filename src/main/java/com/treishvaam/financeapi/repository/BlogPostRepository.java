@@ -27,4 +27,7 @@ public interface BlogPostRepository extends JpaRepository<BlogPost, Long> {
 
     @Transactional
     void deleteByIdIn(List<Long> ids);
+
+    // New method for URL validation
+    Optional<BlogPost> findByIdAndUserFriendlySlug(Long id, String userFriendlySlug);
 }

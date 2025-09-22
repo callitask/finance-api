@@ -81,7 +81,8 @@ public class SecurityConfig {
                 .requestMatchers(
                     HttpMethod.GET,
                     "/api/posts", // Public list of posts
-                    "/api/posts/slug/**", // Public single post
+                    "/api/posts/slug/**", // Old public single post URL
+                    "/api/posts/category/**", // **FIX: Added the new public URL for single posts**
                     "/api/categories", 
                     "/api/uploads/**",
                     "/api/market/**",

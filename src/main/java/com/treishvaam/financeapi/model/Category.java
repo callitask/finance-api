@@ -12,7 +12,9 @@ public class Category {
     @Column(nullable = false, unique = true)
     private String name;
 
-    // --- FIX: Manually added getters and setters to resolve compilation error ---
+    @Column(unique = true)
+    private String slug;
+
     public Long getId() {
         return id;
     }
@@ -28,5 +30,12 @@ public class Category {
     public void setName(String name) {
         this.name = name;
     }
-    // --- END FIX ---
+
+    public String getSlug() {
+        return slug;
+    }
+
+    public void setSlug(String slug) {
+        this.slug = slug;
+    }
 }

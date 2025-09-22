@@ -24,11 +24,10 @@ public interface BlogPostService {
 
     Optional<BlogPost> findBySlug(String slug);
 
-    BlogPost save(BlogPost blogPost, List<MultipartFile> newThumbnails, List<PostThumbnailDto> thumbnailDtos);
+    BlogPost save(BlogPost blogPost, List<MultipartFile> newThumbnails, List<PostThumbnailDto> thumbnailDtos, MultipartFile coverImage);
 
     void deleteById(Long id);
-    
-    // --- NEW METHOD FOR FEATURE 2: Bulk Actions ---
+
     void deletePostsInBulk(List<Long> postIds);
 
     void checkAndPublishScheduledPosts();
@@ -44,4 +43,9 @@ public interface BlogPostService {
     int backfillSlugs();
 
     BlogPost duplicatePost(Long id);
+
+    String generateUserFriendlySlug(String title);
+
+    // New method for the new URL structure
+    Optional<BlogPost> findPostForUrl(Long id, String categorySlug, String userFriendlySlug);
 }
