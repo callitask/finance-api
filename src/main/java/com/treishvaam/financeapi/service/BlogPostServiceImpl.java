@@ -23,9 +23,12 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -38,10 +41,8 @@ public class BlogPostServiceImpl implements BlogPostService {
 
     @Autowired
     private BlogPostRepository blogPostRepository;
-
     @Autowired
     private CategoryRepository categoryRepository;
-
     @Autowired
     private ImageService imageService;
 
@@ -50,6 +51,16 @@ public class BlogPostServiceImpl implements BlogPostService {
         byte[] bytes = new byte[8];
         random.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+    
+    private String generateUrlArticleId(BlogPost post) {
+        if (post == null || post.getCreatedAt() == null || post.getId() == null) {
+            return null;
+        }
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("EEEddMMyyyyHHmm", Locale.ENGLISH)
+                                                     .withZone(ZoneId.of("UTC"));
+        String formattedDate = formatter.format(post.getCreatedAt());
+        return (formattedDate + post.getId()).toLowerCase();
     }
 
     @Override
@@ -91,6 +102,11 @@ public class BlogPostServiceImpl implements BlogPostService {
     public Optional<BlogPost> findBySlug(String slug) {
         return blogPostRepository.findBySlug(slug);
     }
+    
+    @Override
+    public Optional<BlogPost> findByUrlArticleId(String urlArticleId) {
+        return blogPostRepository.findByUrlArticleId(urlArticleId);
+    }
 
     @Override
     public List<BlogPost> findDrafts() {
@@ -110,7 +126,6 @@ public class BlogPostServiceImpl implements BlogPostService {
         newPost.setTenantId(username);
         newPost.setSlug(generateUniqueId());
         newPost.setLayoutStyle("DEFAULT");
-        // Also generate the user-friendly slug on draft creation
         newPost.setUserFriendlySlug(generateUserFriendlySlug(newPost.getTitle()));
         return blogPostRepository.save(newPost);
     }
@@ -126,7 +141,6 @@ public class BlogPostServiceImpl implements BlogPostService {
         if (existingPost.getSlug() == null || existingPost.getSlug().isEmpty()) {
             existingPost.setSlug(generateUniqueId());
         }
-        // Update the user-friendly slug as well
         existingPost.setUserFriendlySlug(generateUserFriendlySlug(existingPost.getTitle()));
         return blogPostRepository.save(existingPost);
     }
@@ -152,9 +166,7 @@ public class BlogPostServiceImpl implements BlogPostService {
                     String baseFilename = imageService.saveImage(file);
                     thumbnail = new PostThumbnail();
                     thumbnail.setImageUrl(baseFilename);
-                } else {
-                    continue;
-                }
+                } else { continue; }
             } else {
                 thumbnail = blogPost.getThumbnails().stream()
                         .filter(t -> t.getImageUrl().equals(dto.getUrl()))
@@ -185,7 +197,15 @@ public class BlogPostServiceImpl implements BlogPostService {
             blogPost.setStatus(PostStatus.PUBLISHED);
             blogPost.setScheduledTime(null);
         }
-        return blogPostRepository.save(blogPost);
+
+        BlogPost savedPost = blogPostRepository.save(blogPost);
+
+        if ((savedPost.getStatus() == PostStatus.PUBLISHED || savedPost.getStatus() == PostStatus.SCHEDULED) && savedPost.getUrlArticleId() == null) {
+            savedPost.setUrlArticleId(generateUrlArticleId(savedPost));
+            return blogPostRepository.save(savedPost);
+        }
+        
+        return savedPost;
     }
 
     @Override
@@ -212,6 +232,9 @@ public class BlogPostServiceImpl implements BlogPostService {
         for (BlogPost post : postsToPublish) {
             post.setStatus(PostStatus.PUBLISHED);
             post.setScheduledTime(null);
+            if (post.getUrlArticleId() == null) {
+                post.setUrlArticleId(generateUrlArticleId(post));
+            }
             blogPostRepository.save(post);
             logger.info("Published scheduled post with ID: {}", post.getId());
         }
@@ -236,6 +259,24 @@ public class BlogPostServiceImpl implements BlogPostService {
         }
         return count;
     }
+    
+    // NEW METHOD IMPLEMENTATION
+    @Override
+    @Transactional
+    public int backfillUrlArticleIds() {
+        List<BlogPost> posts = blogPostRepository.findAll();
+        int count = 0;
+        for (BlogPost post : posts) {
+            // Only update posts that are published or scheduled and missing the ID
+            if ((post.getStatus() == PostStatus.PUBLISHED || post.getStatus() == PostStatus.SCHEDULED) && post.getUrlArticleId() == null) {
+                post.setUrlArticleId(generateUrlArticleId(post));
+                blogPostRepository.save(post);
+                count++;
+            }
+        }
+        return count;
+    }
+
 
     @Override
     @Transactional
@@ -255,16 +296,13 @@ public class BlogPostServiceImpl implements BlogPostService {
         newPost.setStatus(PostStatus.DRAFT);
         newPost.setSlug(generateUniqueId());
         newPost.setUserFriendlySlug(generateUserFriendlySlug(newPost.getTitle()));
-
         String layoutStyle = originalPost.getLayoutStyle();
         newPost.setLayoutStyle(layoutStyle);
-
         if (layoutStyle != null && layoutStyle.startsWith("MULTI_COLUMN")) {
             String originalGroupId = originalPost.getLayoutGroupId();
             try {
                 int columnLimit = Integer.parseInt(layoutStyle.split("_")[2]);
                 long currentGroupSize = blogPostRepository.countByLayoutGroupId(originalGroupId);
-
                 if (currentGroupSize < columnLimit) {
                     newPost.setLayoutGroupId(originalGroupId);
                 } else {
@@ -276,33 +314,21 @@ public class BlogPostServiceImpl implements BlogPostService {
         } else {
              newPost.setLayoutGroupId(null);
         }
-
         return blogPostRepository.save(newPost);
     }
     
     @Override
     @Transactional(readOnly = true)
     public Optional<BlogPost> findPostForUrl(Long id, String categorySlug, String userFriendlySlug) {
-        // Step 1: Find the post by its unique ID and user-friendly slug
         Optional<BlogPost> postOpt = blogPostRepository.findByIdAndUserFriendlySlug(id, userFriendlySlug);
-        if (postOpt.isEmpty()) {
-            return Optional.empty(); // Post not found or slug doesn't match
-        }
-        
+        if (postOpt.isEmpty()) { return Optional.empty(); }
         BlogPost post = postOpt.get();
-
-        // Step 2: Since category is just a string on BlogPost, we find the Category entity by its name
         Optional<Category> categoryOpt = categoryRepository.findByName(post.getCategory());
-        if (categoryOpt.isEmpty()) {
-            return Optional.empty(); // The category assigned to the post doesn't exist
-        }
-
-        // Step 3: Validate if the found category's slug matches the one from the URL
+        if (categoryOpt.isEmpty()) { return Optional.empty(); }
         Category category = categoryOpt.get();
         if (category.getSlug() != null && category.getSlug().equals(categorySlug)) {
-            return Optional.of(post); // Success, all parts of the URL are valid
+            return Optional.of(post);
         }
-
-        return Optional.empty(); // Category slug doesn't match
+        return Optional.empty();
     }
 }

@@ -231,3 +231,17 @@ databaseChangeLog:
                   type: VARCHAR(255)
                   constraints:
                     unique: true
+  
+  # --- NEW CHANGESET ADDED HERE ---
+  - changeSet:
+      id: 16-add-url-article-id
+      author: gemini-dev
+      changes:
+        - addColumn:
+            tableName: blog_posts
+            columns:
+              - column:
+                  name: url_article_id
+                  type: VARCHAR(255)
+                  constraints:
+                    unique: true

@@ -17,6 +17,7 @@
     <include file="db/changelog/V10__add_linkedin_token_to_users.xml"/>
     <include file="db/changelog/V11__add_market_data_table.xml"/>
     <include file="db/changelog/V12__add_category_column_to_blog_posts.xml"/>
+    <include file="db/changelog/V12__add_url_article_id_to_posts.xml"/>
     <include file="db/changelog/V15__add_category_field_to_blog_posts.xml"/>
 
 </databaseChangeLog>

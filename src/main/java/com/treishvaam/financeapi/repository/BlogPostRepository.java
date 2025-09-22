@@ -30,4 +30,7 @@ public interface BlogPostRepository extends JpaRepository<BlogPost, Long> {
 
     // New method for URL validation
     Optional<BlogPost> findByIdAndUserFriendlySlug(Long id, String userFriendlySlug);
+
+    // NEW METHOD to find by the custom URL ID
+    Optional<BlogPost> findByUrlArticleId(String urlArticleId);
 }

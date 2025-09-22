@@ -13,39 +13,25 @@ import java.util.Optional;
 
 public interface BlogPostService {
     List<BlogPost> findAll();
-
     Page<BlogPost> findAll(Pageable pageable);
-
     List<BlogPost> findAllForAdmin();
-
     Page<BlogPost> findAllPublishedPosts(Pageable pageable);
-
     Optional<BlogPost> findById(Long id);
-
     Optional<BlogPost> findBySlug(String slug);
-
     BlogPost save(BlogPost blogPost, List<MultipartFile> newThumbnails, List<PostThumbnailDto> thumbnailDtos, MultipartFile coverImage);
-
     void deleteById(Long id);
-
     void deletePostsInBulk(List<Long> postIds);
-
     void checkAndPublishScheduledPosts();
-
     List<BlogPost> findDrafts();
-
     BlogPost createDraft(BlogPostDto blogPostDto);
-
     BlogPost updateDraft(Long id, BlogPostDto blogPostDto);
-
     List<BlogPost> findAllByStatus(PostStatus status);
-
     int backfillSlugs();
-
     BlogPost duplicatePost(Long id);
-
     String generateUserFriendlySlug(String title);
-
-    // New method for the new URL structure
     Optional<BlogPost> findPostForUrl(Long id, String categorySlug, String userFriendlySlug);
+    Optional<BlogPost> findByUrlArticleId(String urlArticleId);
+
+    // NEW METHOD FOR BACKFILLING
+    int backfillUrlArticleIds();
 }

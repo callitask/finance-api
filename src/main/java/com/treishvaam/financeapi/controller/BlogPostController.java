@@ -55,14 +55,20 @@ public class BlogPostController {
         return ResponseEntity.ok(blogPostService.findAllForAdmin());
     }
 
-    // This generic endpoint can be kept for admin/internal use
     @GetMapping("/{id}")
     public ResponseEntity<BlogPost> getPostById(@PathVariable Long id) {
         Optional<BlogPost> post = blogPostService.findById(id);
         return post.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    // ** NEW SEO-FRIENDLY ENDPOINT **
+    // ** NEW ENDPOINT FOR FETCHING BY CUSTOM URL ID **
+    @GetMapping("/url/{urlArticleId}")
+    public ResponseEntity<BlogPost> getPostByUrlArticleId(@PathVariable String urlArticleId) {
+        return blogPostService.findByUrlArticleId(urlArticleId)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     @GetMapping("/category/{categorySlug}/{userFriendlySlug}/{id}")
     public ResponseEntity<BlogPost> getPostByFullSlug(
             @PathVariable String categorySlug,

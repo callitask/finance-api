@@ -87,6 +87,10 @@ public class BlogPost {
 
     @Column(name = "layout_group_id")
     private String layoutGroupId;
+    
+    // NEW FIELD
+    @Column(name = "url_article_id", unique = true)
+    private String urlArticleId;
 
     @PrePersist
     protected void onCreate() {
@@ -142,4 +146,6 @@ public class BlogPost {
     public void setLayoutStyle(String layoutStyle) { this.layoutStyle = layoutStyle; }
     public String getLayoutGroupId() { return layoutGroupId; }
     public void setLayoutGroupId(String layoutGroupId) { this.layoutGroupId = layoutGroupId; }
+    public String getUrlArticleId() { return urlArticleId; } // NEW GETTER
+    public void setUrlArticleId(String urlArticleId) { this.urlArticleId = urlArticleId; } // NEW SETTER
 }
