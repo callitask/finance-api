@@ -8,6 +8,3 @@ Allow: /
 Disallow: /api/
 Disallow: /dashboard/
 Disallow: /blog?q=*
-
-# Point crawlers to the sitemap
-Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml
