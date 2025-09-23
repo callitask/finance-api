@@ -120,6 +120,8 @@ public class BlogPostServiceImpl implements BlogPostService {
         newPost.setTitle(blogPostDto.getTitle() != null && !blogPostDto.getTitle().isEmpty() ? blogPostDto.getTitle() : "Untitled Draft");
         newPost.setContent(blogPostDto.getContent() != null ? blogPostDto.getContent() : "");
         newPost.setCustomSnippet(blogPostDto.getCustomSnippet());
+        newPost.setMetaDescription(blogPostDto.getMetaDescription());
+        newPost.setKeywords(blogPostDto.getKeywords());
         newPost.setStatus(PostStatus.DRAFT);
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         newPost.setAuthor(username);
@@ -138,6 +140,8 @@ public class BlogPostServiceImpl implements BlogPostService {
         existingPost.setTitle(blogPostDto.getTitle());
         existingPost.setContent(blogPostDto.getContent());
         existingPost.setCustomSnippet(blogPostDto.getCustomSnippet());
+        existingPost.setMetaDescription(blogPostDto.getMetaDescription());
+        existingPost.setKeywords(blogPostDto.getKeywords());
         if (existingPost.getSlug() == null || existingPost.getSlug().isEmpty()) {
             existingPost.setSlug(generateUniqueId());
         }
@@ -260,14 +264,12 @@ public class BlogPostServiceImpl implements BlogPostService {
         return count;
     }
     
-    // NEW METHOD IMPLEMENTATION
     @Override
     @Transactional
     public int backfillUrlArticleIds() {
         List<BlogPost> posts = blogPostRepository.findAll();
         int count = 0;
         for (BlogPost post : posts) {
-            // Only update posts that are published or scheduled and missing the ID
             if ((post.getStatus() == PostStatus.PUBLISHED || post.getStatus() == PostStatus.SCHEDULED) && post.getUrlArticleId() == null) {
                 post.setUrlArticleId(generateUrlArticleId(post));
                 blogPostRepository.save(post);
@@ -276,7 +278,6 @@ public class BlogPostServiceImpl implements BlogPostService {
         }
         return count;
     }
-
 
     @Override
     @Transactional
@@ -291,6 +292,8 @@ public class BlogPostServiceImpl implements BlogPostService {
         newPost.setTitle("Copy of " + originalPost.getTitle());
         newPost.setContent("");
         newPost.setCustomSnippet("");
+        newPost.setMetaDescription("");
+        newPost.setKeywords("");
         newPost.setCategory(originalPost.getCategory());
         newPost.setTags(new ArrayList<>());
         newPost.setStatus(PostStatus.DRAFT);
@@ -321,14 +324,19 @@ public class BlogPostServiceImpl implements BlogPostService {
     @Transactional(readOnly = true)
     public Optional<BlogPost> findPostForUrl(Long id, String categorySlug, String userFriendlySlug) {
         Optional<BlogPost> postOpt = blogPostRepository.findByIdAndUserFriendlySlug(id, userFriendlySlug);
-        if (postOpt.isEmpty()) { return Optional.empty(); }
+        if (postOpt.isEmpty() || postOpt.get().getCategory() == null) {
+            return Optional.empty();
+        }
         BlogPost post = postOpt.get();
-        Optional<Category> categoryOpt = categoryRepository.findByName(post.getCategory());
-        if (categoryOpt.isEmpty()) { return Optional.empty(); }
-        Category category = categoryOpt.get();
-        if (category.getSlug() != null && category.getSlug().equals(categorySlug)) {
+        if (post.getCategory().getSlug() != null && post.getCategory().getSlug().equals(categorySlug)) {
             return Optional.of(post);
         }
         return Optional.empty();
+    }
+    
+    @Override
+    public Category findCategoryByName(String name) {
+        return categoryRepository.findByName(name)
+                .orElseThrow(() -> new RuntimeException("Category not found with name: " + name));
     }
 }

@@ -30,17 +30,29 @@ public class CacheWarmupRunner implements ApplicationRunner {
         
         List<BlogPost> posts = blogPostRepository.findAllByStatusOrderByCreatedAtDesc(PostStatus.PUBLISHED);
 
+        int successCount = 0;
         for (BlogPost post : posts) {
-            if (post.getSlug() != null && !post.getSlug().isEmpty()) {
+            // Check if all parts of the new URL are present
+            if (post.getCategory() != null && post.getCategory().getSlug() != null &&
+                post.getUserFriendlySlug() != null && !post.getUserFriendlySlug().isEmpty() &&
+                post.getUrlArticleId() != null && !post.getUrlArticleId().isEmpty()) {
+                
                 try {
-                    logger.info("Pre-rendering and caching page for slug: {}", post.getSlug());
-                    // The HttpServletRequest is no longer needed
-                    viewController.getPostView(post.getSlug());
+                    logger.info("Pre-rendering and caching page for URL article ID: {}", post.getUrlArticleId());
+                    // Call the updated getPostView method with all required path variables
+                    viewController.getPostView(
+                        post.getCategory().getSlug(),
+                        post.getUserFriendlySlug(),
+                        post.getUrlArticleId()
+                    );
+                    successCount++;
                 } catch (Exception e) {
-                    logger.error("Failed to pre-render page for slug: {}", post.getSlug(), e);
+                    logger.error("Failed to pre-render page for URL article ID: {}", post.getUrlArticleId(), e);
                 }
+            } else {
+                logger.warn("Skipping cache warmup for post ID {} due to missing URL components.", post.getId());
             }
         }
-        logger.info("Cache pre-warming complete. {} pages cached.", posts.size());
+        logger.info("Cache pre-warming complete. {} pages successfully cached.", successCount);
     }
 }

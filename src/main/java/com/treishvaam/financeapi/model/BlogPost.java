@@ -36,11 +36,19 @@ public class BlogPost {
     @Column(columnDefinition = "TEXT")
     private String customSnippet;
 
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String metaDescription;
+
+    @Column(length = 512) // Keywords field
+    private String keywords;
+
     @Column(nullable = false)
     private String author;
 
-    @Column
-    private String category;
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "category_id")
+    private Category category;
 
     @Column
     private boolean featured;
@@ -88,8 +96,7 @@ public class BlogPost {
     @Column(name = "layout_group_id")
     private String layoutGroupId;
     
-    // NEW FIELD
-    @Column(name = "url_article_id", unique = true)
+    @Column(name = "url_article_id")
     private String urlArticleId;
 
     @PrePersist
@@ -116,10 +123,14 @@ public class BlogPost {
     public void setContent(String content) { this.content = content; }
     public String getCustomSnippet() { return customSnippet; }
     public void setCustomSnippet(String customSnippet) { this.customSnippet = customSnippet; }
+    public String getMetaDescription() { return metaDescription; }
+    public void setMetaDescription(String metaDescription) { this.metaDescription = metaDescription; }
+    public String getKeywords() { return keywords; } // New Getter
+    public void setKeywords(String keywords) { this.keywords = keywords; } // New Setter
     public String getAuthor() { return author; }
     public void setAuthor(String author) { this.author = author; }
-    public String getCategory() { return category; }
-    public void setCategory(String category) { this.category = category; }
+    public Category getCategory() { return category; }
+    public void setCategory(Category category) { this.category = category; }
     public boolean isFeatured() { return featured; }
     public void setFeatured(boolean featured) { this.featured = featured; }
     public Instant getCreatedAt() { return createdAt; }
@@ -146,6 +157,6 @@ public class BlogPost {
     public void setLayoutStyle(String layoutStyle) { this.layoutStyle = layoutStyle; }
     public String getLayoutGroupId() { return layoutGroupId; }
     public void setLayoutGroupId(String layoutGroupId) { this.layoutGroupId = layoutGroupId; }
-    public String getUrlArticleId() { return urlArticleId; } // NEW GETTER
-    public void setUrlArticleId(String urlArticleId) { this.urlArticleId = urlArticleId; } // NEW SETTER
+    public String getUrlArticleId() { return urlArticleId; }
+    public void setUrlArticleId(String urlArticleId) { this.urlArticleId = urlArticleId; }
 }

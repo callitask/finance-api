@@ -6,6 +6,7 @@ import com.treishvaam.financeapi.dto.BlogPostDto;
 import com.treishvaam.financeapi.dto.PostThumbnailDto;
 import com.treishvaam.financeapi.dto.ShareRequest;
 import com.treishvaam.financeapi.model.BlogPost;
+import com.treishvaam.financeapi.model.Category;
 import com.treishvaam.financeapi.service.BlogPostService;
 import com.treishvaam.financeapi.service.LinkedInService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,7 +62,6 @@ public class BlogPostController {
         return post.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    // ** NEW ENDPOINT FOR FETCHING BY CUSTOM URL ID **
     @GetMapping("/url/{urlArticleId}")
     public ResponseEntity<BlogPost> getPostByUrlArticleId(@PathVariable String urlArticleId) {
         return blogPostService.findByUrlArticleId(urlArticleId)
@@ -78,7 +78,6 @@ public class BlogPostController {
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
-
 
     @PostMapping("/admin/backfill-slugs")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
@@ -114,7 +113,9 @@ public class BlogPostController {
             @RequestParam("content") String content,
             @RequestParam(value = "userFriendlySlug", required = false) String userFriendlySlug,
             @RequestParam(value = "customSnippet", required = false) String customSnippet,
-            @RequestParam("category") String category,
+            @RequestParam(value = "metaDescription", required = false) String metaDescription,
+            @RequestParam(value = "keywords", required = false) String keywords, // NEW PARAM
+            @RequestParam("category") String categoryName,
             @RequestParam(value = "tags", required = false) List<String> tags,
             @RequestParam("featured") boolean featured,
             @RequestParam(value = "scheduledTime", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant scheduledTime,
@@ -125,6 +126,9 @@ public class BlogPostController {
             @RequestParam(value = "coverImageAltText", required = false) String coverImageAltText,
             @RequestParam("layoutStyle") String layoutStyle,
             @RequestParam(value = "layoutGroupId", required = false) String layoutGroupId) throws IOException {
+        
+        Category category = blogPostService.findCategoryByName(categoryName);
+        
         BlogPost newPost = new BlogPost();
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         newPost.setAuthor(username);
@@ -133,6 +137,8 @@ public class BlogPostController {
         newPost.setContent(content);
         newPost.setUserFriendlySlug(userFriendlySlug);
         newPost.setCustomSnippet(customSnippet);
+        newPost.setMetaDescription(metaDescription);
+        newPost.setKeywords(keywords); // NEW
         newPost.setCategory(category);
         newPost.setTags(tags);
         newPost.setFeatured(featured);
@@ -165,7 +171,9 @@ public class BlogPostController {
             @RequestParam("content") String content,
             @RequestParam(value = "userFriendlySlug", required = false) String userFriendlySlug,
             @RequestParam(value = "customSnippet", required = false) String customSnippet,
-            @RequestParam("category") String category,
+            @RequestParam(value = "metaDescription", required = false) String metaDescription,
+            @RequestParam(value = "keywords", required = false) String keywords, // NEW PARAM
+            @RequestParam("category") String categoryName,
             @RequestParam(value = "tags", required = false) List<String> tags,
             @RequestParam("featured") boolean featured,
             @RequestParam(value = "scheduledTime", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant scheduledTime,
@@ -180,11 +188,16 @@ public class BlogPostController {
         if (!existingPostOpt.isPresent()) {
             return ResponseEntity.notFound().build();
         }
+        
+        Category category = blogPostService.findCategoryByName(categoryName);
+
         BlogPost existingPost = existingPostOpt.get();
         existingPost.setTitle(title);
         existingPost.setContent(content);
         existingPost.setUserFriendlySlug(userFriendlySlug);
         existingPost.setCustomSnippet(customSnippet);
+        existingPost.setMetaDescription(metaDescription);
+        existingPost.setKeywords(keywords); // NEW
         existingPost.setCategory(category);
         existingPost.setTags(tags);
         existingPost.setFeatured(featured);
@@ -204,8 +217,6 @@ public class BlogPostController {
         blogPostService.deleteById(id);
         return ResponseEntity.noContent().build();
     }
-
-
 
     @DeleteMapping("/bulk")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")

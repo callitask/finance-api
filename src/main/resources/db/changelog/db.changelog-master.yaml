@@ -232,7 +232,6 @@ databaseChangeLog:
                   constraints:
                     unique: true
   
-  # --- NEW CHANGESET ADDED HERE ---
   - changeSet:
       id: 16-add-url-article-id
       author: gemini-dev
@@ -245,3 +244,10 @@ databaseChangeLog:
                   type: VARCHAR(255)
                   constraints:
                     unique: true
+  
+  - include:
+      file: db/changelog/V18__add_meta_description_to_posts.xml
+
+  # --- NEW KEYWORDS FIELD ---
+  - include:
+      file: db/changelog/V19__add_keywords_to_posts.xml

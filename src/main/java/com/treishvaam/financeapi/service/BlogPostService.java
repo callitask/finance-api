@@ -3,6 +3,7 @@ package com.treishvaam.financeapi.service;
 import com.treishvaam.financeapi.dto.BlogPostDto;
 import com.treishvaam.financeapi.dto.PostThumbnailDto;
 import com.treishvaam.financeapi.model.BlogPost;
+import com.treishvaam.financeapi.model.Category;
 import com.treishvaam.financeapi.model.PostStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -31,7 +32,8 @@ public interface BlogPostService {
     String generateUserFriendlySlug(String title);
     Optional<BlogPost> findPostForUrl(Long id, String categorySlug, String userFriendlySlug);
     Optional<BlogPost> findByUrlArticleId(String urlArticleId);
-
-    // NEW METHOD FOR BACKFILLING
     int backfillUrlArticleIds();
+
+    // NEW METHOD TO FIND CATEGORY
+    Category findCategoryByName(String name);
 }

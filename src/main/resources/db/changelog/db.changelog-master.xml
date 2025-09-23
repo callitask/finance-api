@@ -19,5 +19,8 @@
     <include file="db/changelog/V12__add_category_column_to_blog_posts.xml"/>
     <include file="db/changelog/V12__add_url_article_id_to_posts.xml"/>
     <include file="db/changelog/V15__add_category_field_to_blog_posts.xml"/>
+    <include file="db/changelog/V16__refactor_post_category_relation.xml"/>
+    <include file="db/changelog/V17__modify_alt_text_column.xml"/>
+    <include file="db/changelog/V18__add_meta_description_to_posts.xml"/>
 
 </databaseChangeLog>

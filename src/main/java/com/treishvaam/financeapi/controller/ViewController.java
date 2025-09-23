@@ -4,8 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treishvaam.financeapi.config.CachingConfig;
 import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.PageContent;
-import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.repository.PageContentRepository;
+import com.treishvaam.financeapi.service.BlogPostService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,7 +31,7 @@ import java.util.Optional;
 public class ViewController {
 
     @Autowired
-    private BlogPostRepository blogPostRepository;
+    private BlogPostService blogPostService;
 
     @Autowired
     private PageContentRepository pageContentRepository;
@@ -39,32 +39,39 @@ public class ViewController {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @Value("${app.base-url}")
+    @Value("${app.base-url:https://treishfin.treishvaamgroup.com}")
     private String appBaseUrl;
+    
+    @Value("${app.api-base-url:https://backend.treishvaamgroup.com}")
+    private String apiBaseUrl;
 
-    // A Base64 encoded SVG for a 1200x675 gray rectangle. This is used as a fallback.
     private static final String GRAY_BANNER_DATA_URI = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwMCIgaGVpZ2h0PSI2NzUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2NjY2NjYyIvPjwvc3ZnPg==";
     private static final String DEFAULT_TITLE = "Treishfin · Treishvaam Finance | Financial News & Analysis";
     private static final String DEFAULT_DESCRIPTION = "Stay ahead with the latest financial news, market updates, and expert analysis from Treishvaam Finance. Your daily source for insights on stocks, crypto, and trading.";
     private static final String DEFAULT_OG_TITLE = "Treishfin · Treishvaam Finance | Financial News & Analysis";
     private static final String DEFAULT_OG_DESCRIPTION = "Your daily source for insights on stocks, crypto, and trading.";
 
-    @GetMapping(value = "/blog/{slug}")
+    @GetMapping(value = "/blog/category/{categorySlug}/{userFriendlySlug}/{urlArticleId}")
     @ResponseBody
-    @Cacheable(value = CachingConfig.BLOG_POST_CACHE, key = "#slug")
-    public ResponseEntity<String> getPostView(@PathVariable String slug) throws IOException {
-        Optional<BlogPost> postOptional = blogPostRepository.findBySlug(slug);
+    @Cacheable(value = CachingConfig.BLOG_POST_CACHE, key = "#urlArticleId")
+    public ResponseEntity<String> getPostView(
+            @PathVariable String categorySlug,
+            @PathVariable String userFriendlySlug,
+            @PathVariable String urlArticleId) throws IOException {
+        
+        Optional<BlogPost> postOptional = blogPostService.findByUrlArticleId(urlArticleId);
         String htmlContent = readIndexHtml();
-        String pageUrl = appBaseUrl + "/blog/" + slug;
+        String pageUrl = String.format("%s/blog/category/%s/%s/%s", appBaseUrl, categorySlug, userFriendlySlug, urlArticleId);
 
         if (postOptional.isPresent()) {
             BlogPost post = postOptional.get();
             String pageTitle = "Treishfin · " + post.getTitle();
-            String pageDescription = createSnippet(post.getCustomSnippet() != null && !post.getCustomSnippet().isEmpty() ? post.getCustomSnippet() : post.getContent(), 160);
+            String pageDescription = post.getMetaDescription() != null && !post.getMetaDescription().isEmpty()
+                ? post.getMetaDescription()
+                : createSnippet(post.getCustomSnippet() != null && !post.getCustomSnippet().isEmpty() ? post.getCustomSnippet() : post.getContent(), 160);
             
-            // UPDATED: Use the gray banner data URI as the fallback image
             String imageUrl = (post.getCoverImageUrl() != null && !post.getCoverImageUrl().isEmpty())
-                ? appBaseUrl + "/api/uploads/" + post.getCoverImageUrl() + ".webp"
+                ? apiBaseUrl + "/api/uploads/" + post.getCoverImageUrl() + ".webp"
                 : GRAY_BANNER_DATA_URI;
 
             String articleSchema = generateArticleSchema(post, pageUrl, imageUrl);
@@ -72,7 +79,7 @@ public class ViewController {
             htmlContent = htmlContent
                 .replace("__SEO_TITLE__", escapeHtml(pageTitle))
                 .replace("__SEO_DESCRIPTION__", escapeHtml(pageDescription))
-                .replace("__OG_TITLE__", escapeHtml(pageTitle))
+                .replace("__OG_TITLE__", escapeHtml(post.getTitle()))
                 .replace("__OG_DESCRIPTION__", escapeHtml(pageDescription))
                 .replace("__OG_IMAGE__", escapeHtml(imageUrl))
                 .replace("__OG_URL__", escapeHtml(pageUrl))
@@ -88,7 +95,7 @@ public class ViewController {
     @ResponseBody
     public ResponseEntity<String> serveStaticPage(HttpServletRequest request) throws IOException {
         String path = request.getRequestURI();
-        String pageName = path.equals("/") ? "index" : path.substring(1);
+        String pageName = path.equals("/") || path.equals("/blog") ? "index" : path.substring(1);
         String pageUrl = appBaseUrl + path;
 
         Optional<PageContent> pageContentOptional = pageContentRepository.findById(pageName);
@@ -123,12 +130,6 @@ public class ViewController {
         return ResponseEntity.ok().contentType(MediaType.TEXT_HTML).body(htmlContent);
     }
     
-    @GetMapping("/ssr-test")
-    @ResponseBody
-    public String ssrTest() {
-        return "SUCCESS: The request reached the Spring Boot backend.";
-    }
-
     private String generateWebPageSchema(PageContent page, String pageUrl) {
         try {
             return objectMapper.writeValueAsString(Map.of(
@@ -145,7 +146,7 @@ public class ViewController {
 
     private String generateArticleSchema(BlogPost post, String pageUrl, String imageUrl) {
         try {
-            String logoUrl = appBaseUrl + "/api/logo";
+            String logoUrl = appBaseUrl + "/logo512.png"; // Point to a static logo
             
             Map<String, Object> schema = new LinkedHashMap<>();
             schema.put("@context", "https://schema.org");
@@ -155,11 +156,11 @@ public class ViewController {
                 "@id", pageUrl
             ));
             schema.put("headline", post.getTitle());
-            schema.put("description", createSnippet(post.getCustomSnippet() != null && !post.getCustomSnippet().isEmpty() ? post.getCustomSnippet() : post.getContent(), 160));
+            schema.put("description", post.getMetaDescription() != null && !post.getMetaDescription().isEmpty() ? post.getMetaDescription() : createSnippet(post.getContent(), 160));
             schema.put("image", imageUrl);
             schema.put("author", Map.of(
-                "@type", "Person",
-                "name", post.getAuthor()
+                "@type", "Organization", // Changed to Organization
+                "name", "Treishvaam Finance"
             ));
             schema.put("publisher", Map.of(
                 "@type", "Organization",
