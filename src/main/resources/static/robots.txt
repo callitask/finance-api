@@ -4,7 +4,7 @@ User-agent: *
 # Allow access to all content by default
 Allow: /
 
-# Disallow crawlers from indexing API, admin, and search paths
+# Disallow crawlers from indexing API, admin, and internal search paths
 Disallow: /api/
 Disallow: /dashboard/
-Disallow: /blog?q=*
+Disallow: /?q=*

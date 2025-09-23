@@ -7,6 +7,7 @@ import com.treishvaam.financeapi.repository.CategoryRepository;
 import com.treishvaam.financeapi.service.BlogPostService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -18,6 +19,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @RestController
@@ -28,23 +30,18 @@ public class SitemapController {
     
     @Autowired
     private CategoryRepository categoryRepository;
-
-    // REMOVED the hardcoded BASE_URL
     
     private static final List<String> STATIC_PAGES = List.of(
             "/",
             "/about",
             "/vision",
-            "/contact",
-            "/blog"
+            "/contact"
     );
 
     @GetMapping(value = "/sitemap.xml", produces = MediaType.APPLICATION_XML_VALUE)
     public ResponseEntity<String> getSitemap(HttpServletRequest request) {
-        // Dynamically determine the base URL from the request's Origin header
         String baseUrl = request.getHeader("Origin");
         if (baseUrl == null || baseUrl.isEmpty()) {
-            // Fallback for requests without an Origin header (e.g., direct access)
             baseUrl = "https://treishfin.treishvaamgroup.com";
         }
 
@@ -69,7 +66,7 @@ public class SitemapController {
             String categorySlug = categorySlugMap.getOrDefault(post.getCategory().getName(), "uncategorized");
             
             String postUrl = String.format("%s/blog/category/%s/%s/%s",
-                    baseUrl, // Use the dynamic base URL
+                    baseUrl,
                     categorySlug,
                     post.getUserFriendlySlug(),
                     post.getUrlArticleId()
@@ -87,8 +84,15 @@ public class SitemapController {
 
         sitemap.append("</urlset>");
 
+        // --- FIX: ADD CACHE-CONTROL HEADERS ---
+        CacheControl cacheControl = CacheControl.noCache()
+                                                .mustRevalidate()
+                                                .noStore()
+                                                .sMaxAge(0, TimeUnit.SECONDS);
+
         final HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_XML);
+        headers.setCacheControl(cacheControl);
 
         return new ResponseEntity<>(sitemap.toString(), headers, HttpStatus.OK);
     }
