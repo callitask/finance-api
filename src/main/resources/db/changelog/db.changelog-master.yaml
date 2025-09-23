@@ -248,6 +248,9 @@ databaseChangeLog:
   - include:
       file: db/changelog/V18__add_meta_description_to_posts.xml
 
-  # --- NEW KEYWORDS FIELD ---
   - include:
       file: db/changelog/V19__add_keywords_to_posts.xml
+
+  # --- NEW: Create the contact_message table ---
+  - include:
+      file: db/changelog/V20__create_contact_message_table.xml

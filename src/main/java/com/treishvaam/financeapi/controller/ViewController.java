@@ -77,7 +77,8 @@ public class ViewController {
             String articleSchema = generateArticleSchema(post, pageUrl, imageUrl);
 
             htmlContent = htmlContent
-                .replace("__SEO_TITLE__", escapeHtml(pageTitle))
+                .replace("<title>__SEO_TITLE__</title>", 
+                         "<title>" + escapeHtml(pageTitle) + "</title><link rel=\"canonical\" href=\"" + escapeHtml(pageUrl) + "\" />")
                 .replace("__SEO_DESCRIPTION__", escapeHtml(pageDescription))
                 .replace("__OG_TITLE__", escapeHtml(post.getTitle()))
                 .replace("__OG_DESCRIPTION__", escapeHtml(pageDescription))
@@ -108,7 +109,8 @@ public class ViewController {
             String webPageSchema = generateWebPageSchema(page, pageUrl);
 
             htmlContent = htmlContent
-                .replace("__SEO_TITLE__", escapeHtml(pageTitle))
+                .replace("<title>__SEO_TITLE__</title>", 
+                         "<title>" + escapeHtml(pageTitle) + "</title><link rel=\"canonical\" href=\"" + escapeHtml(pageUrl) + "\" />")
                 .replace("__SEO_DESCRIPTION__", escapeHtml(pageDescription))
                 .replace("__OG_TITLE__", escapeHtml(pageTitle))
                 .replace("__OG_DESCRIPTION__", escapeHtml(pageDescription))
@@ -146,7 +148,7 @@ public class ViewController {
 
     private String generateArticleSchema(BlogPost post, String pageUrl, String imageUrl) {
         try {
-            String logoUrl = appBaseUrl + "/logo512.png"; // Point to a static logo
+            String logoUrl = appBaseUrl + "/logo512.png";
             
             Map<String, Object> schema = new LinkedHashMap<>();
             schema.put("@context", "https://schema.org");
@@ -159,8 +161,9 @@ public class ViewController {
             schema.put("description", post.getMetaDescription() != null && !post.getMetaDescription().isEmpty() ? post.getMetaDescription() : createSnippet(post.getContent(), 160));
             schema.put("image", imageUrl);
             schema.put("author", Map.of(
-                "@type", "Organization", // Changed to Organization
-                "name", "Treishvaam Finance"
+                "@type", "Organization",
+                "name", "Treishvaam Finance",
+                "url", appBaseUrl
             ));
             schema.put("publisher", Map.of(
                 "@type", "Organization",
@@ -181,7 +184,8 @@ public class ViewController {
     
     private String replaceDefaultTags(String html, String pageUrl) {
         return html
-            .replace("__SEO_TITLE__", DEFAULT_TITLE)
+            .replace("<title>__SEO_TITLE__</title>", 
+                     "<title>" + DEFAULT_TITLE + "</title><link rel=\"canonical\" href=\"" + escapeHtml(pageUrl) + "\" />")
             .replace("__SEO_DESCRIPTION__", DEFAULT_DESCRIPTION)
             .replace("__OG_TITLE__", DEFAULT_OG_TITLE)
             .replace("__OG_DESCRIPTION__", DEFAULT_OG_DESCRIPTION)

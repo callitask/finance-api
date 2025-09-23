@@ -75,14 +75,13 @@ public class SecurityConfig {
                     HttpMethod.GET,
                     "/", "/about", "/services", "/vision", "/education",
                     "/contact", "/login", "/blog", "/blog/**", "/ssr-test",
-                    "/dashboard/**" // Allows loading dashboard pages
+                    "/dashboard/**"
                 ).permitAll()
                 // Rule for public API endpoints
                 .requestMatchers(
                     HttpMethod.GET,
                     "/api/posts", // Public list of posts
-                    "/api/posts/slug/**", // Old public single post URL
-                    "/api/posts/category/**", // **FIX: Added the new public URL for single posts**
+                    "/api/posts/url/**", // **FIX: Added the new public URL for single posts**
                     "/api/categories", 
                     "/api/uploads/**",
                     "/api/market/**",
@@ -90,9 +89,14 @@ public class SecurityConfig {
                     "/sitemap.xml",
                     "/api/logo"
                 ).permitAll()
-                .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                // Rule for other public API endpoints (all HTTP methods)
+                .requestMatchers(
+                    "/api/auth/**",
+                    "/api/contact/**",
+                    "/swagger-ui/**", 
+                    "/v3/api-docs/**"
+                ).permitAll()
                 
-                // ** THIS IS THE NEW SECURITY RULE FOR ADMIN APIs **
                 .requestMatchers("/api/posts/admin/**", "/api/market/admin/**", "/api/status/**").hasAuthority("ROLE_ADMIN")
 
                 .anyRequest().authenticated()
