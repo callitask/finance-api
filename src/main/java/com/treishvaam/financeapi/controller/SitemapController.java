@@ -31,6 +31,7 @@ public class SitemapController {
     @Autowired
     private CategoryRepository categoryRepository;
     
+    // UPDATED: Removed /blog from static pages
     private static final List<String> STATIC_PAGES = List.of(
             "/",
             "/about",
@@ -65,7 +66,8 @@ public class SitemapController {
 
             String categorySlug = categorySlugMap.getOrDefault(post.getCategory().getName(), "uncategorized");
             
-            String postUrl = String.format("%s/blog/category/%s/%s/%s",
+            // UPDATED: URL structure for posts
+            String postUrl = String.format("%s/category/%s/%s/%s",
                     baseUrl,
                     categorySlug,
                     post.getUserFriendlySlug(),
@@ -84,7 +86,6 @@ public class SitemapController {
 
         sitemap.append("</urlset>");
 
-        // --- FIX: ADD CACHE-CONTROL HEADERS ---
         CacheControl cacheControl = CacheControl.noCache()
                                                 .mustRevalidate()
                                                 .noStore()
