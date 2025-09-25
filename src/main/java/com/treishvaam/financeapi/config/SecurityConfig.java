@@ -74,14 +74,16 @@ public class SecurityConfig {
                 .requestMatchers(
                     HttpMethod.GET,
                     "/", "/about", "/services", "/vision", "/education",
-                    "/contact", "/login", "/blog", "/blog/**", "/ssr-test",
+                    "/contact", "/login", "/blog", 
+                    "/category/**", // <-- ADDED THIS NEW RULE
+                    "/ssr-test",
                     "/dashboard/**"
                 ).permitAll()
                 // Rule for public API endpoints
                 .requestMatchers(
                     HttpMethod.GET,
-                    "/api/posts", // Public list of posts
-                    "/api/posts/url/**", // **FIX: Added the new public URL for single posts**
+                    "/api/posts", 
+                    "/api/posts/url/**",
                     "/api/categories", 
                     "/api/uploads/**",
                     "/api/market/**",

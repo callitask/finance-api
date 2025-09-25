@@ -65,7 +65,8 @@ public class SitemapController {
 
             String categorySlug = categorySlugMap.getOrDefault(post.getCategory().getName(), "uncategorized");
             
-            String postUrl = String.format("%s/blog/category/%s/%s/%s",
+            // UPDATED URL FORMAT
+            String postUrl = String.format("%s/category/%s/%s/%s",
                     baseUrl,
                     categorySlug,
                     post.getUserFriendlySlug(),
@@ -84,7 +85,6 @@ public class SitemapController {
 
         sitemap.append("</urlset>");
 
-        // --- FIX: ADD CACHE-CONTROL HEADERS ---
         CacheControl cacheControl = CacheControl.noCache()
                                                 .mustRevalidate()
                                                 .noStore()

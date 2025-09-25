@@ -51,7 +51,7 @@ public class ViewController {
     private static final String DEFAULT_OG_TITLE = "Treishfin · Treishvaam Finance | Financial News & Analysis";
     private static final String DEFAULT_OG_DESCRIPTION = "Your daily source for insights on stocks, crypto, and trading.";
 
-    @GetMapping(value = "/blog/category/{categorySlug}/{userFriendlySlug}/{urlArticleId}")
+    @GetMapping(value = "/category/{categorySlug}/{userFriendlySlug}/{urlArticleId}")
     @ResponseBody
     @Cacheable(value = CachingConfig.BLOG_POST_CACHE, key = "#urlArticleId")
     public ResponseEntity<String> getPostView(
@@ -61,7 +61,7 @@ public class ViewController {
         
         Optional<BlogPost> postOptional = blogPostService.findByUrlArticleId(urlArticleId);
         String htmlContent = readIndexHtml();
-        String pageUrl = String.format("%s/blog/category/%s/%s/%s", appBaseUrl, categorySlug, userFriendlySlug, urlArticleId);
+        String pageUrl = String.format("%s/category/%s/%s/%s", appBaseUrl, categorySlug, userFriendlySlug, urlArticleId);
 
         if (postOptional.isPresent()) {
             BlogPost post = postOptional.get();
@@ -92,11 +92,11 @@ public class ViewController {
         return ResponseEntity.ok().contentType(MediaType.TEXT_HTML).body(htmlContent);
     }
 
-    @GetMapping(value = {"/", "/about", "/services", "/vision", "/education", "/contact", "/login", "/blog"})
+    @GetMapping(value = {"/", "/about", "/services", "/vision", "/education", "/contact", "/login"})
     @ResponseBody
     public ResponseEntity<String> serveStaticPage(HttpServletRequest request) throws IOException {
         String path = request.getRequestURI();
-        String pageName = path.equals("/") || path.equals("/blog") ? "index" : path.substring(1);
+        String pageName = path.equals("/") ? "index" : path.substring(1);
         String pageUrl = appBaseUrl + path;
 
         Optional<PageContent> pageContentOptional = pageContentRepository.findById(pageName);
@@ -169,7 +169,7 @@ public class ViewController {
                 "@type", "Organization",
                 "name", "Treishvaam Finance",
                 "logo", Map.of(
-                    "@type", "ImageObject",
+                    "@type", "ImageObject", // CORRECTED: Changed ':' to ','
                     "url", logoUrl
                 )
             ));
