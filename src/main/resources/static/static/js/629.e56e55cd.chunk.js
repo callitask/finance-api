@@ -1,0 +1,2 @@
+"use strict";(self.webpackChunktreishvaam_finance_frontend=self.webpackChunktreishvaam_finance_frontend||[]).push([[629],{4629:(e,t,a)=>{a.r(t),a.d(t,{default:()=>s});a(5043);var n=a(579);const s=()=>(0,n.jsxs)("div",{children:[(0,n.jsx)("h1",{className:"text-3xl font-bold text-gray-800",children:"Settings"}),(0,n.jsx)("p",{className:"mt-2 text-gray-600",children:"Manage your account settings here."})]})}}]);
+//# sourceMappingURL=629.e56e55cd.chunk.js.map

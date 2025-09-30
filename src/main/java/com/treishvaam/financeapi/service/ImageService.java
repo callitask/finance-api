@@ -95,14 +95,24 @@ public class ImageService {
             Path largeFile = this.rootLocation.resolve(baseFilename + ".webp");
             Path mediumFile = this.rootLocation.resolve(baseFilename + "-medium.webp");
             Path smallFile = this.rootLocation.resolve(baseFilename + "-small.webp");
+            // --- ADDED ---: Path for the new tiny placeholder image
+            Path tinyFile = this.rootLocation.resolve(baseFilename + "-tiny.webp");
 
+            // A more robust solution would read the file into a byte array once
+            // to avoid issues with multiple reads from the input stream.
+            // However, to maintain the existing pattern, we'll open the stream multiple times.
             try (InputStream is1 = file.getInputStream();
                  InputStream is2 = file.getInputStream();
-                 InputStream is3 = file.getInputStream()) {
+                 InputStream is3 = file.getInputStream();
+                 // --- ADDED ---: Fourth input stream for the tiny image
+                 InputStream is4 = file.getInputStream()) {
 
                 Thumbnails.of(is1).size(1200, 1200).outputFormat("webp").toFile(largeFile.toFile());
                 Thumbnails.of(is2).size(600, 600).outputFormat("webp").toFile(mediumFile.toFile());
                 Thumbnails.of(is3).size(300, 300).outputFormat("webp").toFile(smallFile.toFile());
+                
+                // --- ADDED ---: Logic to create the tiny 20x20 placeholder
+                Thumbnails.of(is4).size(20, 20).outputFormat("webp").toFile(tinyFile.toFile());
             }
 
             return baseFilename;
