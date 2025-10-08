@@ -25,4 +25,6 @@
     <include file="db/changelog/V19__add_keywords_to_posts.xml"/>
     <include file="db/changelog/V20__create_contact_message_table.xml"/>
 
+    <include file="db/changelog/V21__add_thumbnail_metadata.xml"/>
+
 </databaseChangeLog>

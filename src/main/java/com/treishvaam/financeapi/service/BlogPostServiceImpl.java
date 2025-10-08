@@ -145,6 +145,7 @@ public class BlogPostServiceImpl implements BlogPostService {
         if (existingPost.getSlug() == null || existingPost.getSlug().isEmpty()) {
             existingPost.setSlug(generateUniqueId());
         }
+        // --- THIS LINE IS NOW CORRECT ---
         existingPost.setUserFriendlySlug(generateUserFriendlySlug(existingPost.getTitle()));
         return blogPostRepository.save(existingPost);
     }
@@ -161,15 +162,23 @@ public class BlogPostServiceImpl implements BlogPostService {
         Map<String, MultipartFile> newFilesMap = newThumbnails != null ?
                 newThumbnails.stream().collect(Collectors.toMap(MultipartFile::getOriginalFilename, Function.identity())) :
                 Map.of();
+
         List<PostThumbnail> finalThumbnails = new ArrayList<>();
+
         for (PostThumbnailDto dto : thumbnailDtos) {
             PostThumbnail thumbnail;
             if ("new".equals(dto.getSource())) {
                 MultipartFile file = newFilesMap.get(dto.getFileName());
                 if (file != null && !file.isEmpty()) {
-                    String baseFilename = imageService.saveImage(file);
+                    ImageMetadata metadata = imageService.saveImageAndGetMetadata(file);
+                    
                     thumbnail = new PostThumbnail();
-                    thumbnail.setImageUrl(baseFilename);
+                    thumbnail.setImageUrl(metadata.baseFilename());
+                    thumbnail.setWidth(metadata.width());
+                    thumbnail.setHeight(metadata.height());
+                    thumbnail.setMimeType(metadata.mimeType());
+                    thumbnail.setBlurHash(metadata.blurHash());
+
                 } else { continue; }
             } else {
                 thumbnail = blogPost.getThumbnails().stream()

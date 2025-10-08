@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="V21-1" author="gemini-assistant">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="post_thumbnails" columnName="width"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="post_thumbnails">
+            <column name="width" type="INT">
+                <constraints nullable="true"/>
+            </column>
+            <column name="height" type="INT">
+                <constraints nullable="true"/>
+            </column>
+            <column name="mime_type" type="VARCHAR(50)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="blur_hash" type="VARCHAR(100)">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <comment>Adds width, height, mime_type, and blur_hash to the post_thumbnails table for performance optimization.</comment>
+    </changeSet>
+
+</databaseChangeLog>

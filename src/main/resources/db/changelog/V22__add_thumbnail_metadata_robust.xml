@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="V22-add-width-column" author="gemini-assistant">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="post_thumbnails" columnName="width"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="post_thumbnails">
+            <column name="width" type="INT"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="V22-add-height-column" author="gemini-assistant">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="post_thumbnails" columnName="height"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="post_thumbnails">
+            <column name="height" type="INT"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="V22-add-mime_type-column" author="gemini-assistant">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="post_thumbnails" columnName="mime_type"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="post_thumbnails">
+            <column name="mime_type" type="VARCHAR(50)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="V22-add-blur_hash-column" author="gemini-assistant">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="post_thumbnails" columnName="blur_hash"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="post_thumbnails">
+            <column name="blur_hash" type="VARCHAR(100)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

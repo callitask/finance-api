@@ -7,6 +7,12 @@ public class PostThumbnailDto {
     private String altText;
     private int displayOrder;
 
+    // --- ADDED: Fields for image optimization ---
+    private Integer width;
+    private Integer height;
+    private String blurHash;
+
+
     // Getters and Setters
     public String getSource() {
         return source;
@@ -46,5 +52,30 @@ public class PostThumbnailDto {
 
     public void setDisplayOrder(int displayOrder) {
         this.displayOrder = displayOrder;
+    }
+
+    // --- ADDED: Getters and setters for new fields ---
+    public Integer getWidth() {
+        return width;
+    }
+
+    public void setWidth(Integer width) {
+        this.width = width;
+    }
+
+    public Integer getHeight() {
+        return height;
+    }
+
+    public void setHeight(Integer height) {
+        this.height = height;
+    }
+
+    public String getBlurHash() {
+        return blurHash;
+    }
+
+    public void setBlurHash(String blurHash) {
+        this.blurHash = blurHash;
     }
 }
