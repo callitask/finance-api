@@ -64,9 +64,9 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/static/**", 
                     "/favicon.ico", 
-                    "/logo.png",
-                    "/logo192.png", 
-                    "/logo512.png",
+                    "/logo.webp",      // CHANGED
+                    "/logo192.webp",   // CHANGED
+                    "/logo512.webp",   // CHANGED
                     "/manifest.json",
                     "/amitsagar-kandpal-photo.png"
                 ).permitAll()
@@ -75,7 +75,7 @@ public class SecurityConfig {
                     HttpMethod.GET,
                     "/", "/about", "/services", "/vision", "/education",
                     "/contact", "/login", "/blog", 
-                    "/category/**", // <-- ADDED THIS NEW RULE
+                    "/category/**",
                     "/ssr-test",
                     "/dashboard/**"
                 ).permitAll()
