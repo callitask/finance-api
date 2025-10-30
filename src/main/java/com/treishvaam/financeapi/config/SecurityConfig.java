@@ -64,9 +64,9 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/static/**", 
                     "/favicon.ico", 
-                    "/logo.png",
-                    "/logo192.png", 
-                    "/logo512.png",
+                    "/logo.webp",
+                    "/logo192.webp", 
+                    "/logo512.webp",
                     "/manifest.json",
                     "/amitsagar-kandpal-photo.png"
                 ).permitAll()
