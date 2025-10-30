@@ -9,6 +9,8 @@ import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.model.PostThumbnail;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.repository.CategoryRepository;
+// ADDED: Import for the new DTO
+import com.treishvaam.financeapi.service.ImageService.ImageMetadataDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -154,8 +156,11 @@ public class BlogPostServiceImpl implements BlogPostService {
     @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, key = "#result.slug", condition = "#result.slug != null and #result.status.name() == 'PUBLISHED'")
     public BlogPost save(BlogPost blogPost, List<MultipartFile> newThumbnails, List<PostThumbnailDto> thumbnailDtos, MultipartFile coverImage) {
         if (coverImage != null && !coverImage.isEmpty()) {
-            String coverImageName = imageService.saveImage(coverImage);
-            blogPost.setCoverImageUrl(coverImageName);
+            // Cover image metadata is not saved in the DB, so we use the old method
+            ImageMetadataDto coverMetadata = imageService.saveImageAndGetMetadata(coverImage);
+            if (coverMetadata != null) {
+                blogPost.setCoverImageUrl(coverMetadata.getBaseFilename());
+            }
         }
 
         Map<String, MultipartFile> newFilesMap = newThumbnails != null ?
@@ -167,9 +172,17 @@ public class BlogPostServiceImpl implements BlogPostService {
             if ("new".equals(dto.getSource())) {
                 MultipartFile file = newFilesMap.get(dto.getFileName());
                 if (file != null && !file.isEmpty()) {
-                    String baseFilename = imageService.saveImage(file);
+                    // CHANGED: Call new method to get metadata
+                    ImageMetadataDto metadata = imageService.saveImageAndGetMetadata(file);
+                    if (metadata == null) continue; // Skip if image processing failed
+
                     thumbnail = new PostThumbnail();
-                    thumbnail.setImageUrl(baseFilename);
+                    thumbnail.setImageUrl(metadata.getBaseFilename());
+                    // ADDED: Set new metadata fields
+                    thumbnail.setWidth(metadata.getWidth());
+                    thumbnail.setHeight(metadata.getHeight());
+                    thumbnail.setMimeType(metadata.getMimeType());
+                    thumbnail.setBlurHash(metadata.getBlurHash());
                 } else { continue; }
             } else {
                 thumbnail = blogPost.getThumbnails().stream()
@@ -179,6 +192,9 @@ public class BlogPostServiceImpl implements BlogPostService {
                  if(thumbnail.getId() == null) {
                      thumbnail.setImageUrl(dto.getUrl());
                  }
+                 // Note: Metadata for existing images is not backfilled here.
+                 // This logic assumes new images get metadata, and existing ones
+                 // either have it or will be re-uploaded to get it.
             }
             thumbnail.setBlogPost(blogPost);
             thumbnail.setAltText(dto.getAltText());

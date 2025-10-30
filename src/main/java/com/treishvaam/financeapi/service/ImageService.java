@@ -1,5 +1,6 @@
 package com.treishvaam.financeapi.service;
 
+import io.github.woltapp.blurhash.BlurHash;
 import jakarta.annotation.PostConstruct;
 import net.coobird.thumbnailator.Thumbnails;
 import org.slf4j.Logger;
@@ -11,12 +12,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Iterator;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -41,6 +48,31 @@ public class ImageService {
             throw new RuntimeException("Could not initialize storage location: " + uploadDir, e);
         }
     }
+
+    /**
+     * DTO class to hold image metadata.
+     * This is defined as a static inner class for simplicity.
+     */
+    public static class ImageMetadataDto {
+        private String baseFilename;
+        private Integer width;
+        private Integer height;
+        private String mimeType;
+        private String blurHash;
+
+        // Getters and Setters
+        public String getBaseFilename() { return baseFilename; }
+        public void setBaseFilename(String baseFilename) { this.baseFilename = baseFilename; }
+        public Integer getWidth() { return width; }
+        public void setWidth(Integer width) { this.width = width; }
+        public Integer getHeight() { return height; }
+        public void setHeight(Integer height) { this.height = height; }
+        public String getMimeType() { return mimeType; }
+        public void setMimeType(String mimeType) { this.mimeType = mimeType; }
+        public String getBlurHash() { return blurHash; }
+        public void setBlurHash(String blurHash) { this.blurHash = blurHash; }
+    }
+
 
     /**
      * FINAL FIX: This version uses Java's standard ImageIO to read the PNG and the
@@ -85,40 +117,98 @@ public class ImageService {
         }
     }
 
-    // The original method for user uploads remains unchanged, as it works correctly.
-    public String saveImage(MultipartFile file) {
+    /**
+     * Saves an uploaded image, generates thumbnails, and extracts metadata.
+     * @param file The uploaded image
+     * @return An ImageMetadataDto containing the base filename and metadata
+     */
+    public ImageMetadataDto saveImageAndGetMetadata(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             return null;
         }
         try {
+            // Read file into memory once to avoid re-reading the stream
+            byte[] imageBytes = file.getBytes();
+            ImageMetadataDto metadata = extractMetadata(imageBytes);
+
             String baseFilename = UUID.randomUUID().toString();
+            metadata.setBaseFilename(baseFilename);
+            
             Path largeFile = this.rootLocation.resolve(baseFilename + ".webp");
             Path mediumFile = this.rootLocation.resolve(baseFilename + "-medium.webp");
             Path smallFile = this.rootLocation.resolve(baseFilename + "-small.webp");
-            // --- ADDED ---: Path for the new tiny placeholder image
             Path tinyFile = this.rootLocation.resolve(baseFilename + "-tiny.webp");
 
-            // A more robust solution would read the file into a byte array once
-            // to avoid issues with multiple reads from the input stream.
-            // However, to maintain the existing pattern, we'll open the stream multiple times.
-            try (InputStream is1 = file.getInputStream();
-                 InputStream is2 = file.getInputStream();
-                 InputStream is3 = file.getInputStream();
-                 // --- ADDED ---: Fourth input stream for the tiny image
-                 InputStream is4 = file.getInputStream()) {
+            // Use the byte array to create multiple input streams
+            try (InputStream is1 = new ByteArrayInputStream(imageBytes);
+                 InputStream is2 = new ByteArrayInputStream(imageBytes);
+                 InputStream is3 = new ByteArrayInputStream(imageBytes);
+                 InputStream is4 = new ByteArrayInputStream(imageBytes)) {
 
                 Thumbnails.of(is1).size(1200, 1200).outputFormat("webp").toFile(largeFile.toFile());
                 Thumbnails.of(is2).size(600, 600).outputFormat("webp").toFile(mediumFile.toFile());
                 Thumbnails.of(is3).size(300, 300).outputFormat("webp").toFile(smallFile.toFile());
-                
-                // --- ADDED ---: Logic to create the tiny 20x20 placeholder
                 Thumbnails.of(is4).size(20, 20).outputFormat("webp").toFile(tinyFile.toFile());
             }
 
-            return baseFilename;
+            return metadata;
+
         } catch (IOException e) {
             logger.error("Failed to save uploaded image", e);
             throw new RuntimeException("Failed to save uploaded image", e);
         }
     }
+
+    /**
+     * Helper method to extract metadata and generate blurhash from image bytes.
+     */
+    private ImageMetadataDto extractMetadata(byte[] imageBytes) {
+        ImageMetadataDto metadata = new ImageMetadataDto();
+        try (ByteArrayInputStream iisBytes = new ByteArrayInputStream(imageBytes)) {
+            
+            // 1. Get Width, Height, and MimeType
+            try (ImageInputStream iis = ImageIO.createImageInputStream(iisBytes)) {
+                Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
+                if (readers.hasNext()) {
+                    ImageReader reader = readers.next();
+                    try {
+                        reader.setInput(iis);
+                        metadata.setWidth(reader.getWidth(0));
+                        metadata.setHeight(reader.getHeight(0));
+                        metadata.setMimeType("image/" + reader.getFormatName().toLowerCase());
+                    } finally {
+                        reader.dispose();
+                    }
+                } else {
+                    logger.warn("Could not find ImageReader for uploaded file.");
+                }
+            } catch (IOException e) {
+                logger.error("Could not read image metadata (width, height, mime)", e);
+            }
+
+            // Reset stream for next read
+            iisBytes.reset();
+
+            // 2. Generate BlurHash
+            try (InputStream blurStream = new ByteArrayInputStream(imageBytes)) {
+                BufferedImage image = ImageIO.read(blurStream);
+                if (image != null) {
+                    // Use small component values for a compact hash
+                    String hash = BlurHash.encode(image, 4, 3);
+                    metadata.setBlurHash(hash);
+                }
+            } catch (IOException e) {
+                logger.error("Could not generate blurhash", e);
+                // Don't fail the upload, just log and continue
+            }
+
+        } catch (Exception e) {
+            logger.error("Failed to extract image metadata", e);
+        }
+
+        return metadata;
+    }
+
+    // Original saveImage method is replaced by saveImageAndGetMetadata
+    // public String saveImage(MultipartFile file) { ... }
 }
