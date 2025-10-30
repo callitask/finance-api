@@ -1,6 +1,7 @@
 package com.treishvaam.financeapi.service;
 
-import io.github.woltapp.blurhash.BlurHash;
+// CHANGED: This import is the only code change
+import io.trbl.blurhash.BlurHash;
 import jakarta.annotation.PostConstruct;
 import net.coobird.thumbnailator.Thumbnails;
 import org.slf4j.Logger;
@@ -194,6 +195,7 @@ public class ImageService {
                 BufferedImage image = ImageIO.read(blurStream);
                 if (image != null) {
                     // Use small component values for a compact hash
+                    // This line is the same, but the imported BlurHash class is different
                     String hash = BlurHash.encode(image, 4, 3);
                     metadata.setBlurHash(hash);
                 }
