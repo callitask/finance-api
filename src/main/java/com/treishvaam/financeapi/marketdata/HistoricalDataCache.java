@@ -14,7 +14,7 @@ public class HistoricalDataCache {
     private String ticker;
 
     @Lob
-    @Column(columnDefinition = "TEXT")
+    @Column(columnDefinition = "MEDIUMTEXT")
     private String data;
 
     private LocalDateTime lastFetched;
