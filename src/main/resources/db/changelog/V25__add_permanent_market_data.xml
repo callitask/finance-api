@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="25-1" author="treishvaam">
+        <createTable tableName="quote_data">
+            <column name="ticker" type="VARCHAR(10)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="current_price" type="DECIMAL(19, 4)"/>
+            <column name="change_amount" type="DECIMAL(19, 4)"/>
+            <column name="change_percent" type="DECIMAL(19, 4)"/>
+            <column name="previous_close" type="DECIMAL(19, 4)"/>
+            <column name="open_price" type="DECIMAL(19, 4)"/>
+            <column name="day_high" type="DECIMAL(19, 4)"/>
+            <column name="day_low" type="DECIMAL(19, 4)"/>
+            <column name="market_cap" type="BIGINT"/>
+            <column name="pe_ratio" type="DECIMAL(19, 2)"/>
+            <column name="dividend_yield" type="DECIMAL(19, 2)"/>
+            <column name="fifty_two_week_high" type="DECIMAL(19, 4)"/>
+            <column name="fifty_two_week_low" type="DECIMAL(19, 4)"/>
+            <column name="last_updated" type="TIMESTAMP"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="25-2" author="treishvaam">
+        <createTable tableName="historical_price">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="ticker" type="VARCHAR(10)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="price_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="close_price" type="DECIMAL(19, 4)"/>
+        </createTable>
+        <addUniqueConstraint tableName="historical_price" columnNames="ticker, price_date" constraintName="uk_ticker_date"/>
+    </changeSet>
+
+    <changeSet id="25-3" author="treishvaam">
+        <createTable tableName="market_holiday">
+             <column name="holiday_date" type="DATE">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="event_name" type="VARCHAR(255)"/>
+            <column name="market" type="VARCHAR(50)"/>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

@@ -6,6 +6,7 @@ import com.treishvaam.financeapi.apistatus.ApiFetchStatus;
 import com.treishvaam.financeapi.apistatus.ApiFetchStatusRepository;
 import com.treishvaam.financeapi.model.User;
 import com.treishvaam.financeapi.repository.UserRepository;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -24,12 +25,22 @@ import java.util.Optional;
 public class MarketDataService {
 
     private static final int CACHE_DURATION_MINUTES = 30;
+    // --- NEW: Supported ETFs for the widget ---
+    private static final List<String> SUPPORTED_ETFS = Arrays.asList("SPY", "DIA", "QQQ");
 
     @Autowired
     private MarketDataRepository marketDataRepository;
     
     @Autowired
     private HistoricalDataCacheRepository historicalDataCacheRepository;
+
+    // --- NEW Repositories ---
+    @Autowired
+    private QuoteDataRepository quoteDataRepository;
+    @Autowired
+    private HistoricalPriceRepository historicalPriceRepository;
+    @Autowired
+    private MarketHolidayRepository marketHolidayRepository;
 
     @Autowired
     @Qualifier("apiMarketDataFactory")
@@ -45,6 +56,58 @@ public class MarketDataService {
     private PasswordEncoder passwordEncoder;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // --- NEW: One-time startup initialization for holidays ---
+    @PostConstruct
+    public void initializeHolidays() {
+        if (marketHolidayRepository.count() == 0) {
+             try {
+                 List<MarketHoliday> holidays = marketDataFactory.getQuoteProvider().fetchMarketHolidays();
+                 if (!holidays.isEmpty()) {
+                     marketHolidayRepository.saveAll(holidays);
+                     System.out.println("Initialized " + holidays.size() + " market holidays.");
+                 }
+             } catch (Exception e) {
+                 System.err.println("Failed to initialize market holidays: " + e.getMessage());
+             }
+        }
+    }
+
+    // --- NEW: Consolidated Widget Data Fetch (Reads from Permanent DB) ---
+    public WidgetDataDto getWidgetData(String ticker) {
+        QuoteData quote = quoteDataRepository.findById(ticker).orElse(null);
+        // If quote is missing in DB, try a realtime fetch immediately as fallback
+        if (quote == null) {
+             try {
+                 quote = marketDataFactory.getQuoteProvider().fetchQuote(ticker);
+                 quoteDataRepository.save(quote);
+             } catch (Exception e) {
+                 // If immediate fetch fails, return null/empty DTO or handle error upstream
+             }
+        }
+        List<HistoricalPrice> history = historicalPriceRepository.findByTickerOrderByPriceDateAsc(ticker);
+        return new WidgetDataDto(quote, history);
+    }
+
+    // --- NEW: Scheduled Task - Update Live Quotes (called by Scheduler) ---
+    @Transactional
+    public void updateAllQuotes(String triggerSource) {
+        int successCount = 0;
+        for (String ticker : SUPPORTED_ETFS) {
+            try {
+                QuoteData data = marketDataFactory.getQuoteProvider().fetchQuote(ticker);
+                quoteDataRepository.save(data);
+                successCount++;
+            } catch (Exception e) {
+                apiFetchStatusRepository.save(new ApiFetchStatus("Quote Update (" + ticker + ")", "FAILURE", triggerSource, e.getMessage()));
+            }
+        }
+        if (successCount > 0) {
+             apiFetchStatusRepository.save(new ApiFetchStatus("All Quotes Update", "SUCCESS", triggerSource, "Updated " + successCount + " quotes."));
+        }
+    }
+
+    // ================= EXISTING METHODS BELOW (Kept for safety/admin) =================
 
     @Transactional
     public void fetchAndStoreMarketData(String market, String triggerSource) {
@@ -116,8 +179,8 @@ public class MarketDataService {
 
     @Transactional
     public void refreshIndices() {
-        List<String> indices = Arrays.asList("^GSPC", "^DJI", "^IXIC");
-        for (String ticker : indices) {
+        // UPDATED: Use supported ETFs instead of old indices
+        for (String ticker : SUPPORTED_ETFS) {
             try {
                 fetchHistoricalData(ticker);
                 apiFetchStatusRepository.save(new ApiFetchStatus("Market Chart (" + ticker + ")", "SUCCESS", "MANUAL", "Data refreshed successfully."));

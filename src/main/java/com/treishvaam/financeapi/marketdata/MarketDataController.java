@@ -1,9 +1,6 @@
 package com.treishvaam.financeapi.marketdata;
 
 import com.treishvaam.financeapi.apistatus.PasswordDto;
-// CORRECTED IMPORTS: Pointing to the correct sub-package
-import com.treishvaam.financeapi.marketdata.MarketData;
-import com.treishvaam.financeapi.marketdata.MarketDataService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
@@ -21,6 +18,12 @@ public class MarketDataController {
     @Autowired
     @Qualifier("apiMarketDataService")
     private MarketDataService marketDataService;
+
+    // --- NEW ENDPOINT for Widget ---
+    @GetMapping("/widget/{ticker}")
+    public ResponseEntity<WidgetDataDto> getWidgetData(@PathVariable String ticker) {
+        return ResponseEntity.ok(marketDataService.getWidgetData(ticker));
+    }
 
     @GetMapping("/top-gainers")
     public ResponseEntity<List<MarketData>> getTopGainers() {

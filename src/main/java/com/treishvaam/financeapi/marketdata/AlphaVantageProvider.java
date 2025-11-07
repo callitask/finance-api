@@ -11,12 +11,11 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
+// REMOVED: import java.util.Map;
 
 @Component("alphaVantageProvider")
 public class AlphaVantageProvider implements MarketDataProvider {
 
-    // --- NEW: Added Logger ---
     private static final Logger logger = LoggerFactory.getLogger(AlphaVantageProvider.class);
 
     @Value("${alphavantage.api.key}")
@@ -25,11 +24,7 @@ public class AlphaVantageProvider implements MarketDataProvider {
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    private static final Map<String, String> TICKER_MAP = Map.of(
-        "^GSPC", "SPY",
-        "^DJI", "DIA",
-        "^IXIC", "QQQ"
-    );
+    // REMOVED: static TICKER_MAP
 
     @Override
     public List<MarketData> fetchTopGainers() {
@@ -48,7 +43,8 @@ public class AlphaVantageProvider implements MarketDataProvider {
 
     @Override
     public Object fetchHistoricalData(String ticker) {
-        String apiSymbol = TICKER_MAP.getOrDefault(ticker, ticker.replace("^", ""));
+        // CHANGED: Use ticker directly.
+        String apiSymbol = ticker; 
         String function = "TIME_SERIES_DAILY";
 
         String url = String.format(
@@ -59,8 +55,6 @@ public class AlphaVantageProvider implements MarketDataProvider {
         );
 
         String jsonResponse = restTemplate.getForObject(url, String.class);
-
-        // --- NEW: Log the full response from the API for debugging ---
         logger.info("Alpha Vantage Response for [{}]: {}", ticker, jsonResponse);
 
         try {
