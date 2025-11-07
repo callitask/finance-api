@@ -5,51 +5,31 @@
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
                             http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
 
-    <changeSet id="25-1" author="treishvaam">
-        <createTable tableName="quote_data">
-            <column name="ticker" type="VARCHAR(10)">
-                <constraints primaryKey="true" nullable="false"/>
-            </column>
-            <column name="current_price" type="DECIMAL(19, 4)"/>
-            <column name="change_amount" type="DECIMAL(19, 4)"/>
-            <column name="change_percent" type="DECIMAL(19, 4)"/>
-            <column name="previous_close" type="DECIMAL(19, 4)"/>
-            <column name="open_price" type="DECIMAL(19, 4)"/>
-            <column name="day_high" type="DECIMAL(19, 4)"/>
-            <column name="day_low" type="DECIMAL(19, 4)"/>
-            <column name="market_cap" type="BIGINT"/>
-            <column name="pe_ratio" type="DECIMAL(19, 2)"/>
-            <column name="dividend_yield" type="DECIMAL(19, 2)"/>
-            <column name="fifty_two_week_high" type="DECIMAL(19, 4)"/>
-            <column name="fifty_two_week_low" type="DECIMAL(19, 4)"/>
-            <column name="last_updated" type="TIMESTAMP"/>
-        </createTable>
-    </changeSet>
-
-    <changeSet id="25-2" author="treishvaam">
-        <createTable tableName="historical_price">
-            <column name="id" type="BIGINT" autoIncrement="true">
-                <constraints primaryKey="true" nullable="false"/>
-            </column>
-            <column name="ticker" type="VARCHAR(10)">
-                <constraints nullable="false"/>
-            </column>
-            <column name="price_date" type="DATE">
-                <constraints nullable="false"/>
-            </column>
-            <column name="close_price" type="DECIMAL(19, 4)"/>
-        </createTable>
-        <addUniqueConstraint tableName="historical_price" columnNames="ticker, price_date" constraintName="uk_ticker_date"/>
-    </changeSet>
-
-    <changeSet id="25-3" author="treishvaam">
-        <createTable tableName="market_holiday">
-             <column name="holiday_date" type="DATE">
-                <constraints primaryKey="true" nullable="false"/>
-            </column>
-            <column name="event_name" type="VARCHAR(255)"/>
-            <column name="market" type="VARCHAR(50)"/>
-        </createTable>
-    </changeSet>
+    <include file="db/changelog/V1__init.xml"/>
+    <include file="db/changelog/V2__add_users_table.xml"/>
+    <include file="db/changelog/V3__add_roles_table.xml"/>
+    <include file="db/changelog/V4__add_user_roles_table.xml"/>
+    <include file="db/changelog/V5__add_categories_table.xml"/>
+    <include file="db/changelog/V6__add_tenant_id_to_posts.xml"/>
+    <include file="db/changelog/V9__add_author_to_posts.xml"/>
+    <include file="db/changelog/V10__add_linkedin_token_to_users.xml"/>
+    <include file="db/changelog/V11__add_market_data_table.xml"/>
+    <include file="db/changelog/V12__add_url_article_id_to_posts.xml"/>
+    <include file="db/changelog/V12__add_category_column_to_blog_posts.xml"/>
+    <include file="db/changelog/V12__add_page_content_table.xml"/>
+    <include file="db/changelog/V13__modify_alt_text_column.xml"/>
+    <include file="db/changelog/V14__add_user_friendly_slug.xml"/>
+    <include file="db/changelog/V15__add_category_field_to_blog_posts.xml"/>
+    <include file="db/changelog/V15__add_slug_to_categories.xml"/>
+    <include file="db/changelog/V16__refactor_post_category_relation.xml"/>
+    <include file="db/changelog/V17__modify_alt_text_column.xml"/>
+    <include file="db/changelog/V18__add_meta_description_to_posts.xml"/>
+    <include file="db/changelog/V19__add_keywords_to_posts.xml"/>
+    <include file="db/changelog/V20__create_contact_message_table.xml"/>
+    <include file="db/changelog/V21__add_quote_data_cache_table.xml"/>
+    <include file="db/changelog/V21__increase_cache_column_size.xml"/>
+    <include file="db/changelog/V23__create_generic_api_cache_table.xml"/>
+    <include file="db/changelog/V24__create_historical_data_cache_table.xml"/>
+    <include file="db/changelog/V25__add_permanent_market_data.xml"/>
 
 </databaseChangeLog>
