@@ -75,7 +75,8 @@ public class SecurityConfig {
                     HttpMethod.GET,
                     "/", "/about", "/services", "/vision", "/education",
                     "/contact", "/login", "/blog", 
-                    "/category/**", // <-- ADDED THIS NEW RULE
+                    "/category/**",
+                    "/post/**",   // <-- ADDED: Ensures individual blog posts work with SSR
                     "/ssr-test",
                     "/dashboard/**"
                 ).permitAll()
