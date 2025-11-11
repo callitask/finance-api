@@ -100,7 +100,7 @@ public class SecurityConfig {
                     "/v3/api-docs/**"
                 ).permitAll()
                 
-                .requestMatchers("/api/posts/admin/**", "/api/market/admin/**", "/api/status/**").hasAuthority("ROLE_ADMIN")
+                .requestMatchers("/api/posts/admin/**", "/api/market/admin/**", "/api/status/**", "/api/analytics/**").hasAuthority("ROLE_ADMIN")
 
                 .anyRequest().authenticated()
             );
