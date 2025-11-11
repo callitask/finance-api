@@ -60,6 +60,9 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
+                // FIX: Allow all CORS preflight OPTIONS requests
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll() 
+                
                 // Rule for static assets (CSS, JS, images, etc.)
                 .requestMatchers(
                     "/static/**", 
@@ -76,7 +79,7 @@ public class SecurityConfig {
                     "/", "/about", "/services", "/vision", "/education",
                     "/contact", "/login", "/blog", 
                     "/category/**",
-                    "/post/**",   // <-- ADDED: Ensures individual blog posts work with SSR
+                    "/post/**",
                     "/ssr-test",
                     "/dashboard/**"
                 ).permitAll()

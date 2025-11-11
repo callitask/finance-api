@@ -14,10 +14,9 @@ import java.util.List;
 public class FilterOptionsDto {
     private List<String> countries;
     private List<String> regions;
-    private List<String> cities;
-    private List<String> deviceCategories;
+    private List<String> cities; // Added back
+    // 'deviceCategories' list removed
     private List<String> operatingSystems;
     private List<String> osVersions;
     private List<String> sessionSources;
-    // We can add landingPage or others here if needed in the future
 }

@@ -32,8 +32,8 @@ public class AnalyticsController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @RequestParam(required = false) String country,
             @RequestParam(required = false) String region,
-            @RequestParam(required = false) String city,
-            @RequestParam(required = false) String deviceCategory,
+            @RequestParam(required = false) String city, // Added back
+            // 'deviceCategory' removed
             @RequestParam(required = false) String operatingSystem,
             @RequestParam(required = false) String osVersion,
             @RequestParam(required = false) String sessionSource
@@ -47,8 +47,8 @@ public class AnalyticsController {
         AudienceFilter filters = AudienceFilter.builder()
             .country(country)
             .region(region)
-            .city(city)
-            .deviceCategory(deviceCategory)
+            .city(city) // Added back
+            // 'deviceCategory' removed
             .operatingSystem(operatingSystem)
             .osVersion(osVersion)
             .sessionSource(sessionSource)
@@ -73,8 +73,8 @@ public class AnalyticsController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @RequestParam(required = false) String country,
             @RequestParam(required = false) String region,
-            @RequestParam(required = false) String city,
-            @RequestParam(required = false) String deviceCategory,
+            @RequestParam(required = false) String city, // Added back
+            // 'deviceCategory' removed
             @RequestParam(required = false) String operatingSystem,
             @RequestParam(required = false) String osVersion,
             @RequestParam(required = false) String sessionSource
@@ -87,8 +87,8 @@ public class AnalyticsController {
         AudienceFilter filters = AudienceFilter.builder()
             .country(country)
             .region(region)
-            .city(city)
-            .deviceCategory(deviceCategory)
+            .city(city) // Added back
+            // 'deviceCategory' removed
             .operatingSystem(operatingSystem)
             .osVersion(osVersion)
             .sessionSource(sessionSource)

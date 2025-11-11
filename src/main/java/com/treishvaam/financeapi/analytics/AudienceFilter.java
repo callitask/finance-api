@@ -11,10 +11,9 @@ import lombok.Data;
 public class AudienceFilter {
     private String country;
     private String region;
-    private String city;
-    private String deviceCategory;
+    private String city; // Added back
+    // 'deviceCategory' removed
     private String operatingSystem;
     private String osVersion;
     private String sessionSource;
-    // Add other fields here if they become filterable
 }

@@ -118,20 +118,18 @@ public class AnalyticsService {
             return;
         }
 
+        // FIX: Swapped 'deviceCategory' for 'city' to stay at the 9-dimension limit.
         List<Dimension> dimensions = List.of(
             Dimension.newBuilder().setName("date").build(),                 // 0
             Dimension.newBuilder().setName("sessionSource").build(),        // 1
             Dimension.newBuilder().setName("country").build(),              // 2
             Dimension.newBuilder().setName("region").build(),               // 3
-            Dimension.newBuilder().setName("city").build(),                 // 4
-            Dimension.newBuilder().setName("deviceCategory").build(),       // 5
-            Dimension.newBuilder().setName("operatingSystem").build(),      // 6
-            Dimension.newBuilder().setName("landingPage").build(),          // 7
-            Dimension.newBuilder().setName("userPseudoId").build(),         // 8
-            Dimension.newBuilder().setName("gaSessionId").build(),          // 9
-            Dimension.newBuilder().setName("mobileDeviceModel").build(),    // 10
-            Dimension.newBuilder().setName("operatingSystemVersion").build(),// 11
-            Dimension.newBuilder().setName("screenResolution").build()      // 12
+            Dimension.newBuilder().setName("city").build(),                 // 4 (Added back)
+            Dimension.newBuilder().setName("operatingSystem").build(),      // 5
+            Dimension.newBuilder().setName("mobileDeviceModel").build(),    // 6
+            Dimension.newBuilder().setName("operatingSystemVersion").build(),// 7
+            Dimension.newBuilder().setName("screenResolution").build()      // 8
+            // 'deviceCategory' was removed
         );
         
         List<Metric> metrics = List.of(
@@ -164,22 +162,30 @@ public class AnalyticsService {
         
         for (com.google.analytics.data.v1beta.Row row : response.getRowsList()) {
             AudienceVisit visit = new AudienceVisit();
+            
+            // Map dimensions based on the new 9-dimension list
             visit.setSessionDate(LocalDate.parse(row.getDimensionValues(0).getValue(), DateTimeFormatter.ofPattern("yyyyMMdd")));
             visit.setSessionSource(row.getDimensionValues(1).getValue());
             visit.setCountry(row.getDimensionValues(2).getValue());
             visit.setRegion(row.getDimensionValues(3).getValue());
-            visit.setCity(row.getDimensionValues(4).getValue());
-            visit.setDeviceCategory(row.getDimensionValues(5).getValue());
-            visit.setOperatingSystem(row.getDimensionValues(6).getValue());
-            visit.setLandingPage(row.getDimensionValues(7).getValue());
-            visit.setClientId(row.getDimensionValues(8).getValue()); 
-            visit.setSessionId(row.getDimensionValues(9).getValue());
-            visit.setDeviceModel(row.getDimensionValues(10).getValue()); 
-            visit.setOsVersion(row.getDimensionValues(11).getValue()); 
-            visit.setScreenResolution(row.getDimensionValues(12).getValue());
+            visit.setCity(row.getDimensionValues(4).getValue()); // Added back
+            visit.setOperatingSystem(row.getDimensionValues(5).getValue());
             
+            // Set removed/restricted fields
+            visit.setDeviceCategory("GA4 Restricted"); // Removed from query
+            visit.setLandingPage("GA4 Restricted");
+            visit.setClientId("GA4 Restricted"); 
+            visit.setSessionId("GA4 Restricted");
+            
+            // Map the remaining dimensions
+            visit.setDeviceModel(row.getDimensionValues(6).getValue()); 
+            visit.setOsVersion(row.getDimensionValues(7).getValue()); 
+            visit.setScreenResolution(row.getDimensionValues(8).getValue());
+            
+            // Map metrics
             visit.setViews(Long.valueOf(row.getMetricValues(0).getValue()).intValue()); 
             visit.setSessionDurationSeconds(Math.round(Double.parseDouble(row.getMetricValues(1).getValue())));
+            
             visits.add(visit);
         }
         return visits;
@@ -198,8 +204,8 @@ public class AnalyticsService {
             endDate, 
             filters.getCountry(), 
             filters.getRegion(), 
-            filters.getCity(),
-            filters.getDeviceCategory(),
+            filters.getCity(), // Added back
+            // 'deviceCategory' removed
             filters.getOperatingSystem(),
             filters.getOsVersion(),
             filters.getSessionSource()
@@ -211,36 +217,32 @@ public class AnalyticsService {
      * Fetches distinct, dynamic filter options for the frontend dropdowns.
      */
     public FilterOptionsDto getFilterOptions(LocalDate startDate, LocalDate endDate, AudienceFilter filters) {
-        // For each distinct query, we pass all *other* filters to narrow down the choices.
-        // For example, when getting regions, we pass the country filter, but not the region filter.
         
         return FilterOptionsDto.builder()
             .countries(audienceVisitRepository.findDistinctCountries(
-                startDate, endDate, null, filters.getRegion(), filters.getCity(), filters.getDeviceCategory(),
+                startDate, endDate, null, filters.getRegion(), filters.getCity(),
                 filters.getOperatingSystem(), filters.getOsVersion(), filters.getSessionSource()))
             
             .regions(audienceVisitRepository.findDistinctRegions(
-                startDate, endDate, filters.getCountry(), null, filters.getCity(), filters.getDeviceCategory(),
+                startDate, endDate, filters.getCountry(), null, filters.getCity(),
                 filters.getOperatingSystem(), filters.getOsVersion(), filters.getSessionSource()))
             
-            .cities(audienceVisitRepository.findDistinctCities(
-                startDate, endDate, filters.getCountry(), filters.getRegion(), null, filters.getDeviceCategory(),
+            .cities(audienceVisitRepository.findDistinctCities( // Added back
+                startDate, endDate, filters.getCountry(), filters.getRegion(), null,
                 filters.getOperatingSystem(), filters.getOsVersion(), filters.getSessionSource()))
             
-            .deviceCategories(audienceVisitRepository.findDistinctDeviceCategories(
-                startDate, endDate, filters.getCountry(), filters.getRegion(), filters.getCity(), null,
-                filters.getOperatingSystem(), filters.getOsVersion(), filters.getSessionSource()))
+            // 'deviceCategories' list removed
 
             .operatingSystems(audienceVisitRepository.findDistinctOperatingSystems(
-                startDate, endDate, filters.getCountry(), filters.getRegion(), filters.getCity(), filters.getDeviceCategory(),
+                startDate, endDate, filters.getCountry(), filters.getRegion(), filters.getCity(),
                 null, filters.getOsVersion(), filters.getSessionSource()))
 
             .osVersions(audienceVisitRepository.findDistinctOsVersions(
-                startDate, endDate, filters.getCountry(), filters.getRegion(), filters.getCity(), filters.getDeviceCategory(),
+                startDate, endDate, filters.getCountry(), filters.getRegion(), filters.getCity(),
                 filters.getOperatingSystem(), null, filters.getSessionSource()))
                 
             .sessionSources(audienceVisitRepository.findDistinctSessionSources(
-                startDate, endDate, filters.getCountry(), filters.getRegion(), filters.getCity(), filters.getDeviceCategory(),
+                startDate, endDate, filters.getCountry(), filters.getRegion(), filters.getCity(),
                 filters.getOperatingSystem(), filters.getOsVersion(), null))
             
             .build();

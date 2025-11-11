@@ -15,7 +15,6 @@ public interface AudienceVisitRepository extends JpaRepository<AudienceVisit, Lo
 
     /**
      * Base query fragment for filtering. Reused by data and filter option queries.
-     * Note: Each filter option query will append its OWN "AND" clause, excluding itself.
      */
     String FILTER_QUERY_BASE = """
         FROM AudienceVisit av 
@@ -23,11 +22,10 @@ public interface AudienceVisitRepository extends JpaRepository<AudienceVisit, Lo
         AND (:country IS NULL OR av.country = :country)
         AND (:region IS NULL OR av.region = :region)
         AND (:city IS NULL OR av.city = :city)
-        AND (:deviceCategory IS NULL OR av.deviceCategory = :deviceCategory)
         AND (:operatingSystem IS NULL OR av.operatingSystem = :operatingSystem)
         AND (:osVersion IS NULL OR av.osVersion = :osVersion)
         AND (:sessionSource IS NULL OR av.sessionSource = :sessionSource)
-    """;
+    """; // 'deviceCategory' filter removed
 
     /**
      * Finds all audience visits within a given date range, with optional dynamic filters.
@@ -38,8 +36,8 @@ public interface AudienceVisitRepository extends JpaRepository<AudienceVisit, Lo
             @Param("endDate") LocalDate endDate, 
             @Param("country") String country, 
             @Param("region") String region,
-            @Param("city") String city,
-            @Param("deviceCategory") String deviceCategory,
+            @Param("city") String city, // Added back
+            // 'deviceCategory' removed
             @Param("operatingSystem") String operatingSystem,
             @Param("osVersion") String osVersion,
             @Param("sessionSource") String sessionSource
@@ -57,48 +55,43 @@ public interface AudienceVisitRepository extends JpaRepository<AudienceVisit, Lo
     List<String> findDistinctCountries(
             @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate, 
             @Param("country") String country, @Param("region") String region, @Param("city") String city,
-            @Param("deviceCategory") String deviceCategory, @Param("operatingSystem") String operatingSystem,
+            @Param("operatingSystem") String operatingSystem,
             @Param("osVersion") String osVersion, @Param("sessionSource") String sessionSource);
 
     @Query("SELECT DISTINCT av.region " + FILTER_QUERY_BASE + " ORDER BY av.region")
     List<String> findDistinctRegions(
             @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate, 
             @Param("country") String country, @Param("region") String region, @Param("city") String city,
-            @Param("deviceCategory") String deviceCategory, @Param("operatingSystem") String operatingSystem,
+            @Param("operatingSystem") String operatingSystem,
             @Param("osVersion") String osVersion, @Param("sessionSource") String sessionSource);
 
-    @Query("SELECT DISTINCT av.city " + FILTER_QUERY_BASE + " ORDER BY av.city")
+    @Query("SELECT DISTINCT av.city " + FILTER_QUERY_BASE + " ORDER BY av.city") // Added back
     List<String> findDistinctCities(
             @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate, 
             @Param("country") String country, @Param("region") String region, @Param("city") String city,
-            @Param("deviceCategory") String deviceCategory, @Param("operatingSystem") String operatingSystem,
+            @Param("operatingSystem") String operatingSystem,
             @Param("osVersion") String osVersion, @Param("sessionSource") String sessionSource);
 
-    @Query("SELECT DISTINCT av.deviceCategory " + FILTER_QUERY_BASE + " ORDER BY av.deviceCategory")
-    List<String> findDistinctDeviceCategories(
-            @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate, 
-            @Param("country") String country, @Param("region") String region, @Param("city") String city,
-            @Param("deviceCategory") String deviceCategory, @Param("operatingSystem") String operatingSystem,
-            @Param("osVersion") String osVersion, @Param("sessionSource") String sessionSource);
+    // 'findDistinctDeviceCategories' method removed
 
     @Query("SELECT DISTINCT av.operatingSystem " + FILTER_QUERY_BASE + " ORDER BY av.operatingSystem")
     List<String> findDistinctOperatingSystems(
             @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate, 
             @Param("country") String country, @Param("region") String region, @Param("city") String city,
-            @Param("deviceCategory") String deviceCategory, @Param("operatingSystem") String operatingSystem,
+            @Param("operatingSystem") String operatingSystem,
             @Param("osVersion") String osVersion, @Param("sessionSource") String sessionSource);
 
     @Query("SELECT DISTINCT av.osVersion " + FILTER_QUERY_BASE + " ORDER BY av.osVersion")
     List<String> findDistinctOsVersions(
             @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate, 
             @Param("country") String country, @Param("region") String region, @Param("city") String city,
-            @Param("deviceCategory") String deviceCategory, @Param("operatingSystem") String operatingSystem,
+            @Param("operatingSystem") String operatingSystem,
             @Param("osVersion") String osVersion, @Param("sessionSource") String sessionSource);
             
     @Query("SELECT DISTINCT av.sessionSource " + FILTER_QUERY_BASE + " ORDER BY av.sessionSource")
     List<String> findDistinctSessionSources(
             @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate, 
             @Param("country") String country, @Param("region") String region, @Param("city") String city,
-            @Param("deviceCategory") String deviceCategory, @Param("operatingSystem") String operatingSystem,
+            @Param("operatingSystem") String operatingSystem,
             @Param("osVersion") String osVersion, @Param("sessionSource") String sessionSource);
 }
