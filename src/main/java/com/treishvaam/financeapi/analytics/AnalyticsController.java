@@ -23,22 +23,78 @@ public class AnalyticsController {
 
     /**
      * Endpoint to fetch historical audience data from the local database.
-     * Requires ROLE_ADMIN. Accepts a date range filter.
-     * @param startDate Optional start date for filtering (format: YYYY-MM-DD)
-     * @param endDate Optional end date for filtering (format: YYYY-MM-DD)
-     * @return List of AudienceDataDto
+     * Requires ROLE_ADMIN. Accepts a date range and optional multi-level filters.
      */
     @GetMapping
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<List<AudienceDataDto>> getHistoricalAudienceData(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) String region,
+            @RequestParam(required = false) String city,
+            @RequestParam(required = false) String deviceCategory,
+            @RequestParam(required = false) String operatingSystem,
+            @RequestParam(required = false) String osVersion,
+            @RequestParam(required = false) String sessionSource
+            ) {
 
         // Default the dates if not provided
         LocalDate finalStartDate = startDate != null ? startDate : LocalDate.now().minusDays(7);
         LocalDate finalEndDate = endDate != null ? endDate : LocalDate.now();
 
-        List<AudienceDataDto> data = analyticsService.getHistoricalData(finalStartDate, finalEndDate);
+        // Package filters into a single object for the service
+        AudienceFilter filters = AudienceFilter.builder()
+            .country(country)
+            .region(region)
+            .city(city)
+            .deviceCategory(deviceCategory)
+            .operatingSystem(operatingSystem)
+            .osVersion(osVersion)
+            .sessionSource(sessionSource)
+            .build();
+
+        List<AudienceDataDto> data = analyticsService.getHistoricalData(
+            finalStartDate, 
+            finalEndDate,
+            filters
+        );
         return ResponseEntity.ok(data);
+    }
+
+    /**
+     * Endpoint to fetch dynamic, distinct filter options based on the current context.
+     * This powers the cascading dropdowns on the frontend.
+     */
+    @GetMapping("/filters")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<FilterOptionsDto> getFilterOptions(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) String region,
+            @RequestParam(required = false) String city,
+            @RequestParam(required = false) String deviceCategory,
+            @RequestParam(required = false) String operatingSystem,
+            @RequestParam(required = false) String osVersion,
+            @RequestParam(required = false) String sessionSource
+    ) {
+        // Default the dates if not provided
+        LocalDate finalStartDate = startDate != null ? startDate : LocalDate.now().minusDays(7);
+        LocalDate finalEndDate = endDate != null ? endDate : LocalDate.now();
+
+        // Package filters into a single object for the service
+        AudienceFilter filters = AudienceFilter.builder()
+            .country(country)
+            .region(region)
+            .city(city)
+            .deviceCategory(deviceCategory)
+            .operatingSystem(operatingSystem)
+            .osVersion(osVersion)
+            .sessionSource(sessionSource)
+            .build();
+
+        FilterOptionsDto options = analyticsService.getFilterOptions(finalStartDate, finalEndDate, filters);
+        return ResponseEntity.ok(options);
     }
 }
