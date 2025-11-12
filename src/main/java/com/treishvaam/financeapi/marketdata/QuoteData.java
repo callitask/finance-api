@@ -12,6 +12,10 @@ public class QuoteData {
 
     @Id
     private String ticker;
+    
+    private String name; // --- NEW ---
+    private String currency; // --- NEW ---
+    
     private BigDecimal currentPrice;
     private BigDecimal changeAmount;
     private BigDecimal changePercent;
@@ -29,6 +33,13 @@ public class QuoteData {
     // Getters and Setters
     public String getTicker() { return ticker; }
     public void setTicker(String ticker) { this.ticker = ticker; }
+
+    public String getName() { return name; } // --- NEW ---
+    public void setName(String name) { this.name = name; } // --- NEW ---
+
+    public String getCurrency() { return currency; } // --- NEW ---
+    public void setCurrency(String currency) { this.currency = currency; } // --- NEW ---
+
     public BigDecimal getCurrentPrice() { return currentPrice; }
     public void setCurrentPrice(BigDecimal currentPrice) { this.currentPrice = currentPrice; }
     public BigDecimal getChangeAmount() { return changeAmount; }
