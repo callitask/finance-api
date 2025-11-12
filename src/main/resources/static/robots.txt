@@ -8,3 +8,6 @@ Allow: /
 Disallow: /api/
 Disallow: /dashboard/
 Disallow: /?q=*
+
+# Sitemap Index
+Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml

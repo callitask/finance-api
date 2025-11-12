@@ -24,7 +24,7 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity
+@EnableMethodSecurity // This enables @PreAuthorize on the new controller
 public class SecurityConfig {
     private final JwtTokenFilter jwtTokenFilter;
     private final InternalSecretFilter internalSecretFilter;
@@ -92,7 +92,8 @@ public class SecurityConfig {
                     "/api/uploads/**",
                     "/api/market/**",
                     "/api/news/**",
-                    "/sitemap.xml",
+                    "/sitemap.xml",    // Now serves the static index file
+                    "/sitemaps/**",  // Now serves the static child files
                     "/api/logo"
                 ).permitAll()
                 // Rule for other public API endpoints (all HTTP methods)
@@ -103,7 +104,14 @@ public class SecurityConfig {
                     "/v3/api-docs/**"
                 ).permitAll()
                 
-                .requestMatchers("/api/posts/admin/**", "/api/market/admin/**", "/api/status/**", "/api/analytics/**").hasAuthority("ROLE_ADMIN")
+                // ADMIN-ONLY paths
+                .requestMatchers(
+                    "/api/posts/admin/**", 
+                    "/api/market/admin/**", 
+                    "/api/status/**", 
+                    "/api/analytics/**",
+                    "/api/admin/actions/**" // ADDED: Secure the new admin controller
+                ).hasAuthority("ROLE_ADMIN")
 
                 .anyRequest().authenticated()
             );

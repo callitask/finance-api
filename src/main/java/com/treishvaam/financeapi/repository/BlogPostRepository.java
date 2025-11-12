@@ -33,4 +33,7 @@ public interface BlogPostRepository extends JpaRepository<BlogPost, Long> {
 
     // NEW METHOD to find by the custom URL ID
     Optional<BlogPost> findByUrlArticleId(String urlArticleId);
+
+    // NEW METHOD for sitemap generation
+    long countByStatus(PostStatus status);
 }

@@ -355,4 +355,10 @@ public class BlogPostServiceImpl implements BlogPostService {
         return categoryRepository.findByName(name)
                 .orElseThrow(() -> new RuntimeException("Category not found with name: " + name));
     }
+
+    // NEW METHOD implementation for sitemap
+    @Override
+    public long countPublishedPosts() {
+        return blogPostRepository.countByStatus(PostStatus.PUBLISHED);
+    }
 }

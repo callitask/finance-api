@@ -36,4 +36,7 @@ public interface BlogPostService {
 
     // NEW METHOD TO FIND CATEGORY
     Category findCategoryByName(String name);
+    
+    // NEW METHOD for sitemap generation
+    long countPublishedPosts();
 }
