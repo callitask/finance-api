@@ -16,6 +16,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * NOTE: This provider is TEMPORARILY DISABLED.
+ * Data is now being fetched by the Python script (market_data_updater.py).
+ * This class is kept for the legacy cache endpoint /api/market/historical/{ticker}
+ */
 @Component("alphaVantageProvider")
 public class AlphaVantageProvider implements MarketDataProvider {
 
@@ -34,48 +39,17 @@ public class AlphaVantageProvider implements MarketDataProvider {
     @Override
     public List<MarketData> fetchMostActive() { return Collections.emptyList(); }
 
-    // Kept for legacy/other uses if needed
+    // Kept for legacy /api/market/historical/{ticker} endpoint
     @Override
     public Object fetchHistoricalData(String ticker) {
-        String url = String.format("https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=%s&apikey=%s", ticker, apiKey);
+        logger.warn("Using legacy fetchHistoricalData for {}. Python script is preferred.", ticker);
+        String url = String.format("https.www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=%s&apikey=%s", ticker, apiKey);
         return restTemplate.getForObject(url, Object.class);
     }
 
-    // --- NEW: Fetch and parse into our entity format for bridging gaps ---
+    // --- DISABLED ---
     public List<HistoricalPrice> fetchDailyHistory(String ticker, boolean fullHistory) {
-        String outputSize = fullHistory ? "full" : "compact"; // compact = 100 days, full = 20 years
-        String url = String.format(
-            "https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=%s&outputsize=%s&apikey=%s",
-            ticker, outputSize, apiKey
-        );
-
-        try {
-            String jsonResponse = restTemplate.getForObject(url, String.class);
-            JsonNode root = objectMapper.readTree(jsonResponse);
-            JsonNode timeSeries = root.path("Time Series (Daily)");
-
-            if (timeSeries.isMissingNode()) {
-                 // Check for API limits or errors
-                 if (root.has("Note")) logger.warn("AlphaVantage API limit reached for {}", ticker);
-                 else logger.error("Failed to fetch history for {}. Response: {}", ticker, jsonResponse);
-                 return Collections.emptyList();
-            }
-
-            List<HistoricalPrice> history = new ArrayList<>();
-            Iterator<Map.Entry<String, JsonNode>> fields = timeSeries.fields();
-            while (fields.hasNext()) {
-                Map.Entry<String, JsonNode> entry = fields.next();
-                HistoricalPrice hp = new HistoricalPrice();
-                hp.setTicker(ticker);
-                hp.setPriceDate(LocalDate.parse(entry.getKey()));
-                // "4. close" is the standard closing price
-                hp.setClosePrice(new BigDecimal(entry.getValue().get("4. close").asText()));
-                history.add(hp);
-            }
-            return history;
-        } catch (Exception e) {
-            logger.error("Error parsing AlphaVantage history for {}: {}", ticker, e.getMessage());
-            return Collections.emptyList();
-        }
+        logger.warn("fetchDailyHistory() is TEMPORARILY DISABLED. Python script handles this now.");
+        return Collections.emptyList();
     }
 }
