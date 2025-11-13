@@ -28,6 +28,6 @@
     <include file="db/changelog/V25__add_permanent_market_data.xml"/>
     <include file="db/changelog/V26__create_audience_visits_table.xml"/>
     
-    <include file="db/changelog/V27__add_name_and_currency_to_quote_data.xml"/>
+    <include file="db/changelog/V27__add_quote_details.xml"/>
     
   </databaseChangeLog>

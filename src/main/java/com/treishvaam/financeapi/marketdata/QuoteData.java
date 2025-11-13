@@ -1,7 +1,9 @@
 package com.treishvaam.financeapi.marketdata;
 
+import jakarta.persistence.Column; // --- NEW IMPORT ---
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -13,8 +15,12 @@ public class QuoteData {
     @Id
     private String ticker;
     
-    private String name; // --- NEW ---
-    private String currency; // --- NEW ---
+    private String name;
+    private String currency;
+    
+    @Lob
+    @Column(columnDefinition = "TEXT") // --- THIS LINE IS THE FIX ---
+    private String description;
     
     private BigDecimal currentPrice;
     private BigDecimal changeAmount;
@@ -23,6 +29,9 @@ public class QuoteData {
     private BigDecimal openPrice;
     private BigDecimal dayHigh;
     private BigDecimal dayLow;
+    
+    private Long volume;
+    
     private Long marketCap;
     private BigDecimal peRatio;
     private BigDecimal dividendYield;
@@ -34,11 +43,14 @@ public class QuoteData {
     public String getTicker() { return ticker; }
     public void setTicker(String ticker) { this.ticker = ticker; }
 
-    public String getName() { return name; } // --- NEW ---
-    public void setName(String name) { this.name = name; } // --- NEW ---
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
 
-    public String getCurrency() { return currency; } // --- NEW ---
-    public void setCurrency(String currency) { this.currency = currency; } // --- NEW ---
+    public String getCurrency() { return currency; }
+    public void setCurrency(String currency) { this.currency = currency; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
 
     public BigDecimal getCurrentPrice() { return currentPrice; }
     public void setCurrentPrice(BigDecimal currentPrice) { this.currentPrice = currentPrice; }
@@ -54,6 +66,10 @@ public class QuoteData {
     public void setDayHigh(BigDecimal dayHigh) { this.dayHigh = dayHigh; }
     public BigDecimal getDayLow() { return dayLow; }
     public void setDayLow(BigDecimal dayLow) { this.dayLow = dayLow; }
+
+    public Long getVolume() { return volume; }
+    public void setVolume(Long volume) { this.volume = volume; }
+
     public Long getMarketCap() { return marketCap; }
     public void setMarketCap(Long marketCap) { this.marketCap = marketCap; }
     public BigDecimal getPeRatio() { return peRatio; }
