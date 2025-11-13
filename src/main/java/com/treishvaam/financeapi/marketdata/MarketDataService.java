@@ -17,27 +17,39 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
+import java.util.Collections; // --- NEW IMPORT ---
 import java.util.List;
+import java.util.Map; // --- NEW IMPORT ---
 import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service("apiMarketDataService")
 public class MarketDataService {
-
     private static final Logger logger = LoggerFactory.getLogger(MarketDataService.class);
     private static final int CACHE_DURATION_MINUTES = 30;
-
     // This list contains the real tickers
     private static final List<String> SUPPORTED_ETFS = Arrays.asList(
             "^GSPC", "^DJI", "^IXIC", "^RUT", "^NYA", "^VIX", "^GDAXI", "^FTSE", "^HSI",
             "GC=F", "CL=F", "SI=F", "^NSEI", "^BSESN"
+    );
+
+    // --- NEW: Peer map for comparison carousel ---
+    private static final Map<String, List<String>> PEER_MAP = Map.of(
+            "^GSPC", List.of("^DJI", "^IXIC", "^RUT"),
+            "^DJI", List.of("^GSPC", "^IXIC", "^RUT"),
+            "^IXIC", List.of("^GSPC", "^DJI", "^RUT"),
+            "^RUT", List.of("^GSPC", "^DJI", "^IXIC"),
+            "^NSEI", List.of("^BSESN"),
+            "^BSESN", List.of("^NSEI"),
+            "GC=F", List.of("SI=F", "CL=F"),
+            "CL=F", List.of("GC=F", "SI=F"),
+            "SI=F", List.of("GC=F", "CL=F")
     );
 
     @Autowired
@@ -66,22 +78,16 @@ public class MarketDataService {
     private PasswordEncoder passwordEncoder;
     @Autowired
     private CsvHistoryLoader csvHistoryLoader;
-
     @Value("${spring.datasource.url}")
     private String dbUrl;
-
     @Value("${spring.datasource.username}")
     private String dbUsername;
-
     @Value("${spring.datasource.password}")
     private String dbPassword;
     
     @Value("${app.python.script.path:scripts/market_data_updater.py}")
     private String pythonScriptPath;
-
-
     private final ObjectMapper objectMapper = new ObjectMapper();
-
     @PostConstruct
     public void initializeData() {
         logger.info("STARTUP: Initializing Market Data Service...");
@@ -92,13 +98,11 @@ public class MarketDataService {
         
         logger.info("Startup initialization complete. Python script will be triggered by initializer/scheduler.");
     }
-
     @Transactional
     public void runPythonHistoryAndQuoteUpdate(String triggerSource) {
         logger.info("Starting Python data update script... Trigger: {}", triggerSource);
         ApiFetchStatus status = new ApiFetchStatus("Python Data Update", "PENDING", triggerSource, "Script starting...");
-        apiFetchStatusRepository.save(status); 
-
+        apiFetchStatusRepository.save(status);
         try {
             ProcessBuilder pb = new ProcessBuilder(
                 "python", // Changed to "python" for Windows compatibility
@@ -108,10 +112,9 @@ public class MarketDataService {
                 dbPassword
             );
             
-            pb.redirectErrorStream(true); 
+            pb.redirectErrorStream(true);
             
             Process process = pb.start();
-
             StringBuilder output = new StringBuilder();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
@@ -120,7 +123,6 @@ public class MarketDataService {
                     output.append(line).append("\n");
                 }
             }
-
             int exitCode = process.waitFor();
             
             if (exitCode == 0) {
@@ -134,7 +136,6 @@ public class MarketDataService {
                 // --- FIX 2 --- (Increased substring to 1000 for more detail)
                 status.setDetails("Python script failed with exit code: " + exitCode + ". Output: " + output.substring(0, Math.min(output.length(), 1000)));
             }
-
         } catch (Exception e) {
             logger.error("FATAL: Failed to run Python update script: {}", e.getMessage(), e);
             status.setStatus("FAILURE");
@@ -145,16 +146,21 @@ public class MarketDataService {
         apiFetchStatusRepository.save(status);
         logger.info("Python data update complete. Trigger: {}", triggerSource);
     }
-
-
     // --- DISABLED METHOD ---
     private void bridgeDataGap() {
         logger.warn("bridgeDataGap() is TEMPORARILY DISABLED. Python script handles this now.");
     }
-
     // --- DISABLED METHOD ---
     private void initializeHolidays() {
         logger.warn("initializeHolidays() is TEMPORARILY DISABLED. Python script handles this now.");
+    }
+
+    // --- NEW METHOD: For Global Market Ticker ---
+    public List<QuoteData> getQuotesBatch(List<String> tickers) {
+        if (tickers == null || tickers.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return quoteDataRepository.findByTickerIn(tickers);
     }
 
     public WidgetDataDto getWidgetData(String ticker) {
@@ -162,21 +168,26 @@ public class MarketDataService {
         QuoteData quote = quoteDataRepository.findById(ticker).orElse(null);
         
         if (quote == null) {
-             logger.warn("No quote data found in DB for {}. It may not have been fetched by the Python script yet.", ticker);
+                logger.warn("No quote data found in DB for {}. It may not have been fetched by the Python script yet.", ticker);
         }
         
         List<HistoricalPrice> history = historicalPriceRepository.findByTickerOrderByPriceDateAsc(ticker);
-        return new WidgetDataDto(quote, history);
-    }
 
+        // --- NEW: Fetch peers ---
+        List<String> peerTickers = PEER_MAP.getOrDefault(ticker, Collections.emptyList());
+        List<QuoteData> peers = Collections.emptyList();
+        if (!peerTickers.isEmpty()) {
+            peers = quoteDataRepository.findByTickerIn(peerTickers);
+        }
+
+        return new WidgetDataDto(quote, history, peers); // --- MODIFIED ---
+    }
     // --- DISABLED METHOD ---
     @Transactional
     public void updateAllQuotes(String triggerSource) {
         logger.warn("updateAllQuotes() is TEMPORARILY DISABLED. Python script handles this now.");
     }
-
     // ================= EXISTING METHODS BELOW =================
-
     @Transactional
     public void fetchAndStoreMarketData(String market, String triggerSource) {
         MarketDataProvider provider = marketDataFactory.getMoversProvider(market);
@@ -225,7 +236,6 @@ public class MarketDataService {
             throw new RuntimeException("Failed to fetch historical data for " + ticker, e);
         }
     }
-
     @Transactional
     public void refreshIndices() {
         // This admin function will now use the correct tickers
@@ -233,7 +243,6 @@ public class MarketDataService {
             try { fetchHistoricalData(ticker); } catch (Exception e) {}
         }
     }
-
     @Transactional
     public void flushMoversData(String password) {
         if (!isPasswordValid(password)) throw new SecurityException("Invalid password.");
@@ -241,18 +250,15 @@ public class MarketDataService {
         marketDataRepository.deleteByType("LOSER");
         marketDataRepository.deleteByType("ACTIVE");
     }
-
     @Transactional
     public void flushIndicesData(String password) {
         if (!isPasswordValid(password)) throw new SecurityException("Invalid password.");
         historicalDataCacheRepository.deleteAll();
     }
-
     private boolean isPasswordValid(String rawPassword) {
         UserDetails userDetails = (UserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         return passwordEncoder.matches(rawPassword, userRepository.findByUsername(userDetails.getUsername()).get().getPassword());
     }
-
     public List<MarketData> getTopGainers() { return marketDataRepository.findByType("GAINER"); }
     public List<MarketData> getTopLosers() { return marketDataRepository.findByType("LOSER"); }
     public List<MarketData> getMostActive() { return marketDataRepository.findByType("ACTIVE"); }

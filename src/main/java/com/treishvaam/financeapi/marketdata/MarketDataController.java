@@ -7,17 +7,21 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/market")
 public class MarketDataController {
-
     @Autowired
     @Qualifier("apiMarketDataService")
     private MarketDataService marketDataService;
+
+    // --- NEW ENDPOINT for Global Market Ticker ---
+    @PostMapping("/quotes/batch")
+    public ResponseEntity<List<QuoteData>> getBatchQuotes(@RequestBody List<String> tickers) {
+        return ResponseEntity.ok(marketDataService.getQuotesBatch(tickers));
+    }
 
     // --- NEW ENDPOINT for Widget ---
     @GetMapping("/widget/{ticker}")

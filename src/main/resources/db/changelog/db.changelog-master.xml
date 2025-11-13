@@ -30,4 +30,5 @@
     
     <include file="db/changelog/V27__add_quote_details.xml"/>
     
+    
   </databaseChangeLog>
