@@ -100,6 +100,7 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/api/auth/**",
                     "/api/contact/**",
+                    "/api/market/quotes/batch", // --- ADDED: Allow POST for batch quotes ---
                     "/swagger-ui/**", 
                     "/v3/api-docs/**"
                 ).permitAll()
