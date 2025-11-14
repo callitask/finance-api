@@ -83,7 +83,7 @@ public class SecurityConfig {
                     "/ssr-test",
                     "/dashboard/**"
                 ).permitAll()
-                // Rule for public API endpoints
+                // Rule for public API endpoints (GET ONLY)
                 .requestMatchers(
                     HttpMethod.GET,
                     "/api/posts", 
@@ -96,7 +96,7 @@ public class SecurityConfig {
                     "/sitemaps/**",  // Now serves the static child files
                     "/api/logo"
                 ).permitAll()
-                // Rule for other public API endpoints (all HTTP methods)
+                // Rule for other public API endpoints (ALL HTTP METHODS including POST)
                 .requestMatchers(
                     "/api/auth/**",
                     "/api/contact/**",
