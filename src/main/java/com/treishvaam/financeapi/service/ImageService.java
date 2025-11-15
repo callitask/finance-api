@@ -1,6 +1,5 @@
 package com.treishvaam.financeapi.service;
 
-// CHANGED: This import is the only code change
 import io.trbl.blurhash.BlurHash;
 import jakarta.annotation.PostConstruct;
 import net.coobird.thumbnailator.Thumbnails;
@@ -17,14 +16,12 @@ import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Iterator;
-import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -50,10 +47,6 @@ public class ImageService {
         }
     }
 
-    /**
-     * DTO class to hold image metadata.
-     * This is defined as a static inner class for simplicity.
-     */
     public static class ImageMetadataDto {
         private String baseFilename;
         private Integer width;
@@ -74,14 +67,8 @@ public class ImageService {
         public void setBlurHash(String blurHash) { this.blurHash = blurHash; }
     }
 
-
-    /**
-     * FINAL FIX: This version uses Java's standard ImageIO to read the PNG and the
-     * TwelveMonkeys plugin to write the WebP file, bypassing Thumbnailator for this task.
-     */
     @PostConstruct
     public void processAndCacheLogo() {
-        // This static block ensures the WebP ImageWriter is available.
         ImageIO.scanForPlugins();
         Path logoWebpPath = this.rootLocation.resolve("logo.webp");
 
@@ -98,13 +85,11 @@ public class ImageService {
             }
 
             try (InputStream inputStream = resource.getInputStream()) {
-                // Read the PNG using standard ImageIO
                 BufferedImage image = ImageIO.read(inputStream);
                 if (image == null) {
                     throw new IOException("Could not read image file. The file may be corrupt or in an unsupported format.");
                 }
 
-                // Write the WebP file using the ImageIO plugin
                 boolean success = ImageIO.write(image, "webp", logoWebpPath.toFile());
                 if (!success) {
                     throw new IOException("Failed to convert image to WebP format. No suitable writer found.");
@@ -118,17 +103,11 @@ public class ImageService {
         }
     }
 
-    /**
-     * Saves an uploaded image, generates thumbnails, and extracts metadata.
-     * @param file The uploaded image
-     * @return An ImageMetadataDto containing the base filename and metadata
-     */
     public ImageMetadataDto saveImageAndGetMetadata(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             return null;
         }
         try {
-            // Read file into memory once to avoid re-reading the stream
             byte[] imageBytes = file.getBytes();
             ImageMetadataDto metadata = extractMetadata(imageBytes);
 
@@ -140,13 +119,15 @@ public class ImageService {
             Path smallFile = this.rootLocation.resolve(baseFilename + "-small.webp");
             Path tinyFile = this.rootLocation.resolve(baseFilename + "-tiny.webp");
 
-            // Use the byte array to create multiple input streams
             try (InputStream is1 = new ByteArrayInputStream(imageBytes);
                  InputStream is2 = new ByteArrayInputStream(imageBytes);
                  InputStream is3 = new ByteArrayInputStream(imageBytes);
                  InputStream is4 = new ByteArrayInputStream(imageBytes)) {
 
-                Thumbnails.of(is1).size(1200, 1200).outputFormat("webp").toFile(largeFile.toFile());
+                // CHANGED: Increased max size from 1200 to 1920. 
+                // This ensures images remain high-res enough (>= 1200px) for Google's Article enhancement requirements.
+                Thumbnails.of(is1).size(1920, 1920).outputFormat("webp").toFile(largeFile.toFile());
+                
                 Thumbnails.of(is2).size(600, 600).outputFormat("webp").toFile(mediumFile.toFile());
                 Thumbnails.of(is3).size(300, 300).outputFormat("webp").toFile(smallFile.toFile());
                 Thumbnails.of(is4).size(20, 20).outputFormat("webp").toFile(tinyFile.toFile());
@@ -160,14 +141,10 @@ public class ImageService {
         }
     }
 
-    /**
-     * Helper method to extract metadata and generate blurhash from image bytes.
-     */
     private ImageMetadataDto extractMetadata(byte[] imageBytes) {
         ImageMetadataDto metadata = new ImageMetadataDto();
         try (ByteArrayInputStream iisBytes = new ByteArrayInputStream(imageBytes)) {
             
-            // 1. Get Width, Height, and MimeType
             try (ImageInputStream iis = ImageIO.createImageInputStream(iisBytes)) {
                 Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
                 if (readers.hasNext()) {
@@ -187,21 +164,16 @@ public class ImageService {
                 logger.error("Could not read image metadata (width, height, mime)", e);
             }
 
-            // Reset stream for next read
             iisBytes.reset();
 
-            // 2. Generate BlurHash
             try (InputStream blurStream = new ByteArrayInputStream(imageBytes)) {
                 BufferedImage image = ImageIO.read(blurStream);
                 if (image != null) {
-                    // Use small component values for a compact hash
-                    // This line is the same, but the imported BlurHash class is different
                     String hash = BlurHash.encode(image, 4, 3);
                     metadata.setBlurHash(hash);
                 }
             } catch (IOException e) {
                 logger.error("Could not generate blurhash", e);
-                // Don't fail the upload, just log and continue
             }
 
         } catch (Exception e) {
@@ -210,7 +182,4 @@ public class ImageService {
 
         return metadata;
     }
-
-    // Original saveImage method is replaced by saveImageAndGetMetadata
-    // public String saveImage(MultipartFile file) { ... }
 }
