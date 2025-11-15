@@ -93,8 +93,8 @@ public class SecurityConfig {
                     "/api/market/**",
                     "/api/news/**",
                     "/sitemap.xml",    // Now serves the static index file
-                    "/sitemaps/**",  // Now serves the static child files
-                    "/api/logo"
+                    "/sitemaps/**"  // Now serves the static child files
+                    // FIXED: Removed /api/logo since controller was deleted
                 ).permitAll()
                 // Rule for other public API endpoints (ALL HTTP METHODS including POST)
                 .requestMatchers(

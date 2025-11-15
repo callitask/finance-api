@@ -45,15 +45,21 @@ public class ViewController {
     @Value("${app.api-base-url:https://backend.treishvaamgroup.com}")
     private String apiBaseUrl;
 
-    // FIXED: Removed the invalid Base64 Data URI that caused Google Schema errors.
     private static final String DEFAULT_TITLE = "Treishfin · Treishvaam Finance | Financial News & Analysis";
     private static final String DEFAULT_DESCRIPTION = "Stay ahead with the latest financial news, market updates, and expert analysis from Treishvaam Finance. Your daily source for insights on stocks, crypto, and trading.";
     private static final String DEFAULT_OG_TITLE = "Treishfin · Treishvaam Finance | Financial News & Analysis";
     private static final String DEFAULT_OG_DESCRIPTION = "Your daily source for insights on stocks, crypto, and trading.";
 
-    // NEW HELPER: Returns a valid URL for the fallback image (required for Rich Results)
+    // FIXED: Returns a valid URL for the fallback image (required for Rich Results)
     private String getDefaultImageUrl() {
-        return appBaseUrl + "/logo512.png";
+        // Point to the logo.webp file that your React build places in the static folder
+        return appBaseUrl + "/logo.webp";
+    }
+    
+    // FIXED: Helper returns the path to the real logo file
+    private String getLogoUrl() {
+        // This MUST match the logo file in your /static folder (which is /logo.webp from your HTML)
+        return appBaseUrl + "/logo.webp";
     }
 
     @GetMapping(value = "/category/{categorySlug}/{userFriendlySlug}/{urlArticleId}")
@@ -75,7 +81,6 @@ public class ViewController {
                 ? post.getMetaDescription()
                 : createSnippet(post.getCustomSnippet() != null && !post.getCustomSnippet().isEmpty() ? post.getCustomSnippet() : post.getContent(), 160);
             
-            // FIXED: Use getDefaultImageUrl() fallback instead of Data URI
             String imageUrl = (post.getCoverImageUrl() != null && !post.getCoverImageUrl().isEmpty())
                 ? apiBaseUrl + "/api/uploads/" + post.getCoverImageUrl() + ".webp"
                 : getDefaultImageUrl();
@@ -120,7 +125,6 @@ public class ViewController {
                 .replace("__SEO_DESCRIPTION__", escapeHtml(pageDescription))
                 .replace("__OG_TITLE__", escapeHtml(pageTitle))
                 .replace("__OG_DESCRIPTION__", escapeHtml(pageDescription))
-                // FIXED: Use valid URL for static pages fallback
                 .replace("__OG_IMAGE__", getDefaultImageUrl())
                 .replace("__OG_URL__", escapeHtml(pageUrl))
                 .replace("__ARTICLE_SCHEMA__", webPageSchema);
@@ -155,18 +159,19 @@ public class ViewController {
 
     private String generateArticleSchema(BlogPost post, String pageUrl, String imageUrl) {
         try {
-            String logoUrl = appBaseUrl + "/logo512.png";
+            // FIXED: Point to the correct logo file
+            String logoUrl = getLogoUrl();
             
             Map<String, Object> schema = new LinkedHashMap<>();
             schema.put("@context", "https://schema.org");
-            schema.put("@type", "Article"); // Or "NewsArticle" for better enhancement targeting
+            schema.put("@type", "Article");
             schema.put("mainEntityOfPage", Map.of(
                 "@type", "WebPage",
                 "@id", pageUrl
             ));
             schema.put("headline", post.getTitle());
             schema.put("description", post.getMetaDescription() != null && !post.getMetaDescription().isEmpty() ? post.getMetaDescription() : createSnippet(post.getContent(), 160));
-            schema.put("image", imageUrl); // This will now be a valid URL
+            schema.put("image", imageUrl);
             schema.put("author", Map.of(
                 "@type", "Organization",
                 "name", "Treishvaam Finance",
@@ -177,7 +182,7 @@ public class ViewController {
                 "name", "Treishvaam Finance",
                 "logo", Map.of(
                     "@type", "ImageObject",
-                    "url", logoUrl
+                    "url", logoUrl // Uses the corrected logoUrl
                 )
             ));
             schema.put("datePublished", post.getCreatedAt().toString());
@@ -196,7 +201,6 @@ public class ViewController {
             .replace("__SEO_DESCRIPTION__", DEFAULT_DESCRIPTION)
             .replace("__OG_TITLE__", DEFAULT_OG_TITLE)
             .replace("__OG_DESCRIPTION__", DEFAULT_OG_DESCRIPTION)
-            // FIXED: Use valid URL for default fallback
             .replace("__OG_IMAGE__", getDefaultImageUrl())
             .replace("__OG_URL__", pageUrl)
             .replace("__ARTICLE_SCHEMA__", "{}");
