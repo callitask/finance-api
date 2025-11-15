@@ -45,11 +45,16 @@ public class ViewController {
     @Value("${app.api-base-url:https://backend.treishvaamgroup.com}")
     private String apiBaseUrl;
 
-    private static final String GRAY_BANNER_DATA_URI = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwMCIgaGVpZ2h0PSI2NzUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2NjY2NjYyIvPjwvc3ZnPg==";
+    // FIXED: Removed the invalid Base64 Data URI that caused Google Schema errors.
     private static final String DEFAULT_TITLE = "Treishfin · Treishvaam Finance | Financial News & Analysis";
     private static final String DEFAULT_DESCRIPTION = "Stay ahead with the latest financial news, market updates, and expert analysis from Treishvaam Finance. Your daily source for insights on stocks, crypto, and trading.";
     private static final String DEFAULT_OG_TITLE = "Treishfin · Treishvaam Finance | Financial News & Analysis";
     private static final String DEFAULT_OG_DESCRIPTION = "Your daily source for insights on stocks, crypto, and trading.";
+
+    // NEW HELPER: Returns a valid URL for the fallback image (required for Rich Results)
+    private String getDefaultImageUrl() {
+        return appBaseUrl + "/logo512.png";
+    }
 
     @GetMapping(value = "/category/{categorySlug}/{userFriendlySlug}/{urlArticleId}")
     @ResponseBody
@@ -70,9 +75,10 @@ public class ViewController {
                 ? post.getMetaDescription()
                 : createSnippet(post.getCustomSnippet() != null && !post.getCustomSnippet().isEmpty() ? post.getCustomSnippet() : post.getContent(), 160);
             
+            // FIXED: Use getDefaultImageUrl() fallback instead of Data URI
             String imageUrl = (post.getCoverImageUrl() != null && !post.getCoverImageUrl().isEmpty())
                 ? apiBaseUrl + "/api/uploads/" + post.getCoverImageUrl() + ".webp"
-                : GRAY_BANNER_DATA_URI;
+                : getDefaultImageUrl();
 
             String articleSchema = generateArticleSchema(post, pageUrl, imageUrl);
 
@@ -114,7 +120,8 @@ public class ViewController {
                 .replace("__SEO_DESCRIPTION__", escapeHtml(pageDescription))
                 .replace("__OG_TITLE__", escapeHtml(pageTitle))
                 .replace("__OG_DESCRIPTION__", escapeHtml(pageDescription))
-                .replace("__OG_IMAGE__", GRAY_BANNER_DATA_URI)
+                // FIXED: Use valid URL for static pages fallback
+                .replace("__OG_IMAGE__", getDefaultImageUrl())
                 .replace("__OG_URL__", escapeHtml(pageUrl))
                 .replace("__ARTICLE_SCHEMA__", webPageSchema);
         } else {
@@ -152,14 +159,14 @@ public class ViewController {
             
             Map<String, Object> schema = new LinkedHashMap<>();
             schema.put("@context", "https://schema.org");
-            schema.put("@type", "Article");
+            schema.put("@type", "Article"); // Or "NewsArticle" for better enhancement targeting
             schema.put("mainEntityOfPage", Map.of(
                 "@type", "WebPage",
                 "@id", pageUrl
             ));
             schema.put("headline", post.getTitle());
             schema.put("description", post.getMetaDescription() != null && !post.getMetaDescription().isEmpty() ? post.getMetaDescription() : createSnippet(post.getContent(), 160));
-            schema.put("image", imageUrl);
+            schema.put("image", imageUrl); // This will now be a valid URL
             schema.put("author", Map.of(
                 "@type", "Organization",
                 "name", "Treishvaam Finance",
@@ -169,7 +176,7 @@ public class ViewController {
                 "@type", "Organization",
                 "name", "Treishvaam Finance",
                 "logo", Map.of(
-                    "@type", "ImageObject", // CORRECTED: Changed ':' to ','
+                    "@type", "ImageObject",
                     "url", logoUrl
                 )
             ));
@@ -189,7 +196,8 @@ public class ViewController {
             .replace("__SEO_DESCRIPTION__", DEFAULT_DESCRIPTION)
             .replace("__OG_TITLE__", DEFAULT_OG_TITLE)
             .replace("__OG_DESCRIPTION__", DEFAULT_OG_DESCRIPTION)
-            .replace("__OG_IMAGE__", GRAY_BANNER_DATA_URI)
+            // FIXED: Use valid URL for default fallback
+            .replace("__OG_IMAGE__", getDefaultImageUrl())
             .replace("__OG_URL__", pageUrl)
             .replace("__ARTICLE_SCHEMA__", "{}");
     }
