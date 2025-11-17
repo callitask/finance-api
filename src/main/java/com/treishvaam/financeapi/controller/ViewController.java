@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
@@ -26,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 @Controller
 public class ViewController {
@@ -50,18 +52,18 @@ public class ViewController {
     private static final String DEFAULT_OG_TITLE = "Treishfin · Treishvaam Finance | Financial News & Analysis";
     private static final String DEFAULT_OG_DESCRIPTION = "Your daily source for insights on stocks, crypto, and trading.";
 
-    // FIXED: Returns a valid URL for the fallback image (required for Rich Results)
     private String getDefaultImageUrl() {
-        // Point to the logo.webp file that your React build places in the static folder
         return appBaseUrl + "/logo.webp";
     }
     
-    // FIXED: Helper returns the path to the real logo file
     private String getLogoUrl() {
-        // This MUST match the logo file in your /static folder (which is /logo.webp from your HTML)
         return appBaseUrl + "/logo.webp";
     }
 
+    /**
+     * Serves dynamic blog posts with Server-Side SEO injection.
+     * Cached for 1 hour to balance performance with freshness.
+     */
     @GetMapping(value = "/category/{categorySlug}/{userFriendlySlug}/{urlArticleId}")
     @ResponseBody
     @Cacheable(value = CachingConfig.BLOG_POST_CACHE, key = "#urlArticleId")
@@ -72,6 +74,8 @@ public class ViewController {
         
         Optional<BlogPost> postOptional = blogPostService.findByUrlArticleId(urlArticleId);
         String htmlContent = readIndexHtml();
+        
+        // Construct the strict canonical URL
         String pageUrl = String.format("%s/category/%s/%s/%s", appBaseUrl, categorySlug, userFriendlySlug, urlArticleId);
 
         if (postOptional.isPresent()) {
@@ -87,6 +91,7 @@ public class ViewController {
 
             String articleSchema = generateArticleSchema(post, pageUrl, imageUrl);
 
+            // Inject Metadata into the React index.html
             htmlContent = htmlContent
                 .replace("<title>__SEO_TITLE__</title>", 
                          "<title>" + escapeHtml(pageTitle) + "</title><link rel=\"canonical\" href=\"" + escapeHtml(pageUrl) + "\" />")
@@ -97,16 +102,26 @@ public class ViewController {
                 .replace("__OG_URL__", escapeHtml(pageUrl))
                 .replace("__ARTICLE_SCHEMA__", articleSchema);
         } else {
+            // Fallback if post not found (let React handle 404 UI, but serve valid HTML)
             htmlContent = replaceDefaultTags(htmlContent, pageUrl);
         }
 
-        return ResponseEntity.ok().contentType(MediaType.TEXT_HTML).body(htmlContent);
+        return ResponseEntity.ok()
+                // Tell Googlebot and Browsers to cache this HTML for 1 hour (3600 seconds)
+                .cacheControl(CacheControl.maxAge(1, TimeUnit.HOURS))
+                .contentType(MediaType.TEXT_HTML)
+                .body(htmlContent);
     }
 
+    /**
+     * Serves static pages (About, Vision, etc.).
+     * Cached for 24 hours as these change rarely.
+     */
     @GetMapping(value = {"/", "/about", "/services", "/vision", "/education", "/contact", "/login"})
     @ResponseBody
     public ResponseEntity<String> serveStaticPage(HttpServletRequest request) throws IOException {
         String path = request.getRequestURI();
+        // Normalize path to page key (e.g., "/about" -> "about", "/" -> "index")
         String pageName = path.equals("/") ? "index" : path.substring(1);
         String pageUrl = appBaseUrl + path;
 
@@ -132,7 +147,11 @@ public class ViewController {
             htmlContent = replaceDefaultTags(htmlContent, pageUrl);
         }
         
-        return ResponseEntity.ok().contentType(MediaType.TEXT_HTML).body(htmlContent);
+        return ResponseEntity.ok()
+                // Static pages change rarely, cache for 24 hours
+                .cacheControl(CacheControl.maxAge(24, TimeUnit.HOURS))
+                .contentType(MediaType.TEXT_HTML)
+                .body(htmlContent);
     }
 
     @GetMapping(value = "/dashboard/**")
@@ -140,7 +159,11 @@ public class ViewController {
     public ResponseEntity<String> forwardToDashboard() throws IOException {
         String htmlContent = readIndexHtml();
         htmlContent = replaceDefaultTags(htmlContent, appBaseUrl + "/dashboard");
-        return ResponseEntity.ok().contentType(MediaType.TEXT_HTML).body(htmlContent);
+        // Do NOT cache the dashboard to ensure fresh data on login
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noCache())
+                .contentType(MediaType.TEXT_HTML)
+                .body(htmlContent);
     }
     
     private String generateWebPageSchema(PageContent page, String pageUrl) {
@@ -159,7 +182,6 @@ public class ViewController {
 
     private String generateArticleSchema(BlogPost post, String pageUrl, String imageUrl) {
         try {
-            // FIXED: Point to the correct logo file
             String logoUrl = getLogoUrl();
             
             Map<String, Object> schema = new LinkedHashMap<>();
@@ -182,7 +204,7 @@ public class ViewController {
                 "name", "Treishvaam Finance",
                 "logo", Map.of(
                     "@type", "ImageObject",
-                    "url", logoUrl // Uses the corrected logoUrl
+                    "url", logoUrl
                 )
             ));
             schema.put("datePublished", post.getCreatedAt().toString());

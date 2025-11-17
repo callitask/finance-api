@@ -8,6 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -43,18 +45,37 @@ public class SitemapGenerationService {
     @Autowired
     private CategoryRepository categoryRepository;
 
-    @Scheduled(cron = "0 0 */6 * * *") // Runs every 6 hours
+    /**
+     * Trigger sitemap generation immediately when the application starts.
+     * This ensures Googlebot never finds a 404 when the server restarts.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void onApplicationReady() {
+        logger.info("Server started. Triggering immediate sitemap generation...");
+        generateSitemaps();
+    }
+
+    /**
+     * Scheduled task to regenerate sitemaps.
+     * Runs every 3 hours (e.g., 00:00, 03:00, 06:00...)
+     */
+    @Scheduled(cron = "0 0 */3 * * *") 
     public void generateSitemaps() {
         logger.info("Starting sitemap generation task...");
         try {
             Path sitemapPath = Paths.get(sitemapDir);
-            Files.createDirectories(sitemapPath);
+            if (!Files.exists(sitemapPath)) {
+                Files.createDirectories(sitemapPath);
+            }
 
             generateStaticSitemap();
             generateCategoriesSitemap();
 
             long totalPosts = blogPostService.countPublishedPosts();
             int totalPostPages = (int) Math.ceil((double) totalPosts / SITEMAP_PAGE_SIZE);
+
+            // If no posts, still generate at least one empty post map to avoid errors
+            if (totalPostPages == 0) totalPostPages = 1;
 
             for (int i = 0; i < totalPostPages; i++) {
                 generatePostsSitemap(i, SITEMAP_PAGE_SIZE);
@@ -90,6 +111,7 @@ public class SitemapGenerationService {
         sitemap.append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
 
         for (String page : STATIC_PAGES) {
+            // Static pages priority 1.0, daily change frequency
             sitemap.append(createUrlEntry(baseUrl + page, null, "daily", "1.0"));
         }
 
@@ -146,7 +168,6 @@ public class SitemapGenerationService {
     }
 
     private String createSitemapEntry(String loc) {
-        // A sitemap index doesn't need lastmod, but it could be added
         return String.format("  <sitemap>\n    <loc>%s</loc>\n  </sitemap>\n", loc);
     }
 
