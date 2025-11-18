@@ -4,8 +4,16 @@ User-agent: *
 # Allow access to all content by default
 Allow: /
 
-# Disallow crawlers from indexing API, admin, and internal search paths
-Disallow: /api/
+# --- CRITICAL FIX: Allow Googlebot to fetch content for rendering ---
+Allow: /api/posts
+Allow: /api/categories
+Allow: /api/market
+Allow: /api/news
+
+# Disallow crawlers from indexing Auth, Admin, and internal search paths
+Disallow: /api/auth/
+Disallow: /api/contact/
+Disallow: /api/admin/
 Disallow: /dashboard/
 Disallow: /?q=*
 

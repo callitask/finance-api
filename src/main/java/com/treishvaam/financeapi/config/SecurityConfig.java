@@ -71,7 +71,8 @@ public class SecurityConfig {
                     "/logo192.webp", 
                     "/logo512.webp",
                     "/manifest.json",
-                    "/amitsagar-kandpal-photo.png"
+                    "/amitsagar-kandpal-photo.png",
+                    "/robots.txt"  // --- ADDED: Fix for Google Search Console ---
                 ).permitAll()
                 // Rule for public frontend pages served by ViewController
                 .requestMatchers(
@@ -93,7 +94,7 @@ public class SecurityConfig {
                     "/api/market/**",
                     "/api/news/**",
                     "/sitemap.xml",    // Now serves the static index file
-                    "/sitemaps/**"  // Now serves the static child files
+                    "/sitemaps/**"     // Now serves the static child files
                     // FIXED: Removed /api/logo since controller was deleted
                 ).permitAll()
                 // Rule for other public API endpoints (ALL HTTP METHODS including POST)

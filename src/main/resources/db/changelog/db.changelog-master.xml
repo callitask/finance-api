@@ -16,19 +16,27 @@
     <include file="db/changelog/V9__add_author_to_posts.xml"/>
     <include file="db/changelog/V10__add_linkedin_token_to_users.xml"/>
     <include file="db/changelog/V11__add_market_data_table.xml"/>
-    <include file="db/changelog/V12__add_category_column_to_blog_posts.xml"/>
     <include file="db/changelog/V12__add_url_article_id_to_posts.xml"/>
+    <include file="db/changelog/V12__add_category_column_to_blog_posts.xml"/>
+    <include file="db/changelog/V12__add_page_content_table.xml"/>
+    <include file="db/changelog/V13__modify_alt_text_column.xml"/>
+    <include file="db/changelog/V14__add_user_friendly_slug.xml"/>
     <include file="db/changelog/V15__add_category_field_to_blog_posts.xml"/>
+    <include file="db/changelog/V15__add_slug_to_categories.xml"/>
     <include file="db/changelog/V16__refactor_post_category_relation.xml"/>
     <include file="db/changelog/V17__modify_alt_text_column.xml"/>
     <include file="db/changelog/V18__add_meta_description_to_posts.xml"/>
     <include file="db/changelog/V19__add_keywords_to_posts.xml"/>
     <include file="db/changelog/V20__create_contact_message_table.xml"/>
-    <include file="db/changelog/V21__add_historical_data_cache_table.xml"/>
+    <include file="db/changelog/V21__add_quote_data_cache_table.xml"/>
+    <include file="db/changelog/V21__increase_cache_column_size.xml"/>
+    <include file="db/changelog/V23__create_generic_api_cache_table.xml"/>
+    <include file="db/changelog/V24__create_historical_data_cache_table.xml"/>
     <include file="db/changelog/V25__add_permanent_market_data.xml"/>
     <include file="db/changelog/V26__create_audience_visits_table.xml"/>
-    
     <include file="db/changelog/V27__add_quote_details.xml"/>
     
+    <include file="db/changelog/V28__add_homepage_meta.xml"/>
+    <include file="db/changelog/V29__add_static_pages_meta.xml"/>
     
   </databaseChangeLog>
