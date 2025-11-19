@@ -1,6 +1,7 @@
 package com.treishvaam.financeapi.service;
 
 import com.treishvaam.financeapi.config.CachingConfig;
+import com.treishvaam.financeapi.config.tenant.TenantContext; // --- IMPORT ADDED ---
 import com.treishvaam.financeapi.dto.BlogPostDto;
 import com.treishvaam.financeapi.dto.PostThumbnailDto;
 import com.treishvaam.financeapi.model.BlogPost;
@@ -124,9 +125,20 @@ public class BlogPostServiceImpl implements BlogPostService {
         newPost.setMetaDescription(blogPostDto.getMetaDescription());
         newPost.setKeywords(blogPostDto.getKeywords());
         newPost.setStatus(PostStatus.DRAFT);
+        
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         newPost.setAuthor(username);
-        newPost.setTenantId(username);
+        
+        // --- FIX: Use the correct Tenant ID ---
+        String currentTenant = TenantContext.getCurrentTenant();
+        if (currentTenant != null && !currentTenant.isEmpty()) {
+            newPost.setTenantId(currentTenant);
+        } else {
+            // Default to the main site tenant if none is found (e.g. direct API access)
+            newPost.setTenantId("treishfin");
+        }
+        // --------------------------------------
+
         newPost.setSlug(generateUniqueId());
         newPost.setLayoutStyle("DEFAULT");
         newPost.setUserFriendlySlug(generateUserFriendlySlug(newPost.getTitle()));
@@ -152,7 +164,6 @@ public class BlogPostServiceImpl implements BlogPostService {
 
     @Override
     @Transactional
-    // FIX: Changed key from "#result.slug" to "#result.urlArticleId" to match ViewController caching
     @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, key = "#result.urlArticleId", condition = "#result.urlArticleId != null and #result.status.name() == 'PUBLISHED'")
     public BlogPost save(BlogPost blogPost, List<MultipartFile> newThumbnails, List<PostThumbnailDto> thumbnailDtos, MultipartFile coverImage) {
         if (coverImage != null && !coverImage.isEmpty()) {
@@ -298,7 +309,16 @@ public class BlogPostServiceImpl implements BlogPostService {
         BlogPost newPost = new BlogPost();
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         newPost.setAuthor(username);
-        newPost.setTenantId(username);
+        
+        // --- FIX: Ensure duplicated post also gets correct tenant ---
+        String currentTenant = TenantContext.getCurrentTenant();
+        if (currentTenant != null && !currentTenant.isEmpty()) {
+            newPost.setTenantId(currentTenant);
+        } else {
+            newPost.setTenantId("treishfin");
+        }
+        // ----------------------------------------------------------
+
         newPost.setTitle("Copy of " + originalPost.getTitle());
         newPost.setContent("");
         newPost.setCustomSnippet("");
@@ -350,7 +370,6 @@ public class BlogPostServiceImpl implements BlogPostService {
                 .orElseThrow(() -> new RuntimeException("Category not found with name: " + name));
     }
 
-    // NEW METHOD implementation for sitemap
     @Override
     public long countPublishedPosts() {
         return blogPostRepository.countByStatus(PostStatus.PUBLISHED);

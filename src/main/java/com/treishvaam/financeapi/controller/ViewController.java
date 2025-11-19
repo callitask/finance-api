@@ -91,7 +91,7 @@ public class ViewController {
 
             String articleSchema = generateArticleSchema(post, pageUrl, imageUrl);
 
-            // Inject Metadata into the React index.html
+            // Inject Metadata AND Content into the React index.html
             htmlContent = htmlContent
                 .replace("<title>__SEO_TITLE__</title>", 
                          "<title>" + escapeHtml(pageTitle) + "</title><link rel=\"canonical\" href=\"" + escapeHtml(pageUrl) + "\" />")
@@ -100,7 +100,9 @@ public class ViewController {
                 .replace("__OG_DESCRIPTION__", escapeHtml(pageDescription))
                 .replace("__OG_IMAGE__", escapeHtml(imageUrl))
                 .replace("__OG_URL__", escapeHtml(pageUrl))
-                .replace("__ARTICLE_SCHEMA__", articleSchema);
+                .replace("__ARTICLE_SCHEMA__", articleSchema)
+                // --- NEW: Inject actual body content for Googlebot ---
+                .replace("__PAGE_CONTENT__", escapeHtml(post.getContent()));
         } else {
             // Fallback if post not found (let React handle 404 UI, but serve valid HTML)
             htmlContent = replaceDefaultTags(htmlContent, pageUrl);
@@ -142,7 +144,9 @@ public class ViewController {
                 .replace("__OG_DESCRIPTION__", escapeHtml(pageDescription))
                 .replace("__OG_IMAGE__", getDefaultImageUrl())
                 .replace("__OG_URL__", escapeHtml(pageUrl))
-                .replace("__ARTICLE_SCHEMA__", webPageSchema);
+                .replace("__ARTICLE_SCHEMA__", webPageSchema)
+                // --- NEW: Inject actual body content for Googlebot ---
+                .replace("__PAGE_CONTENT__", escapeHtml(page.getContent()));
         } else {
             htmlContent = replaceDefaultTags(htmlContent, pageUrl);
         }
@@ -225,7 +229,9 @@ public class ViewController {
             .replace("__OG_DESCRIPTION__", DEFAULT_OG_DESCRIPTION)
             .replace("__OG_IMAGE__", getDefaultImageUrl())
             .replace("__OG_URL__", pageUrl)
-            .replace("__ARTICLE_SCHEMA__", "{}");
+            .replace("__ARTICLE_SCHEMA__", "{}")
+            // --- NEW: Remove placeholder tag if no content available ---
+            .replace("__PAGE_CONTENT__", "");
     }
 
     private String readIndexHtml() throws IOException {
