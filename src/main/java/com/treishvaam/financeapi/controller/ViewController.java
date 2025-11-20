@@ -11,6 +11,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource; // Added
+import org.springframework.core.io.UrlResource; // Added
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +26,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path; // Added
+import java.nio.file.Paths; // Added
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -47,6 +51,10 @@ public class ViewController {
     @Value("${app.api-base-url:https://backend.treishvaamgroup.com}")
     private String apiBaseUrl;
 
+    // --- NEW: Inject sitemap storage path ---
+    @Value("${storage.sitemap-dir}")
+    private String sitemapDir;
+
     private static final String DEFAULT_TITLE = "Treishfin · Treishvaam Finance | Financial News & Analysis";
     private static final String DEFAULT_DESCRIPTION = "Stay ahead with the latest financial news, market updates, and expert analysis from Treishvaam Finance. Your daily source for insights on stocks, crypto, and trading.";
     private static final String DEFAULT_OG_TITLE = "Treishfin · Treishvaam Finance | Financial News & Analysis";
@@ -61,7 +69,57 @@ public class ViewController {
     }
 
     /**
-     * Serves dynamic blog posts with Server-Side SEO injection.
+     * NEW: Serves the main sitemap index file (sitemap.xml).
+     * This fixes the "Sitemap is HTML" error in GSC.
+     */
+    @GetMapping(value = "/sitemap.xml", produces = MediaType.APPLICATION_XML_VALUE)
+    @ResponseBody
+    public ResponseEntity<Resource> serveSitemapIndex() {
+        try {
+            Path path = Paths.get(sitemapDir, "sitemap.xml");
+            Resource resource = new UrlResource(path.toUri());
+            
+            if (resource.exists() && resource.isReadable()) {
+                return ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_XML)
+                        .body(resource);
+            } else {
+                return ResponseEntity.notFound().build();
+            }
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * NEW: Serves individual sitemap files (e.g., posts-1.xml, categories.xml).
+     */
+    @GetMapping(value = "/sitemaps/{fileName}", produces = MediaType.APPLICATION_XML_VALUE)
+    @ResponseBody
+    public ResponseEntity<Resource> serveSitemapFile(@PathVariable String fileName) {
+        // Security check: Prevent directory traversal attacks and ensure XML extension
+        if (fileName.contains("..") || !fileName.endsWith(".xml")) {
+             return ResponseEntity.badRequest().build();
+        }
+        
+        try {
+            Path path = Paths.get(sitemapDir, fileName);
+            Resource resource = new UrlResource(path.toUri());
+            
+            if (resource.exists() && resource.isReadable()) {
+                return ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_XML)
+                        .body(resource);
+            } else {
+                return ResponseEntity.notFound().build();
+            }
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * Serves dynamic blog posts with Server-Side SEO injection and State Hydration.
      * Cached for 1 hour to balance performance with freshness.
      */
     @GetMapping(value = "/category/{categorySlug}/{userFriendlySlug}/{urlArticleId}")
@@ -91,7 +149,12 @@ public class ViewController {
 
             String articleSchema = generateArticleSchema(post, pageUrl, imageUrl);
 
-            // Inject Metadata AND Content into the React index.html
+            // Serialize Post Object to JSON for Frontend Hydration
+            String postJson = objectMapper.writeValueAsString(post);
+            // Sanitize JSON to prevent script injection attacks via the content
+            postJson = postJson.replace("</script>", "<\\/script>");
+
+            // Inject Metadata, Schema, Content AND JSON State into the HTML
             htmlContent = htmlContent
                 .replace("<title>__SEO_TITLE__</title>", 
                          "<title>" + escapeHtml(pageTitle) + "</title><link rel=\"canonical\" href=\"" + escapeHtml(pageUrl) + "\" />")
@@ -101,15 +164,18 @@ public class ViewController {
                 .replace("__OG_IMAGE__", escapeHtml(imageUrl))
                 .replace("__OG_URL__", escapeHtml(pageUrl))
                 .replace("__ARTICLE_SCHEMA__", articleSchema)
-                // --- NEW: Inject actual body content for Googlebot ---
-                .replace("__PAGE_CONTENT__", escapeHtml(post.getContent()));
+                // Inject actual body content for non-JS bots
+                .replace("__PAGE_CONTENT__", escapeHtml(post.getContent()))
+                // Inject JSON State for React Hydration
+                .replace("//__PRELOADED_STATE__", "window.__PRELOADED_STATE__ = " + postJson + ";");
+
         } else {
             // Fallback if post not found (let React handle 404 UI, but serve valid HTML)
             htmlContent = replaceDefaultTags(htmlContent, pageUrl);
         }
 
         return ResponseEntity.ok()
-                // Tell Googlebot and Browsers to cache this HTML for 1 hour (3600 seconds)
+                // Tell Googlebot and Browsers to cache this HTML for 1 hour
                 .cacheControl(CacheControl.maxAge(1, TimeUnit.HOURS))
                 .contentType(MediaType.TEXT_HTML)
                 .body(htmlContent);
@@ -123,7 +189,6 @@ public class ViewController {
     @ResponseBody
     public ResponseEntity<String> serveStaticPage(HttpServletRequest request) throws IOException {
         String path = request.getRequestURI();
-        // Normalize path to page key (e.g., "/about" -> "about", "/" -> "index")
         String pageName = path.equals("/") ? "index" : path.substring(1);
         String pageUrl = appBaseUrl + path;
 
@@ -145,14 +210,13 @@ public class ViewController {
                 .replace("__OG_IMAGE__", getDefaultImageUrl())
                 .replace("__OG_URL__", escapeHtml(pageUrl))
                 .replace("__ARTICLE_SCHEMA__", webPageSchema)
-                // --- NEW: Inject actual body content for Googlebot ---
-                .replace("__PAGE_CONTENT__", escapeHtml(page.getContent()));
+                .replace("__PAGE_CONTENT__", escapeHtml(page.getContent()))
+                .replace("//__PRELOADED_STATE__", ""); // Clean up placeholder
         } else {
             htmlContent = replaceDefaultTags(htmlContent, pageUrl);
         }
         
         return ResponseEntity.ok()
-                // Static pages change rarely, cache for 24 hours
                 .cacheControl(CacheControl.maxAge(24, TimeUnit.HOURS))
                 .contentType(MediaType.TEXT_HTML)
                 .body(htmlContent);
@@ -163,7 +227,6 @@ public class ViewController {
     public ResponseEntity<String> forwardToDashboard() throws IOException {
         String htmlContent = readIndexHtml();
         htmlContent = replaceDefaultTags(htmlContent, appBaseUrl + "/dashboard");
-        // Do NOT cache the dashboard to ensure fresh data on login
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noCache())
                 .contentType(MediaType.TEXT_HTML)
@@ -230,8 +293,8 @@ public class ViewController {
             .replace("__OG_IMAGE__", getDefaultImageUrl())
             .replace("__OG_URL__", pageUrl)
             .replace("__ARTICLE_SCHEMA__", "{}")
-            // --- NEW: Remove placeholder tag if no content available ---
-            .replace("__PAGE_CONTENT__", "");
+            .replace("__PAGE_CONTENT__", "")
+            .replace("//__PRELOADED_STATE__", ""); // Clean up placeholder
     }
 
     private String readIndexHtml() throws IOException {

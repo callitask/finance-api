@@ -15,8 +15,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.security.web.firewall.StrictHttpFirewall;
-import org.springframework.security.web.firewall.HttpFirewall;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -24,7 +22,7 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity // This enables @PreAuthorize on the new controller
+@EnableMethodSecurity
 public class SecurityConfig {
     private final JwtTokenFilter jwtTokenFilter;
     private final InternalSecretFilter internalSecretFilter;
@@ -45,63 +43,34 @@ public class SecurityConfig {
     }
     
     @Bean
-    public HttpFirewall httpFirewall() {
-        StrictHttpFirewall firewall = new StrictHttpFirewall();
-        firewall.setAllowUrlEncodedPercent(true);
-        firewall.setAllowUrlEncodedSlash(true); 
-        firewall.setAllowSemicolon(true);
-        return firewall;
-    }
-
-    @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
-                // FIX: Allow all CORS preflight OPTIONS requests
+                // Allow CORS preflight
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll() 
                 
-                // Rule for static assets (CSS, JS, images, etc.)
-                .requestMatchers(
-                    "/static/**", 
-                    "/favicon.ico", 
-                    "/logo.webp",
-                    "/logo192.webp", 
-                    "/logo512.webp",
-                    "/manifest.json",
-                    "/amitsagar-kandpal-photo.png",
-                    "/robots.txt"  // --- ADDED: Fix for Google Search Console ---
-                ).permitAll()
-                // Rule for public frontend pages served by ViewController
-                .requestMatchers(
-                    HttpMethod.GET,
-                    "/", "/about", "/services", "/vision", "/education",
-                    "/contact", "/login", "/blog", 
-                    "/category/**",
-                    "/post/**",
-                    "/ssr-test",
-                    "/dashboard/**"
-                ).permitAll()
-                // Rule for public API endpoints (GET ONLY)
+                // Public API Endpoints (Read-Only)
                 .requestMatchers(
                     HttpMethod.GET,
                     "/api/posts", 
                     "/api/posts/url/**",
                     "/api/categories", 
-                    "/api/uploads/**",
+                    // Nginx handles /api/uploads/, but if a request hits here, we allow it just in case
+                    "/api/uploads/**", 
                     "/api/market/**",
                     "/api/news/**",
-                    "/sitemap.xml",    // Now serves the static index file
-                    "/sitemaps/**"     // Now serves the static child files
-                    // FIXED: Removed /api/logo since controller was deleted
+                    "/sitemap.xml",
+                    "/sitemaps/**" 
                 ).permitAll()
-                // Rule for other public API endpoints (ALL HTTP METHODS including POST)
+
+                // Public API Endpoints (Write/Post allowed for specific actions like auth)
                 .requestMatchers(
                     "/api/auth/**",
                     "/api/contact/**",
-                    "/api/market/quotes/batch", // --- ADDED: Allow POST for batch quotes ---
+                    "/api/market/quotes/batch",
                     "/swagger-ui/**", 
                     "/v3/api-docs/**"
                 ).permitAll()
@@ -112,7 +81,9 @@ public class SecurityConfig {
                     "/api/market/admin/**", 
                     "/api/status/**", 
                     "/api/analytics/**",
-                    "/api/admin/actions/**" // ADDED: Secure the new admin controller
+                    "/api/admin/actions/**",
+                    // File upload is an Admin action
+                    "/api/files/upload" 
                 ).hasAuthority("ROLE_ADMIN")
 
                 .anyRequest().authenticated()
@@ -127,7 +98,8 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of(
             "https://treishfin.treishvaamgroup.com",
-            "http://localhost:3000"
+            "http://localhost:3000",
+            "http://localhost" // Allow local Nginx
         ));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "x-requested-with", "X-Internal-Secret"));
