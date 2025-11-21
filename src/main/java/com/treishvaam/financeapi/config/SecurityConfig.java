@@ -49,24 +49,18 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authz -> authz
-                // Allow CORS preflight
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll() 
-                
-                // Public API Endpoints (Read-Only)
                 .requestMatchers(
                     HttpMethod.GET,
                     "/api/posts", 
                     "/api/posts/url/**",
                     "/api/categories", 
-                    // Nginx handles /api/uploads/, but if a request hits here, we allow it just in case
                     "/api/uploads/**", 
                     "/api/market/**",
                     "/api/news/**",
                     "/sitemap.xml",
                     "/sitemaps/**" 
                 ).permitAll()
-
-                // Public API Endpoints (Write/Post allowed for specific actions like auth)
                 .requestMatchers(
                     "/api/auth/**",
                     "/api/contact/**",
@@ -74,18 +68,14 @@ public class SecurityConfig {
                     "/swagger-ui/**", 
                     "/v3/api-docs/**"
                 ).permitAll()
-                
-                // ADMIN-ONLY paths
                 .requestMatchers(
                     "/api/posts/admin/**", 
                     "/api/market/admin/**", 
                     "/api/status/**", 
                     "/api/analytics/**",
                     "/api/admin/actions/**",
-                    // File upload is an Admin action
                     "/api/files/upload" 
                 ).hasAuthority("ROLE_ADMIN")
-
                 .anyRequest().authenticated()
             );
         http.addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class);
@@ -96,14 +86,12 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of(
-            "https://treishfin.treishvaamgroup.com",
-            "http://localhost:3000",
-            "http://localhost" // Allow local Nginx
-        ));
+        // ALLOW ALL ORIGINS TEMPORARILY TO RULE OUT CORS ISSUES
+        configuration.setAllowedOriginPatterns(List.of("*")); 
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "x-requested-with", "X-Internal-Secret"));
+        configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
+        
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
