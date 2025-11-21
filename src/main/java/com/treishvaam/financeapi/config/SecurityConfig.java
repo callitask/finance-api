@@ -65,8 +65,10 @@ public class SecurityConfig {
                     "/api/auth/**",
                     "/api/contact/**",
                     "/api/market/quotes/batch",
+                    "/api/market/widget", // Explicitly allow widget endpoint
                     "/swagger-ui/**", 
-                    "/v3/api-docs/**"
+                    "/v3/api-docs/**",
+                    "/error" // --- ADDED: Allow public access to error pages to prevent 403 masking 500s ---
                 ).permitAll()
                 .requestMatchers(
                     "/api/posts/admin/**", 
