@@ -17,15 +17,16 @@ public class MarketDataController {
     @Qualifier("apiMarketDataService")
     private MarketDataService marketDataService;
 
-    // --- NEW ENDPOINT for Global Market Ticker ---
     @PostMapping("/quotes/batch")
     public ResponseEntity<List<QuoteData>> getBatchQuotes(@RequestBody List<String> tickers) {
         return ResponseEntity.ok(marketDataService.getQuotesBatch(tickers));
     }
 
-    // --- NEW ENDPOINT for Widget ---
-    @GetMapping("/widget/{ticker}")
-    public ResponseEntity<WidgetDataDto> getWidgetData(@PathVariable String ticker) {
+    // --- FIX: Changed from @PathVariable to @RequestParam to handle special chars like '^' safely ---
+    // Old URL: /api/market/widget/^DJI (Blocked by Firewall/Server config sometimes)
+    // New URL: /api/market/widget?ticker=^DJI (Allowed)
+    @GetMapping("/widget")
+    public ResponseEntity<WidgetDataDto> getWidgetData(@RequestParam String ticker) {
         return ResponseEntity.ok(marketDataService.getWidgetData(ticker));
     }
 
