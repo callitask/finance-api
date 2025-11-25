@@ -6,6 +6,11 @@
          http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
 
     <changeSet id="V27-add-name-currency-volume-description" author="backend-server">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="quote_data" columnName="name"/>
+            </not>
+        </preConditions>
         <addColumn tableName="quote_data">
             <column name="name" type="VARCHAR(255)">
                 <constraints nullable="true"/>

@@ -6,6 +6,12 @@
                         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
     <changeSet id="8" author="treishvaam-guide">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="blog_posts" columnName="scheduled_time"/>
+            </not>
+        </preConditions>
+        
         <addColumn tableName="blog_posts">
             <column name="scheduled_time" type="datetime" />
         </addColumn>

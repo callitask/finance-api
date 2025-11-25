@@ -6,6 +6,12 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
 
     <changeSet id="10" author="app-development-gem">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="users" columnName="linkedin_access_token"/>
+            </not>
+        </preConditions>
+        
         <addColumn tableName="users">
             <column name="linkedin_access_token" type="VARCHAR(1024)"/>
         </addColumn>

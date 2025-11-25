@@ -6,6 +6,11 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
     <changeSet id="19" author="dev">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="blog_posts" columnName="keywords"/>
+            </not>
+        </preConditions>
         <addColumn tableName="blog_posts">
             <column name="keywords" type="VARCHAR(512)">
                 <constraints nullable="true"/>

@@ -6,6 +6,11 @@
          http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
 
     <changeSet id="12-add-category-column" author="DEVE">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="blog_posts" columnName="category"/>
+            </not>
+        </preConditions>
         <addColumn tableName="blog_posts">
             <column name="category" type="VARCHAR(255)">
                 <constraints nullable="true"/>

@@ -6,6 +6,11 @@
          http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
 
     <changeSet id="V26_1_create_audience_visits_table" author="expert-assistant">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="audience_visits"/>
+            </not>
+        </preConditions>
         <comment>Creates a table to store historical, detailed Google Analytics audience data.</comment>
         <createTable tableName="audience_visits">
             <column name="id" type="BIGINT" autoIncrement="true">
@@ -46,6 +51,12 @@
     </changeSet>
 
     <changeSet id="V26_2_add_indexes" author="expert-assistant">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="audience_visits"/>
+            <not>
+                <indexExists indexName="idx_audience_visits_date" tableName="audience_visits"/>
+            </not>
+        </preConditions>
         <comment>Adds indexes for quick historical querying and data retrieval.</comment>
         <createIndex tableName="audience_visits" indexName="idx_audience_visits_date">
             <column name="session_date"/>
