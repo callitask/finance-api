@@ -1,9 +1,8 @@
 package com.treishvaam.financeapi.controller;
 
 import com.treishvaam.financeapi.dto.BlogPostSuggestionDto;
-import com.treishvaam.financeapi.model.BlogPost;
-import com.treishvaam.financeapi.model.PostStatus;
-import com.treishvaam.financeapi.repository.BlogPostRepository;
+import com.treishvaam.financeapi.search.PostDocument;
+import com.treishvaam.financeapi.search.PostSearchRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,17 +17,21 @@ import java.util.stream.Collectors;
 public class SearchController {
 
     @Autowired
-    private BlogPostRepository blogPostRepository;
+    private PostSearchRepository postSearchRepository;
 
     @GetMapping
     public ResponseEntity<List<BlogPostSuggestionDto>> searchPosts(@RequestParam String q) {
         if (q == null || q.trim().isEmpty()) {
             return ResponseEntity.ok(List.of());
         }
-        List<BlogPost> posts = blogPostRepository.findByTitleContainingIgnoreCaseAndStatus(q, PostStatus.PUBLISHED);
-        List<BlogPostSuggestionDto> suggestions = posts.stream()
-                .map(post -> new BlogPostSuggestionDto(post.getId(), post.getTitle(), post.getSlug()))
+        
+        // --- NEW: Search via Elasticsearch ---
+        List<PostDocument> results = postSearchRepository.findByTitleContaining(q);
+        
+        List<BlogPostSuggestionDto> suggestions = results.stream()
+                .map(doc -> new BlogPostSuggestionDto(Long.valueOf(doc.getId()), doc.getTitle(), doc.getSlug()))
                 .collect(Collectors.toList());
+        
         return ResponseEntity.ok(suggestions);
     }
 }

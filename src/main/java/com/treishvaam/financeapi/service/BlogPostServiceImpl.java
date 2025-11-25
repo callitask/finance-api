@@ -1,7 +1,7 @@
 package com.treishvaam.financeapi.service;
 
 import com.treishvaam.financeapi.config.CachingConfig;
-import com.treishvaam.financeapi.config.tenant.TenantContext; // --- IMPORT ADDED ---
+import com.treishvaam.financeapi.config.tenant.TenantContext;
 import com.treishvaam.financeapi.dto.BlogPostDto;
 import com.treishvaam.financeapi.dto.PostThumbnailDto;
 import com.treishvaam.financeapi.model.BlogPost;
@@ -10,6 +10,8 @@ import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.model.PostThumbnail;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.repository.CategoryRepository;
+import com.treishvaam.financeapi.search.PostDocument;
+import com.treishvaam.financeapi.search.PostSearchRepository;
 import com.treishvaam.financeapi.service.ImageService.ImageMetadataDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +45,10 @@ public class BlogPostServiceImpl implements BlogPostService {
 
     @Autowired
     private BlogPostRepository blogPostRepository;
+    
+    @Autowired
+    private PostSearchRepository postSearchRepository; // NEW: Inject Search Repo
+    
     @Autowired
     private CategoryRepository categoryRepository;
     @Autowired
@@ -129,15 +135,12 @@ public class BlogPostServiceImpl implements BlogPostService {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         newPost.setAuthor(username);
         
-        // --- FIX: Use the correct Tenant ID ---
         String currentTenant = TenantContext.getCurrentTenant();
         if (currentTenant != null && !currentTenant.isEmpty()) {
             newPost.setTenantId(currentTenant);
         } else {
-            // Default to the main site tenant if none is found (e.g. direct API access)
             newPost.setTenantId("treishfin");
         }
-        // --------------------------------------
 
         newPost.setSlug(generateUniqueId());
         newPost.setLayoutStyle("DEFAULT");
@@ -227,7 +230,23 @@ public class BlogPostServiceImpl implements BlogPostService {
 
         if ((savedPost.getStatus() == PostStatus.PUBLISHED || savedPost.getStatus() == PostStatus.SCHEDULED) && savedPost.getUrlArticleId() == null) {
             savedPost.setUrlArticleId(generateUrlArticleId(savedPost));
-            return blogPostRepository.save(savedPost);
+            savedPost = blogPostRepository.save(savedPost);
+        }
+        
+        // --- NEW: Index to Elasticsearch ---
+        if (savedPost.getStatus() == PostStatus.PUBLISHED) {
+            try {
+                PostDocument doc = new PostDocument(
+                    savedPost.getId().toString(),
+                    savedPost.getTitle(),
+                    savedPost.getCustomSnippet(), // Index snippet for search previews
+                    savedPost.getSlug(),
+                    savedPost.getStatus().name()
+                );
+                postSearchRepository.save(doc);
+            } catch (Exception e) {
+                logger.error("Failed to index post to Elasticsearch: {}", savedPost.getId(), e);
+            }
         }
         
         return savedPost;
@@ -238,6 +257,12 @@ public class BlogPostServiceImpl implements BlogPostService {
     @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, allEntries = true)
     public void deleteById(Long id) {
         blogPostRepository.deleteById(id);
+        // --- NEW: Delete from Elasticsearch ---
+        try {
+            postSearchRepository.deleteById(id.toString());
+        } catch (Exception e) {
+            logger.error("Failed to delete post from Elasticsearch: {}", id, e);
+        }
     }
 
     @Override
@@ -246,6 +271,14 @@ public class BlogPostServiceImpl implements BlogPostService {
     public void deletePostsInBulk(List<Long> postIds) {
         if(postIds != null && !postIds.isEmpty()) {
             blogPostRepository.deleteByIdIn(postIds);
+            // --- NEW: Bulk Delete from Elasticsearch ---
+            try {
+                for (Long id : postIds) {
+                    postSearchRepository.deleteById(id.toString());
+                }
+            } catch (Exception e) {
+                logger.error("Failed to bulk delete from Elasticsearch", e);
+            }
         }
     }
 
@@ -261,6 +294,21 @@ public class BlogPostServiceImpl implements BlogPostService {
                 post.setUrlArticleId(generateUrlArticleId(post));
             }
             blogPostRepository.save(post);
+            
+            // --- NEW: Index Published Scheduled Post ---
+            try {
+                PostDocument doc = new PostDocument(
+                    post.getId().toString(),
+                    post.getTitle(),
+                    post.getCustomSnippet(),
+                    post.getSlug(),
+                    "PUBLISHED"
+                );
+                postSearchRepository.save(doc);
+            } catch (Exception e) {
+                logger.error("Failed to index scheduled post to Elasticsearch: {}", post.getId(), e);
+            }
+            
             logger.info("Published scheduled post with ID: {}", post.getId());
         }
     }
@@ -310,14 +358,12 @@ public class BlogPostServiceImpl implements BlogPostService {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         newPost.setAuthor(username);
         
-        // --- FIX: Ensure duplicated post also gets correct tenant ---
         String currentTenant = TenantContext.getCurrentTenant();
         if (currentTenant != null && !currentTenant.isEmpty()) {
             newPost.setTenantId(currentTenant);
         } else {
             newPost.setTenantId("treishfin");
         }
-        // ----------------------------------------------------------
 
         newPost.setTitle("Copy of " + originalPost.getTitle());
         newPost.setContent("");
