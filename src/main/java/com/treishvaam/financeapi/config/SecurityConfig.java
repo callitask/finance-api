@@ -58,17 +58,19 @@ public class SecurityConfig {
                     "/api/uploads/**", 
                     "/api/market/**",
                     "/api/news/**",
+                    "/api/search/**", // --- ADDED: Public Search Endpoint ---
                     "/sitemap.xml",
-                    "/sitemaps/**" 
+                    "/sitemaps/**",
+                    "/favicon.ico"    // --- ADDED: Prevent browser 403 on icon ---
                 ).permitAll()
                 .requestMatchers(
                     "/api/auth/**",
                     "/api/contact/**",
                     "/api/market/quotes/batch",
-                    "/api/market/widget", // Explicitly allow widget endpoint
+                    "/api/market/widget",
                     "/swagger-ui/**", 
                     "/v3/api-docs/**",
-                    "/error" // --- ADDED: Allow public access to error pages to prevent 403 masking 500s ---
+                    "/error" 
                 ).permitAll()
                 .requestMatchers(
                     "/api/posts/admin/**", 

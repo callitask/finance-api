@@ -25,8 +25,9 @@ public class SearchController {
             return ResponseEntity.ok(List.of());
         }
         
-        // --- NEW: Search via Elasticsearch ---
-        List<PostDocument> results = postSearchRepository.findByTitleContaining(q);
+        // --- UPDATED: Use the Smart Search method ---
+        // This handles "Enterprise", "enterprise", "Enter", and "Architec" correctly.
+        List<PostDocument> results = postSearchRepository.searchByTitle(q);
         
         List<BlogPostSuggestionDto> suggestions = results.stream()
                 .map(doc -> new BlogPostSuggestionDto(Long.valueOf(doc.getId()), doc.getTitle(), doc.getSlug()))
