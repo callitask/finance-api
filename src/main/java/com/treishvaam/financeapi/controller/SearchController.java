@@ -25,12 +25,18 @@ public class SearchController {
             return ResponseEntity.ok(List.of());
         }
         
-        // --- UPDATED: Use the Smart Search method ---
-        // This handles "Enterprise", "enterprise", "Enter", and "Architec" correctly.
+        // Smart search with match_phrase_prefix
         List<PostDocument> results = postSearchRepository.searchByTitle(q);
         
         List<BlogPostSuggestionDto> suggestions = results.stream()
-                .map(doc -> new BlogPostSuggestionDto(Long.valueOf(doc.getId()), doc.getTitle(), doc.getSlug()))
+                .map(doc -> new BlogPostSuggestionDto(
+                    Long.valueOf(doc.getId()),
+                    doc.getTitle(),
+                    doc.getSlug(),
+                    doc.getCategorySlug(),     // Mapped field
+                    doc.getUserFriendlySlug(), // Mapped field
+                    doc.getUrlArticleId()      // Mapped field
+                ))
                 .collect(Collectors.toList());
         
         return ResponseEntity.ok(suggestions);

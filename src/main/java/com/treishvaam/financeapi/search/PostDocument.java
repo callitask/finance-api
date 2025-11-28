@@ -23,14 +23,27 @@ public class PostDocument {
     @Field(type = FieldType.Keyword)
     private String status;
 
+    // --- NEW FIELDS ADDED FOR URL GENERATION ---
+    @Field(type = FieldType.Keyword)
+    private String categorySlug;
+
+    @Field(type = FieldType.Keyword)
+    private String userFriendlySlug;
+
+    @Field(type = FieldType.Keyword)
+    private String urlArticleId;
+
     public PostDocument() {}
 
-    public PostDocument(String id, String title, String snippet, String slug, String status) {
+    public PostDocument(String id, String title, String snippet, String slug, String status, String categorySlug, String userFriendlySlug, String urlArticleId) {
         this.id = id;
         this.title = title;
         this.snippet = snippet;
         this.slug = slug;
         this.status = status;
+        this.categorySlug = categorySlug;
+        this.userFriendlySlug = userFriendlySlug;
+        this.urlArticleId = urlArticleId;
     }
 
     // Getters and Setters
@@ -44,4 +57,11 @@ public class PostDocument {
     public void setSlug(String slug) { this.slug = slug; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    
+    public String getCategorySlug() { return categorySlug; }
+    public void setCategorySlug(String categorySlug) { this.categorySlug = categorySlug; }
+    public String getUserFriendlySlug() { return userFriendlySlug; }
+    public void setUserFriendlySlug(String userFriendlySlug) { this.userFriendlySlug = userFriendlySlug; }
+    public String getUrlArticleId() { return urlArticleId; }
+    public void setUrlArticleId(String urlArticleId) { this.urlArticleId = urlArticleId; }
 }

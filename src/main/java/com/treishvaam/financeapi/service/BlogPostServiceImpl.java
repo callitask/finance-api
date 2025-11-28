@@ -47,7 +47,7 @@ public class BlogPostServiceImpl implements BlogPostService {
     private BlogPostRepository blogPostRepository;
     
     @Autowired
-    private PostSearchRepository postSearchRepository; // NEW: Inject Search Repo
+    private PostSearchRepository postSearchRepository;
     
     @Autowired
     private CategoryRepository categoryRepository;
@@ -233,15 +233,19 @@ public class BlogPostServiceImpl implements BlogPostService {
             savedPost = blogPostRepository.save(savedPost);
         }
         
-        // --- NEW: Index to Elasticsearch ---
+        // --- UPDATED: Index full details to Elasticsearch (8 arguments) ---
         if (savedPost.getStatus() == PostStatus.PUBLISHED) {
             try {
+                String categorySlug = savedPost.getCategory() != null ? savedPost.getCategory().getSlug() : "uncategorized";
                 PostDocument doc = new PostDocument(
                     savedPost.getId().toString(),
                     savedPost.getTitle(),
-                    savedPost.getCustomSnippet(), // Index snippet for search previews
+                    savedPost.getCustomSnippet(),
                     savedPost.getSlug(),
-                    savedPost.getStatus().name()
+                    savedPost.getStatus().name(),
+                    categorySlug,                    // Argument 6
+                    savedPost.getUserFriendlySlug(), // Argument 7
+                    savedPost.getUrlArticleId()      // Argument 8
                 );
                 postSearchRepository.save(doc);
             } catch (Exception e) {
@@ -257,7 +261,6 @@ public class BlogPostServiceImpl implements BlogPostService {
     @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, allEntries = true)
     public void deleteById(Long id) {
         blogPostRepository.deleteById(id);
-        // --- NEW: Delete from Elasticsearch ---
         try {
             postSearchRepository.deleteById(id.toString());
         } catch (Exception e) {
@@ -271,7 +274,6 @@ public class BlogPostServiceImpl implements BlogPostService {
     public void deletePostsInBulk(List<Long> postIds) {
         if(postIds != null && !postIds.isEmpty()) {
             blogPostRepository.deleteByIdIn(postIds);
-            // --- NEW: Bulk Delete from Elasticsearch ---
             try {
                 for (Long id : postIds) {
                     postSearchRepository.deleteById(id.toString());
@@ -295,14 +297,18 @@ public class BlogPostServiceImpl implements BlogPostService {
             }
             blogPostRepository.save(post);
             
-            // --- NEW: Index Published Scheduled Post ---
+            // --- UPDATED: Index scheduled posts to Elasticsearch (8 arguments) ---
             try {
+                String categorySlug = post.getCategory() != null ? post.getCategory().getSlug() : "uncategorized";
                 PostDocument doc = new PostDocument(
                     post.getId().toString(),
                     post.getTitle(),
                     post.getCustomSnippet(),
                     post.getSlug(),
-                    "PUBLISHED"
+                    "PUBLISHED",
+                    categorySlug,
+                    post.getUserFriendlySlug(),
+                    post.getUrlArticleId()
                 );
                 postSearchRepository.save(doc);
             } catch (Exception e) {
