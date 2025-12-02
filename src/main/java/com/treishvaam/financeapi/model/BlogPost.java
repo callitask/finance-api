@@ -40,8 +40,23 @@ public class BlogPost {
     @Column(columnDefinition = "TEXT")
     private String metaDescription;
 
-    @Column(length = 512) // Keywords field
+    @Column(length = 512)
     private String keywords;
+
+    // --- NEW ENTERPRISE SEO FIELDS ---
+    @Column(name = "seo_title")
+    private String seoTitle;
+
+    @Column(name = "canonical_url")
+    private String canonicalUrl;
+
+    @Column(name = "focus_keyword")
+    private String focusKeyword;
+
+    // --- NEW EDITORIAL SECTION (FIXED: Explicitly defined as VARCHAR) ---
+    @Enumerated(EnumType.STRING)
+    @Column(name = "display_section", columnDefinition = "VARCHAR(50)")
+    private DisplaySection displaySection = DisplaySection.STANDARD;
 
     @Column(nullable = false)
     private String author;
@@ -103,6 +118,9 @@ public class BlogPost {
     protected void onCreate() {
         this.createdAt = Instant.now();
         this.updatedAt = Instant.now();
+        if (this.displaySection == null) {
+            this.displaySection = DisplaySection.STANDARD;
+        }
     }
 
     @PreUpdate
@@ -125,8 +143,8 @@ public class BlogPost {
     public void setCustomSnippet(String customSnippet) { this.customSnippet = customSnippet; }
     public String getMetaDescription() { return metaDescription; }
     public void setMetaDescription(String metaDescription) { this.metaDescription = metaDescription; }
-    public String getKeywords() { return keywords; } // New Getter
-    public void setKeywords(String keywords) { this.keywords = keywords; } // New Setter
+    public String getKeywords() { return keywords; }
+    public void setKeywords(String keywords) { this.keywords = keywords; }
     public String getAuthor() { return author; }
     public void setAuthor(String author) { this.author = author; }
     public Category getCategory() { return category; }
@@ -159,4 +177,14 @@ public class BlogPost {
     public void setLayoutGroupId(String layoutGroupId) { this.layoutGroupId = layoutGroupId; }
     public String getUrlArticleId() { return urlArticleId; }
     public void setUrlArticleId(String urlArticleId) { this.urlArticleId = urlArticleId; }
+
+    // New SEO & Section Getters/Setters
+    public String getSeoTitle() { return seoTitle; }
+    public void setSeoTitle(String seoTitle) { this.seoTitle = seoTitle; }
+    public String getCanonicalUrl() { return canonicalUrl; }
+    public void setCanonicalUrl(String canonicalUrl) { this.canonicalUrl = canonicalUrl; }
+    public String getFocusKeyword() { return focusKeyword; }
+    public void setFocusKeyword(String focusKeyword) { this.focusKeyword = focusKeyword; }
+    public DisplaySection getDisplaySection() { return displaySection; }
+    public void setDisplaySection(DisplaySection displaySection) { this.displaySection = displaySection; }
 }

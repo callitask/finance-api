@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="32-add-missing-blog-columns" author="treishvaam">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="blog_posts" columnName="custom_snippet"/>
+            </not>
+        </preConditions>
+        
+        <addColumn tableName="blog_posts">
+            <column name="custom_snippet" type="TEXT"/>
+        </addColumn>
+
+        <addColumn tableName="blog_posts">
+            <column name="layout_style" type="VARCHAR(255)" defaultValue="DEFAULT"/>
+        </addColumn>
+
+        <addColumn tableName="blog_posts">
+            <column name="layout_group_id" type="VARCHAR(255)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

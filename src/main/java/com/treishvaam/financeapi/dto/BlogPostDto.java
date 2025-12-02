@@ -1,5 +1,6 @@
 package com.treishvaam.financeapi.dto;
 
+import com.treishvaam.financeapi.model.DisplaySection;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -10,7 +11,7 @@ public class BlogPostDto {
     private String content;
     private String customSnippet;
     private String metaDescription;
-    private String keywords; // NEW FIELD
+    private String keywords;
     private String author;
     private String category;
     private List<String> tags;
@@ -26,6 +27,12 @@ public class BlogPostDto {
     private String userFriendlySlug;
     private String urlArticleId;
 
+    // New Fields
+    private String seoTitle;
+    private String canonicalUrl;
+    private String focusKeyword;
+    private DisplaySection displaySection;
+
     // Getters and Setters
 
     public Long getId() { return id; }
@@ -38,8 +45,8 @@ public class BlogPostDto {
     public void setCustomSnippet(String customSnippet) { this.customSnippet = customSnippet; }
     public String getMetaDescription() { return metaDescription; }
     public void setMetaDescription(String metaDescription) { this.metaDescription = metaDescription; }
-    public String getKeywords() { return keywords; } // NEW GETTER
-    public void setKeywords(String keywords) { this.keywords = keywords; } // NEW SETTER
+    public String getKeywords() { return keywords; }
+    public void setKeywords(String keywords) { this.keywords = keywords; }
     public String getAuthor() { return author; }
     public void setAuthor(String author) { this.author = author; }
     public String getCategory() { return category; }
@@ -68,4 +75,14 @@ public class BlogPostDto {
     public void setUserFriendlySlug(String userFriendlySlug) { this.userFriendlySlug = userFriendlySlug; }
     public String getUrlArticleId() { return urlArticleId; }
     public void setUrlArticleId(String urlArticleId) { this.urlArticleId = urlArticleId; }
+
+    // New SEO & Section Getters/Setters
+    public String getSeoTitle() { return seoTitle; }
+    public void setSeoTitle(String seoTitle) { this.seoTitle = seoTitle; }
+    public String getCanonicalUrl() { return canonicalUrl; }
+    public void setCanonicalUrl(String canonicalUrl) { this.canonicalUrl = canonicalUrl; }
+    public String getFocusKeyword() { return focusKeyword; }
+    public void setFocusKeyword(String focusKeyword) { this.focusKeyword = focusKeyword; }
+    public DisplaySection getDisplaySection() { return displaySection; }
+    public void setDisplaySection(DisplaySection displaySection) { this.displaySection = displaySection; }
 }

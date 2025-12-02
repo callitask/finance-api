@@ -13,6 +13,7 @@
     <include file="db/changelog/V6__add_tenant_id_to_posts.xml"/>
     
     <include file="db/changelog/008-add-scheduling-to-posts.xml"/>
+    <include file="db/changelog/V8_5__migrate_status.xml"/>
     <include file="db/changelog/V9__add_author_to_posts.xml"/>
     <include file="db/changelog/V10__add_linkedin_token_to_users.xml"/>
     
@@ -37,5 +38,15 @@
     <include file="db/changelog/V27__add_quote_details.xml"/>
     
     <include file="db/changelog/V28__add_homepage_meta.xml"/>
-    
-    </databaseChangeLog>
+    <include file="db/changelog/V29__add_static_pages_meta.xml"/>
+    <include file="db/changelog/V30__add_missing_tables.xml"/>
+    <include file="db/changelog/V31__add_cover_image_alt_text.xml"/>
+    <include file="db/changelog/V32__add_blog_missing_columns.xml"/>
+    <include file="db/changelog/V33__add_slug_to_posts.xml"/>
+    <include file="db/changelog/V34__fix_status_enum.xml"/>
+    <include file="db/changelog/V33__add_market_data_missing_columns.xml"/>
+    <include file="db/changelog/V34__add_thumbnail_metadata.xml"/>
+    <include file="db/changelog/V33__add_enabled_to_users.xml"/>
+    <include file="db/changelog/V35__add_editorial_fields.xml"/>
+
+</databaseChangeLog>

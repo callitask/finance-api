@@ -11,7 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cache.annotation.Cacheable; // --- IMPORTED ---
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -89,6 +89,7 @@ public class MarketDataService {
     @PostConstruct
     public void initializeData() {
         logger.info("STARTUP: Initializing Market Data Service...");
+        // CSV load attempted here but data will primarily come from Python script
         csvHistoryLoader.loadCsvIfEmpty();
         logger.info("Startup initialization complete.");
     }
@@ -99,8 +100,9 @@ public class MarketDataService {
         ApiFetchStatus status = new ApiFetchStatus("Python Data Update", "PENDING", triggerSource, "Script starting...");
         apiFetchStatusRepository.save(status);
         try {
+            // --- UPDATED: Using "python3" to ensure correct environment ---
             ProcessBuilder pb = new ProcessBuilder(
-                "python", 
+                "python3", 
                 pythonScriptPath,
                 dbUrl,
                 dbUsername,

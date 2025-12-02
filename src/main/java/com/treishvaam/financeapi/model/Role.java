@@ -7,28 +7,25 @@ import jakarta.persistence.*;
 public class Role {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Integer id;
+    private Long id;
 
     @Enumerated(EnumType.STRING)
-    @Column(length = 20)
+    // FIX: Explicitly tell Hibernate this is a VARCHAR column, not a native ENUM
+    @Column(length = 20, columnDefinition = "VARCHAR(255)") 
     private ERole name;
 
-    // The single, required no-argument constructor for JPA
     public Role() {
-
     }
 
-    // The constructor for creating a Role with a name
     public Role(ERole name) {
         this.name = name;
     }
 
-    // Getters and Setters
-    public Integer getId() {
+    public Long getId() {
         return id;
     }
 
-    public void setId(Integer id) {
+    public void setId(Long id) {
         this.id = id;
     }
 

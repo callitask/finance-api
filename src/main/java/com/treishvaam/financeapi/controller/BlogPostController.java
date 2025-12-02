@@ -7,6 +7,7 @@ import com.treishvaam.financeapi.dto.PostThumbnailDto;
 import com.treishvaam.financeapi.dto.ShareRequest;
 import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.Category;
+import com.treishvaam.financeapi.model.DisplaySection;
 import com.treishvaam.financeapi.service.BlogPostService;
 import com.treishvaam.financeapi.service.LinkedInService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -114,7 +115,13 @@ public class BlogPostController {
             @RequestParam(value = "userFriendlySlug", required = false) String userFriendlySlug,
             @RequestParam(value = "customSnippet", required = false) String customSnippet,
             @RequestParam(value = "metaDescription", required = false) String metaDescription,
-            @RequestParam(value = "keywords", required = false) String keywords, // NEW PARAM
+            @RequestParam(value = "keywords", required = false) String keywords,
+            // --- NEW FIELDS ---
+            @RequestParam(value = "seoTitle", required = false) String seoTitle,
+            @RequestParam(value = "canonicalUrl", required = false) String canonicalUrl,
+            @RequestParam(value = "focusKeyword", required = false) String focusKeyword,
+            @RequestParam(value = "displaySection", defaultValue = "STANDARD") String displaySection,
+            // ------------------
             @RequestParam("category") String categoryName,
             @RequestParam(value = "tags", required = false) List<String> tags,
             @RequestParam("featured") boolean featured,
@@ -124,7 +131,7 @@ public class BlogPostController {
             @RequestParam(value = "thumbnailOrientation", required = false) String thumbnailOrientation,
             @RequestParam(value = "coverImage", required = false) MultipartFile coverImage,
             @RequestParam(value = "coverImageAltText", required = false) String coverImageAltText,
-            @RequestParam("layoutStyle") String layoutStyle,
+            @RequestParam(value = "layoutStyle", defaultValue = "DEFAULT") String layoutStyle,
             @RequestParam(value = "layoutGroupId", required = false) String layoutGroupId) throws IOException {
         
         Category category = blogPostService.findCategoryByName(categoryName);
@@ -138,7 +145,18 @@ public class BlogPostController {
         newPost.setUserFriendlySlug(userFriendlySlug);
         newPost.setCustomSnippet(customSnippet);
         newPost.setMetaDescription(metaDescription);
-        newPost.setKeywords(keywords); // NEW
+        newPost.setKeywords(keywords);
+        
+        // Map new fields
+        newPost.setSeoTitle(seoTitle);
+        newPost.setCanonicalUrl(canonicalUrl);
+        newPost.setFocusKeyword(focusKeyword);
+        try {
+            newPost.setDisplaySection(DisplaySection.valueOf(displaySection.toUpperCase()));
+        } catch (IllegalArgumentException e) {
+            newPost.setDisplaySection(DisplaySection.STANDARD);
+        }
+
         newPost.setCategory(category);
         newPost.setTags(tags);
         newPost.setFeatured(featured);
@@ -172,7 +190,13 @@ public class BlogPostController {
             @RequestParam(value = "userFriendlySlug", required = false) String userFriendlySlug,
             @RequestParam(value = "customSnippet", required = false) String customSnippet,
             @RequestParam(value = "metaDescription", required = false) String metaDescription,
-            @RequestParam(value = "keywords", required = false) String keywords, // NEW PARAM
+            @RequestParam(value = "keywords", required = false) String keywords,
+            // --- NEW FIELDS ---
+            @RequestParam(value = "seoTitle", required = false) String seoTitle,
+            @RequestParam(value = "canonicalUrl", required = false) String canonicalUrl,
+            @RequestParam(value = "focusKeyword", required = false) String focusKeyword,
+            @RequestParam(value = "displaySection", defaultValue = "STANDARD") String displaySection,
+            // ------------------
             @RequestParam("category") String categoryName,
             @RequestParam(value = "tags", required = false) List<String> tags,
             @RequestParam("featured") boolean featured,
@@ -182,7 +206,7 @@ public class BlogPostController {
             @RequestParam(value = "thumbnailOrientation", required = false) String thumbnailOrientation,
             @RequestParam(value = "coverImage", required = false) MultipartFile coverImage,
             @RequestParam(value = "coverImageAltText", required = false) String coverImageAltText,
-            @RequestParam("layoutStyle") String layoutStyle,
+            @RequestParam(value = "layoutStyle", defaultValue = "DEFAULT") String layoutStyle,
             @RequestParam(value = "layoutGroupId", required = false) String layoutGroupId) throws IOException {
         Optional<BlogPost> existingPostOpt = blogPostService.findById(id);
         if (!existingPostOpt.isPresent()) {
@@ -197,7 +221,18 @@ public class BlogPostController {
         existingPost.setUserFriendlySlug(userFriendlySlug);
         existingPost.setCustomSnippet(customSnippet);
         existingPost.setMetaDescription(metaDescription);
-        existingPost.setKeywords(keywords); // NEW
+        existingPost.setKeywords(keywords);
+        
+        // Map new fields
+        existingPost.setSeoTitle(seoTitle);
+        existingPost.setCanonicalUrl(canonicalUrl);
+        existingPost.setFocusKeyword(focusKeyword);
+        try {
+            existingPost.setDisplaySection(DisplaySection.valueOf(displaySection.toUpperCase()));
+        } catch (IllegalArgumentException e) {
+            existingPost.setDisplaySection(DisplaySection.STANDARD);
+        }
+
         existingPost.setCategory(category);
         existingPost.setTags(tags);
         existingPost.setFeatured(featured);
