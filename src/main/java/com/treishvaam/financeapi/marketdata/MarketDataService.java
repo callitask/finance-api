@@ -96,11 +96,14 @@ public class MarketDataService {
 
     @Transactional
     public void runPythonHistoryAndQuoteUpdate(String triggerSource) {
+        String apiLabel = "Market Data Pipeline (Python)";
         logger.info("Starting Python data update script... Trigger: {}", triggerSource);
-        ApiFetchStatus status = new ApiFetchStatus("Python Data Update", "PENDING", triggerSource, "Script starting...");
+        
+        ApiFetchStatus status = new ApiFetchStatus(apiLabel, "PENDING", triggerSource, "Script starting...");
         apiFetchStatusRepository.save(status);
+        
         try {
-            // --- UPDATED: Using "python3" to ensure correct environment ---
+            // Using "python3" to ensure correct environment
             ProcessBuilder pb = new ProcessBuilder(
                 "python3", 
                 pythonScriptPath,
@@ -138,7 +141,7 @@ public class MarketDataService {
         apiFetchStatusRepository.save(status);
     }
 
-    // --- NEW: Caching for the Global Ticker Bar ---
+    // --- Caching for the Global Ticker Bar ---
     @Cacheable(value = "quotesBatch", key = "#tickers.hashCode()", unless = "#result == null || #result.isEmpty()")
     public List<QuoteData> getQuotesBatch(List<String> tickers) {
         if (tickers == null || tickers.isEmpty()) {
@@ -147,7 +150,7 @@ public class MarketDataService {
         return quoteDataRepository.findByTickerIn(tickers);
     }
 
-    // --- NEW: Caching for the Market Widget (Chart + Data) ---
+    // --- Caching for the Market Widget (Chart + Data) ---
     @Cacheable(value = "marketWidget", key = "#ticker", unless = "#result == null")
     public WidgetDataDto getWidgetData(String ticker) {
         QuoteData quote = quoteDataRepository.findById(ticker).orElse(null);
@@ -173,38 +176,51 @@ public class MarketDataService {
     @Transactional
     public void updateAllQuotes(String triggerSource) {}
 
-    // ================= EXISTING METHODS BELOW =================
+    // ================= MOVERS FETCHING (Standardized) =================
 
     @Transactional
     public void fetchAndStoreMarketData(String market, String triggerSource) {
         MarketDataProvider provider = marketDataFactory.getMoversProvider(market);
-        String marketSuffix = " (" + market + ")";
+        
+        // 1. Gainers
         try {
             List<MarketData> gainers = provider.fetchTopGainers();
             marketDataRepository.deleteByType("GAINER");
             if (gainers != null && !gainers.isEmpty()) marketDataRepository.saveAll(gainers);
-            apiFetchStatusRepository.save(new ApiFetchStatus("Market Data - Top Gainers" + marketSuffix, "SUCCESS", triggerSource, "Data fetched successfully."));
+            apiFetchStatusRepository.save(new ApiFetchStatus("Market Movers - Top Gainers", "SUCCESS", triggerSource, "Fetched " + (gainers != null ? gainers.size() : 0) + " items."));
         } catch (Exception e) {
-            apiFetchStatusRepository.save(new ApiFetchStatus("Market Data - Top Gainers" + marketSuffix, "FAILURE", triggerSource, e.getMessage()));
+            apiFetchStatusRepository.save(new ApiFetchStatus("Market Movers - Top Gainers", "FAILURE", triggerSource, e.getMessage()));
         }
+        
+        // 2. Losers
         try {
             List<MarketData> losers = provider.fetchTopLosers();
             marketDataRepository.deleteByType("LOSER");
             if (losers != null && !losers.isEmpty()) marketDataRepository.saveAll(losers);
-            apiFetchStatusRepository.save(new ApiFetchStatus("Market Data - Top Losers" + marketSuffix, "SUCCESS", triggerSource, "Data fetched successfully."));
+            apiFetchStatusRepository.save(new ApiFetchStatus("Market Movers - Top Losers", "SUCCESS", triggerSource, "Fetched " + (losers != null ? losers.size() : 0) + " items."));
         } catch (Exception e) {
-            apiFetchStatusRepository.save(new ApiFetchStatus("Market Data - Top Losers" + marketSuffix, "FAILURE", triggerSource, e.getMessage()));
+            apiFetchStatusRepository.save(new ApiFetchStatus("Market Movers - Top Losers", "FAILURE", triggerSource, e.getMessage()));
         }
+        
+        // 3. Active
         try {
             List<MarketData> active = provider.fetchMostActive();
             marketDataRepository.deleteByType("ACTIVE");
             if (active != null && !active.isEmpty()) marketDataRepository.saveAll(active);
-            apiFetchStatusRepository.save(new ApiFetchStatus("Market Data - Most Active" + marketSuffix, "SUCCESS", triggerSource, "Data fetched successfully."));
+            apiFetchStatusRepository.save(new ApiFetchStatus("Market Movers - Most Active", "SUCCESS", triggerSource, "Fetched " + (active != null ? active.size() : 0) + " items."));
         } catch (Exception e) {
-            apiFetchStatusRepository.save(new ApiFetchStatus("Market Data - Most Active" + marketSuffix, "FAILURE", triggerSource, e.getMessage()));
+            apiFetchStatusRepository.save(new ApiFetchStatus("Market Movers - Most Active", "FAILURE", triggerSource, e.getMessage()));
         }
     }
     
+    // --- UPDATED: REFRESH INDICES NOW TRIGGERS PYTHON ---
+    @Transactional
+    public void refreshIndices() {
+        logger.info("Manual refresh of Indices triggered. Executing Python pipeline.");
+        runPythonHistoryAndQuoteUpdate("MANUAL_TRIGGER");
+    }
+
+    // --- Legacy / Fallback for specific tickers ---
     @Transactional
     public Object fetchHistoricalData(String ticker) {
         Optional<HistoricalDataCache> cachedDataOpt = historicalDataCacheRepository.findByTicker(ticker);
@@ -219,15 +235,8 @@ public class MarketDataService {
             historicalDataCacheRepository.save(new HistoricalDataCache(ticker, objectMapper.writeValueAsString(freshData), LocalDateTime.now()));
             return freshData;
         } catch (Exception e) {
-            apiFetchStatusRepository.save(new ApiFetchStatus("Market Chart (" + ticker + ")", "FAILURE", "MANUAL", e.getMessage()));
+            apiFetchStatusRepository.save(new ApiFetchStatus("Legacy Chart (" + ticker + ")", "FAILURE", "MANUAL", e.getMessage()));
             throw new RuntimeException("Failed to fetch historical data for " + ticker, e);
-        }
-    }
-
-    @Transactional
-    public void refreshIndices() {
-        for (String ticker : SUPPORTED_ETFS) {
-            try { fetchHistoricalData(ticker); } catch (Exception e) {}
         }
     }
 
