@@ -2,6 +2,7 @@ package com.treishvaam.financeapi.config;
 
 import com.treishvaam.financeapi.security.InternalSecretFilter;
 import com.treishvaam.financeapi.security.JwtTokenFilter;
+import com.treishvaam.financeapi.security.RateLimitingFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -26,10 +27,15 @@ import java.util.List;
 public class SecurityConfig {
     private final JwtTokenFilter jwtTokenFilter;
     private final InternalSecretFilter internalSecretFilter;
+    private final RateLimitingFilter rateLimitingFilter;
 
-    public SecurityConfig(JwtTokenFilter jwtTokenFilter, InternalSecretFilter internalSecretFilter) {
+    // Updated Constructor to include RateLimitingFilter
+    public SecurityConfig(JwtTokenFilter jwtTokenFilter, 
+                          InternalSecretFilter internalSecretFilter,
+                          RateLimitingFilter rateLimitingFilter) {
         this.jwtTokenFilter = jwtTokenFilter;
         this.internalSecretFilter = internalSecretFilter;
+        this.rateLimitingFilter = rateLimitingFilter;
     }
 
     @Bean
@@ -58,10 +64,10 @@ public class SecurityConfig {
                     "/api/uploads/**", 
                     "/api/market/**",
                     "/api/news/**",
-                    "/api/search/**", // --- ADDED: Public Search Endpoint ---
+                    "/api/search/**", 
                     "/sitemap.xml",
                     "/sitemaps/**",
-                    "/favicon.ico"    // --- ADDED: Prevent browser 403 on icon ---
+                    "/favicon.ico"
                 ).permitAll()
                 .requestMatchers(
                     "/api/auth/**",
@@ -82,15 +88,18 @@ public class SecurityConfig {
                 ).hasAuthority("ROLE_ADMIN")
                 .anyRequest().authenticated()
             );
+        
+        // --- ORDER MATTERS: RateLimit -> InternalSecret -> JWT ---
+        http.addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(jwtTokenFilter, UsernamePasswordAuthenticationFilter.class);
+        
         return http.build();
     }
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        // ALLOW ALL ORIGINS TEMPORARILY TO RULE OUT CORS ISSUES
         configuration.setAllowedOriginPatterns(List.of("*")); 
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));

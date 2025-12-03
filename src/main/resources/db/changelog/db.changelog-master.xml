@@ -48,5 +48,5 @@
     <include file="db/changelog/V34__add_thumbnail_metadata.xml"/>
     <include file="db/changelog/V33__add_enabled_to_users.xml"/>
     <include file="db/changelog/V35__add_editorial_fields.xml"/>
-
+<include file="db/changelog/V36__add_audit_log_table.xml"/>
 </databaseChangeLog>

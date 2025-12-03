@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treishvaam.financeapi.apistatus.ApiFetchStatus;
 import com.treishvaam.financeapi.apistatus.ApiFetchStatusRepository;
 import com.treishvaam.financeapi.repository.UserRepository;
+import com.treishvaam.financeapi.aspect.LogAudit; // IMPORTED
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker; // IMPORTED
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +34,7 @@ public class MarketDataService {
     private static final Logger logger = LoggerFactory.getLogger(MarketDataService.class);
     private static final int CACHE_DURATION_MINUTES = 30;
     
+    // ... (Keep existing static constants: SUPPORTED_ETFS, PEER_MAP) ...
     private static final List<String> SUPPORTED_ETFS = Arrays.asList(
             "^GSPC", "^DJI", "^IXIC", "^RUT", "^NYA", "^VIX", "^GDAXI", "^FTSE", "^HSI",
             "GC=F", "CL=F", "SI=F", "^NSEI", "^BSESN"
@@ -89,12 +92,13 @@ public class MarketDataService {
     @PostConstruct
     public void initializeData() {
         logger.info("STARTUP: Initializing Market Data Service...");
-        // CSV load attempted here but data will primarily come from Python script
         csvHistoryLoader.loadCsvIfEmpty();
         logger.info("Startup initialization complete.");
     }
 
     @Transactional
+    // --- NEW: Circuit Breaker for Python Pipeline ---
+    @CircuitBreaker(name = "pythonScript", fallbackMethod = "fallbackPythonUpdate")
     public void runPythonHistoryAndQuoteUpdate(String triggerSource) {
         String apiLabel = "Market Data Pipeline (Python)";
         logger.info("Starting Python data update script... Trigger: {}", triggerSource);
@@ -103,7 +107,6 @@ public class MarketDataService {
         apiFetchStatusRepository.save(status);
         
         try {
-            // Using "python3" to ensure correct environment
             ProcessBuilder pb = new ProcessBuilder(
                 "python3", 
                 pythonScriptPath,
@@ -132,53 +135,46 @@ public class MarketDataService {
                 logger.error("Python script failed with exit code: {}", exitCode);
                 status.setStatus("FAILURE");
                 status.setDetails("Python script failed with exit code: " + exitCode + ". Output: " + output.substring(0, Math.min(output.length(), 1000)));
+                throw new RuntimeException("Python script failed"); // Trigger circuit breaker
             }
         } catch (Exception e) {
             logger.error("FATAL: Failed to run Python update script: {}", e.getMessage(), e);
             status.setStatus("FAILURE");
             status.setDetails("Java exception: " + e.getMessage());
+            apiFetchStatusRepository.save(status);
+            throw new RuntimeException(e); // Ensure circuit breaker records failure
         }
         apiFetchStatusRepository.save(status);
     }
 
-    // --- Caching for the Global Ticker Bar ---
+    // --- NEW: Fallback Method ---
+    public void fallbackPythonUpdate(String triggerSource, Throwable t) {
+        logger.error("Circuit Breaker Open: Python script update skipped. Reason: {}", t.getMessage());
+        apiFetchStatusRepository.save(new ApiFetchStatus("Market Data Pipeline (Python)", "SKIPPED", triggerSource, "Circuit Breaker Open: " + t.getMessage()));
+    }
+
     @Cacheable(value = "quotesBatch", key = "#tickers.hashCode()", unless = "#result == null || #result.isEmpty()")
     public List<QuoteData> getQuotesBatch(List<String> tickers) {
-        if (tickers == null || tickers.isEmpty()) {
-            return Collections.emptyList();
-        }
+        if (tickers == null || tickers.isEmpty()) return Collections.emptyList();
         return quoteDataRepository.findByTickerIn(tickers);
     }
 
-    // --- Caching for the Market Widget (Chart + Data) ---
     @Cacheable(value = "marketWidget", key = "#ticker", unless = "#result == null")
     public WidgetDataDto getWidgetData(String ticker) {
         QuoteData quote = quoteDataRepository.findById(ticker).orElse(null);
-        
-        if (quote == null) {
-                logger.warn("No quote data found in DB for {}.", ticker);
-        }
-        
+        if (quote == null) logger.warn("No quote data found in DB for {}.", ticker);
         List<HistoricalPrice> history = historicalPriceRepository.findByTickerOrderByPriceDateAsc(ticker);
-
         List<String> peerTickers = PEER_MAP.getOrDefault(ticker, Collections.emptyList());
         List<QuoteData> peers = Collections.emptyList();
         if (!peerTickers.isEmpty()) {
             peers = quoteDataRepository.findByTickerIn(peerTickers);
         }
-
         return new WidgetDataDto(quote, history, peers);
     }
 
-    // --- DISABLED METHODS ---
-    private void bridgeDataGap() {}
-    private void initializeHolidays() {}
     @Transactional
-    public void updateAllQuotes(String triggerSource) {}
-
-    // ================= MOVERS FETCHING (Standardized) =================
-
-    @Transactional
+    // --- NEW: Circuit Breaker for FMP API ---
+    @CircuitBreaker(name = "fmpApi", fallbackMethod = "fallbackMarketMovers")
     public void fetchAndStoreMarketData(String market, String triggerSource) {
         MarketDataProvider provider = marketDataFactory.getMoversProvider(market);
         
@@ -189,7 +185,7 @@ public class MarketDataService {
             if (gainers != null && !gainers.isEmpty()) marketDataRepository.saveAll(gainers);
             apiFetchStatusRepository.save(new ApiFetchStatus("Market Movers - Top Gainers", "SUCCESS", triggerSource, "Fetched " + (gainers != null ? gainers.size() : 0) + " items."));
         } catch (Exception e) {
-            apiFetchStatusRepository.save(new ApiFetchStatus("Market Movers - Top Gainers", "FAILURE", triggerSource, e.getMessage()));
+            throw new RuntimeException(e); // Trigger CB
         }
         
         // 2. Losers
@@ -199,7 +195,7 @@ public class MarketDataService {
             if (losers != null && !losers.isEmpty()) marketDataRepository.saveAll(losers);
             apiFetchStatusRepository.save(new ApiFetchStatus("Market Movers - Top Losers", "SUCCESS", triggerSource, "Fetched " + (losers != null ? losers.size() : 0) + " items."));
         } catch (Exception e) {
-            apiFetchStatusRepository.save(new ApiFetchStatus("Market Movers - Top Losers", "FAILURE", triggerSource, e.getMessage()));
+            throw new RuntimeException(e);
         }
         
         // 3. Active
@@ -209,18 +205,22 @@ public class MarketDataService {
             if (active != null && !active.isEmpty()) marketDataRepository.saveAll(active);
             apiFetchStatusRepository.save(new ApiFetchStatus("Market Movers - Most Active", "SUCCESS", triggerSource, "Fetched " + (active != null ? active.size() : 0) + " items."));
         } catch (Exception e) {
-            apiFetchStatusRepository.save(new ApiFetchStatus("Market Movers - Most Active", "FAILURE", triggerSource, e.getMessage()));
+            throw new RuntimeException(e);
         }
     }
+
+    public void fallbackMarketMovers(String market, String triggerSource, Throwable t) {
+        logger.error("Circuit Breaker Open: Market Movers fetch skipped. Serving stale data. Reason: {}", t.getMessage());
+        apiFetchStatusRepository.save(new ApiFetchStatus("Market Movers", "SKIPPED", triggerSource, "Circuit Breaker Open"));
+    }
     
-    // --- UPDATED: REFRESH INDICES NOW TRIGGERS PYTHON ---
     @Transactional
+    @LogAudit(action = "MANUAL_REFRESH", target = "Indices") // --- NEW: Audit Log ---
     public void refreshIndices() {
         logger.info("Manual refresh of Indices triggered. Executing Python pipeline.");
         runPythonHistoryAndQuoteUpdate("MANUAL_TRIGGER");
     }
 
-    // --- Legacy / Fallback for specific tickers ---
     @Transactional
     public Object fetchHistoricalData(String ticker) {
         Optional<HistoricalDataCache> cachedDataOpt = historicalDataCacheRepository.findByTicker(ticker);
@@ -241,6 +241,7 @@ public class MarketDataService {
     }
 
     @Transactional
+    @LogAudit(action = "FLUSH_DATA", target = "Movers") // --- NEW: Audit Log ---
     public void flushMoversData(String password) {
         if (!isPasswordValid(password)) throw new SecurityException("Invalid password.");
         marketDataRepository.deleteByType("GAINER");
@@ -249,6 +250,7 @@ public class MarketDataService {
     }
 
     @Transactional
+    @LogAudit(action = "FLUSH_DATA", target = "Indices") // --- NEW: Audit Log ---
     public void flushIndicesData(String password) {
         if (!isPasswordValid(password)) throw new SecurityException("Invalid password.");
         historicalDataCacheRepository.deleteAll();

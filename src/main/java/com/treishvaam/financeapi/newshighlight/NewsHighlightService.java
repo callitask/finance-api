@@ -5,6 +5,7 @@ import com.treishvaam.financeapi.apistatus.ApiFetchStatus;
 import com.treishvaam.financeapi.apistatus.ApiFetchStatusRepository;
 import com.treishvaam.financeapi.common.SystemProperty;
 import com.treishvaam.financeapi.common.SystemPropertyRepository;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker; // IMPORTED
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
@@ -32,7 +33,7 @@ public class NewsHighlightService {
     private static final String LAST_FETCH_KEY = "news_last_fetch_timestamp";
 
     @Autowired
-    private ApiFetchStatusRepository apiFetchStatusRepository; // --- NEW: Inject repository ---
+    private ApiFetchStatusRepository apiFetchStatusRepository;
 
     @Value("${newsdata.api.key}")
     private String apiKey;
@@ -60,12 +61,14 @@ public class NewsHighlightService {
         long hoursSinceLastFetch = ChronoUnit.HOURS.between(lastFetchTime, LocalDateTime.now());
 
         if (hoursSinceLastFetch >= 3) {
-            fetchAndSaveNewHighlights("AUTOMATIC"); // --- MODIFIED ---
+            fetchAndSaveNewHighlights("AUTOMATIC"); 
         }
     }
 
     @Transactional
-    public void fetchAndSaveNewHighlights(String triggerSource) { // --- MODIFIED: Added triggerSource ---
+    // --- NEW: Circuit Breaker ---
+    @CircuitBreaker(name = "newsApi", fallbackMethod = "fallbackNewsFetch")
+    public void fetchAndSaveNewHighlights(String triggerSource) {
         String url = "https://newsdata.io/api/1/news?apikey=" + apiKey + "&language=en&category=business,technology";
         try {
             String jsonResponse = restTemplate.getForObject(url, String.class);
@@ -82,24 +85,29 @@ public class NewsHighlightService {
                         try {
                             newsHighlightRepository.save(highlight);
                         } catch (Exception e) {
-                            // Ignore secondary exception on unique link constraint
+                            // Ignore duplicates
                         }
                     }
                 }
-                 // --- NEW: Log success ---
                 apiFetchStatusRepository.save(new ApiFetchStatus("News Highlights", "SUCCESS", triggerSource, "Data fetched successfully."));
             } else {
-                 // --- NEW: Log failure from API response ---
                 String errorDetails = response != null ? "API returned status: " + response.getStatus() : "Empty response from API.";
                 apiFetchStatusRepository.save(new ApiFetchStatus("News Highlights", "FAILURE", triggerSource, errorDetails));
+                throw new RuntimeException("API Error: " + errorDetails); // Trigger CB
             }
         } catch (Exception e) {
             System.err.println("Error fetching news from Newsdata.io: " + e.getMessage());
-             // --- NEW: Log failure from exception ---
             apiFetchStatusRepository.save(new ApiFetchStatus("News Highlights", "FAILURE", triggerSource, e.getMessage()));
+            throw new RuntimeException(e); // Trigger CB
         } finally {
             systemPropertyRepository.save(new SystemProperty(LAST_FETCH_KEY, LocalDateTime.now()));
         }
+    }
+
+    // --- NEW: Fallback Method ---
+    public void fallbackNewsFetch(String triggerSource, Throwable t) {
+        System.err.println("Circuit Breaker Open for News API: " + t.getMessage());
+        apiFetchStatusRepository.save(new ApiFetchStatus("News Highlights", "SKIPPED", triggerSource, "Circuit Breaker Open"));
     }
 
     private NewsHighlight convertToEntity(NewsArticleDto dto) {
@@ -110,7 +118,6 @@ public class NewsHighlightService {
             LocalDateTime publishedAt = LocalDateTime.parse(dto.getPubDate(), NEWS_API_FORMATTER);
             return new NewsHighlight(dto.getTitle(), dto.getLink(), dto.getSource_id(), publishedAt);
         } catch (java.time.format.DateTimeParseException e) {
-            System.err.println("Could not parse date from API: " + dto.getPubDate() + ". Skipping article.");
             return null;
         }
     }
