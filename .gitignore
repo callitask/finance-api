@@ -32,6 +32,11 @@ build/
 ### VS Code ###
 .vscode/
 
-
 # Ignore large data files in resources
 src/main/resources/marketdata/*.csv
+
+# --- FIX: Ignore compiled output folder ---
+bin/
+bin/
+
+bin/
