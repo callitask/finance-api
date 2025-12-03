@@ -40,3 +40,5 @@ public class FinanceApiApplication extends SpringBootServletInitializer {
 		return objectMapper;
 	}
 }
+
+//Triggering CI/CD Pipeline Build 1
