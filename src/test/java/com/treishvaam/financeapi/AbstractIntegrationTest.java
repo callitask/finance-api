@@ -32,7 +32,7 @@ public abstract class AbstractIntegrationTest {
     static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:alpine"))
             .withExposedPorts(6379);
 
-    // Optimized for CI/CD: 1GB RAM limit + Disabled heavy features
+    // Memory Optimized Elasticsearch
     @Container
     static ElasticsearchContainer elasticsearch = new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:7.17.10")
             .withEnv("discovery.type", "single-node")
@@ -46,14 +46,22 @@ public abstract class AbstractIntegrationTest {
     @Container
     static RabbitMQContainer rabbitmq = new RabbitMQContainer(DockerImageName.parse("rabbitmq:3.12-management"));
 
+    // --- FIX 1: Add MinIO Container for File Storage Tests ---
+    @Container
+    static GenericContainer<?> minio = new GenericContainer<>(DockerImageName.parse("minio/minio:latest"))
+            .withExposedPorts(9000)
+            .withEnv("MINIO_ROOT_USER", "test-access-key")
+            .withEnv("MINIO_ROOT_PASSWORD", "test-secret-key")
+            .withCommand("server /data");
+
     @DynamicPropertySource
     static void dynamicProperties(DynamicPropertyRegistry registry) {
-        // MariaDB Connection
+        // MariaDB
         registry.add("spring.datasource.url", mariadb::getJdbcUrl);
         registry.add("spring.datasource.username", mariadb::getUsername);
         registry.add("spring.datasource.password", mariadb::getPassword);
         
-        // Force MariaDB Driver (Overrides any default/H2 settings)
+        // Force MariaDB Driver
         registry.add("spring.datasource.driver-class-name", () -> "org.mariadb.jdbc.Driver");
         registry.add("spring.jpa.database-platform", () -> "org.hibernate.dialect.MariaDBDialect");
 
@@ -69,8 +77,15 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.rabbitmq.port", rabbitmq::getAmqpPort);
         registry.add("spring.rabbitmq.username", rabbitmq::getAdminUsername);
         registry.add("spring.rabbitmq.password", rabbitmq::getAdminPassword);
+
+        // --- FIX 2: Configure MinIO connection ---
+        registry.add("storage.s3.endpoint", () -> "http://" + minio.getHost() + ":" + minio.getMappedPort(9000));
+        registry.add("storage.s3.access-key", () -> "test-access-key");
+        registry.add("storage.s3.secret-key", () -> "test-secret-key");
+        registry.add("storage.s3.bucket", () -> "test-bucket");
+        registry.add("storage.s3.region", () -> "us-east-1");
         
-        // FIX: Enable Liquibase AND point to the correct XML file
+        // --- FIX 3: Point Liquibase to the XML file (Not YAML) ---
         registry.add("spring.liquibase.enabled", () -> "true");
         registry.add("spring.liquibase.change-log", () -> "classpath:db/changelog/db.changelog-master.xml");
     }
