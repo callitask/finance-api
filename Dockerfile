@@ -12,8 +12,8 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # 3. Install Python Libraries (YFinance, SQLAlchemy, etc.)
-# The --break-system-packages flag is often needed on newer Debian/Ubuntu based images
-RUN pip3 install --no-cache-dir --break-system-packages \
+# FIX: Removed --break-system-packages as it is not supported/needed in this base image
+RUN pip3 install --no-cache-dir \
     pandas \
     requests \
     yfinance \
