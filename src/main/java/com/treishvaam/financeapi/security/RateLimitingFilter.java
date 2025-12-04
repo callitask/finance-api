@@ -48,7 +48,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         // Allow 20 requests per minute
         Bandwidth limit = Bandwidth.classic(20, Refill.greedy(20, Duration.ofMinutes(1)));
         
-        // FIX: Updated to use the new Bucket.builder() API (Bucket4j 8.x+)
+        // FIX: Replaced deprecated Bucket4j.builder() with Bucket.builder()
         return Bucket.builder().addLimit(limit).build();
     }
 
