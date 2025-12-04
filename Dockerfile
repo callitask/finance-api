@@ -1,30 +1,38 @@
 # TARGET: Backend Docker Image
-# PURPOSE: Java 17 Runtime + Python 3 Environment for Market Data Scripts
+# PURPOSE: Java 21 Runtime + Python 3 Environment for Market Data Scripts
 # GOAL: Single container that runs Spring Boot AND the Python Data Pipeline
 
-# 1. Use a lightweight Java 17 Runtime (Alpine Linux)
-FROM eclipse-temurin:17-jre-alpine
+# 1. Use Java 21 Base Image (Matching your compilation target)
+FROM eclipse-temurin:21-jdk-jammy
 
 # 2. Install Python 3, Pip, and build dependencies
-# We install py3-pandas/numpy via APK because building them from source takes too long
-RUN apk add --no-cache python3 py3-pip py3-pandas py3-numpy py3-mysqlclient
+# We use Debian-based 'jammy' so 'apt-get' is the correct package manager
+RUN apt-get update && \
+    apt-get install -y python3 python3-pip python-is-python3 && \
+    rm -rf /var/lib/apt/lists/*
 
 # 3. Install Python Libraries (YFinance, SQLAlchemy, etc.)
-# --break-system-packages is required on newer Alpine versions
+# The --break-system-packages flag is often needed on newer Debian/Ubuntu based images
 RUN pip3 install --no-cache-dir --break-system-packages \
+    pandas \
+    requests \
     yfinance \
     sqlalchemy \
     mysql-connector-python \
-    requests
+    wikipedia-api
 
 # 4. Set working directory
 WORKDIR /app
 
-# 5. Copy the compiled WAR file
-COPY target/*.war app.war
+# 5. Create necessary directories for file storage and logs
+RUN mkdir -p /app/uploads /app/sitemaps /app/logs /app/scripts
 
-# 6. Expose the application port
+# 6. Copy the compiled WAR file
+# Ensure the source matches what Maven generates (check target/ folder name)
+COPY target/finance-api.war app.war
+
+# 7. Expose the application port
 EXPOSE 8080
 
-# 7. Run the application
+# 8. Run the application
 ENTRYPOINT ["java", "-jar", "app.war"]
