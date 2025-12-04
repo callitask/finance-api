@@ -11,6 +11,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.time.Duration;
+
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
 public abstract class AbstractIntegrationTest {
@@ -30,12 +32,18 @@ public abstract class AbstractIntegrationTest {
     static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:alpine"))
             .withExposedPorts(6379);
 
-    // FIX: Restricted Memory Usage to prevent CI/CD Crash (Exit Code 137)
+    // FIX: Optimized for 8GB Host
+    // 1. Increased Heap to 1GB (was 256MB)
+    // 2. Disabled heavy xPack features (ML, Monitoring) for faster boot
     @Container
     static ElasticsearchContainer elasticsearch = new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:7.17.10")
             .withEnv("discovery.type", "single-node")
             .withEnv("xpack.security.enabled", "false")
-            .withEnv("ES_JAVA_OPTS", "-Xms256m -Xmx256m"); // CRITICAL: Limit Heap to 256MB
+            .withEnv("xpack.monitoring.enabled", "false") // Disable monitoring
+            .withEnv("xpack.ml.enabled", "false")         // Disable Machine Learning
+            .withEnv("xpack.watcher.enabled", "false")    // Disable Watcher
+            .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")     // Allocate 1GB RAM
+            .withStartupTimeout(Duration.ofMinutes(3));   // Allow 3 mins for startup
 
     @Container
     static RabbitMQContainer rabbitmq = new RabbitMQContainer(DockerImageName.parse("rabbitmq:3.12-management"));
