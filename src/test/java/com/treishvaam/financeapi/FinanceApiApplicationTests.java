@@ -1,15 +1,15 @@
 package com.treishvaam.financeapi;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
-@SpringBootTest
 @ActiveProfiles("test")
-class FinanceApiApplicationTests {
+class FinanceApiApplicationTests extends AbstractIntegrationTest {
 
     @Test
     void contextLoads() {
+        // This test will now fail if the DB, Redis, Elastic, or RabbitMQ 
+        // cannot be started or connected to. This is the ultimate "Sanity Check".
     }
 
 }
