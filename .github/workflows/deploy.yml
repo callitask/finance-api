@@ -7,6 +7,8 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: callitask/finance-api
+  # FIX: Force Testcontainers to use a newer Docker API version compatible with the host
+  DOCKER_API_VERSION: '1.44'
 
 jobs:
   build-and-deploy:
@@ -29,10 +31,9 @@ jobs:
           cache: maven
 
       # 3. Build & TEST (The Enterprise Gatekeeper)
-      # FIX: We explicitly set DOCKER_API_VERSION to 1.44 to match the server's daemon.
+      # The global env var DOCKER_API_VERSION will now ensure Testcontainers
+      # negotiates the correct protocol with the host Docker Daemon.
       - name: Build with Maven
-        env:
-          DOCKER_API_VERSION: 1.44
         run: mvn clean package
 
       # 4. Log in to GitHub Container Registry
