@@ -15,6 +15,11 @@ import org.testcontainers.utility.DockerImageName;
 @Testcontainers
 public abstract class AbstractIntegrationTest {
 
+    // Hardcode the Docker API version to ensure compatibility with your host
+    static {
+        System.setProperty("docker.client.api.version", "1.44");
+    }
+
     @Container
     static MariaDBContainer<?> mariadb = new MariaDBContainer<>("mariadb:10.6")
             .withDatabaseName("finance_db")
@@ -30,7 +35,7 @@ public abstract class AbstractIntegrationTest {
     static ElasticsearchContainer elasticsearch = new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:7.17.10")
             .withEnv("discovery.type", "single-node")
             .withEnv("xpack.security.enabled", "false")
-            .withEnv("ES_JAVA_OPTS", "-Xms256m -Xmx256m"); // Limit Heap to 256MB
+            .withEnv("ES_JAVA_OPTS", "-Xms256m -Xmx256m"); // CRITICAL: Limit Heap to 256MB
 
     @Container
     static RabbitMQContainer rabbitmq = new RabbitMQContainer(DockerImageName.parse("rabbitmq:3.12-management"));
