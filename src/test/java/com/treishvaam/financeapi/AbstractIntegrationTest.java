@@ -50,10 +50,15 @@ public abstract class AbstractIntegrationTest {
 
     @DynamicPropertySource
     static void dynamicProperties(DynamicPropertyRegistry registry) {
-        // MariaDB
+        // MariaDB Connection Details
         registry.add("spring.datasource.url", mariadb::getJdbcUrl);
         registry.add("spring.datasource.username", mariadb::getUsername);
         registry.add("spring.datasource.password", mariadb::getPassword);
+        
+        // CRITICAL FIX: Override the H2 driver setting from application-test.properties
+        // We are using real MariaDB now, so we must use the MariaDB driver.
+        registry.add("spring.datasource.driver-class-name", () -> "org.mariadb.jdbc.Driver");
+        registry.add("spring.jpa.database-platform", () -> "org.hibernate.dialect.MariaDBDialect");
 
         // Redis
         registry.add("spring.data.redis.host", redis::getHost);
