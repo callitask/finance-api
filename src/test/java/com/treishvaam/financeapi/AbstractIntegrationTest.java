@@ -15,11 +15,6 @@ import org.testcontainers.utility.DockerImageName;
 @Testcontainers
 public abstract class AbstractIntegrationTest {
 
-    // --- CRITICAL FIX: Enforce Docker API version 1.44 programmatically ---
-    static {
-        System.setProperty("docker.client.api.version", "1.44");
-    }
-
     @Container
     static MariaDBContainer<?> mariadb = new MariaDBContainer<>("mariadb:10.6")
             .withDatabaseName("finance_db")
@@ -58,7 +53,7 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.rabbitmq.username", rabbitmq::getAdminUsername);
         registry.add("spring.rabbitmq.password", rabbitmq::getAdminPassword);
         
-        // Ensure Liquibase runs to validate schema against the test DB
+        // Enable Liquibase for schema validation
         registry.add("spring.liquibase.enabled", () -> "true");
     }
 }
