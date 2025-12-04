@@ -7,8 +7,6 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: callitask/finance-api
-  # FIX: Force Testcontainers to use a newer Docker API version compatible with the host
-  DOCKER_API_VERSION: '1.44'
 
 jobs:
   build-and-deploy:
@@ -31,9 +29,10 @@ jobs:
           cache: maven
 
       # 3. Build & TEST (The Enterprise Gatekeeper)
-      # The global env var DOCKER_API_VERSION will now ensure Testcontainers
-      # negotiates the correct protocol with the host Docker Daemon.
+      # FIX: Limited Maven Memory to prevent OOM (Exit 137)
       - name: Build with Maven
+        env:
+          MAVEN_OPTS: "-Xmx1024m"
         run: mvn clean package
 
       # 4. Log in to GitHub Container Registry
