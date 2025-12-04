@@ -28,25 +28,14 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      # 3. PRE-FLIGHT CHECK (New Enterprise Step)
-      # This verifies the runner has access to Docker before attempting the heavy build.
-      - name: Check Docker Connectivity
-        run: |
-          echo "Verifying Docker socket access..."
-          if ! docker info > /dev/null 2>&1; then
-            echo "::error::CRITICAL: The GitHub Runner does not have permission to access Docker."
-            echo "::error::SOLUTION: Run 'sudo usermod -aG docker $USER' on the server and restart the runner service."
-            exit 1
-          else
-            echo "SUCCESS: Docker is accessible."
-          fi
-
-      # 4. Build & TEST
-      # Testcontainers will now work because we verified Docker above.
+      # 3. Build & TEST (The Enterprise Gatekeeper)
+      # FIX: We explicitly set DOCKER_API_VERSION to 1.44 to match the server's daemon.
       - name: Build with Maven
+        env:
+          DOCKER_API_VERSION: 1.44
         run: mvn clean package
 
-      # 5. Log in to GitHub Container Registry
+      # 4. Log in to GitHub Container Registry
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -54,7 +43,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 6. Build and Push Docker Image
+      # 5. Build and Push Docker Image
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -62,7 +51,7 @@ jobs:
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-      # 7. Deploy to Production
+      # 6. Deploy to Production
       - name: Deploy to Production
         run: |
           echo "Deploying to Production..."
