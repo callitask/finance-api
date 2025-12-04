@@ -8,8 +8,8 @@ class FinanceApiApplicationTests extends AbstractIntegrationTest {
 
     @Test
     void contextLoads() {
-        // This test will now fail if the DB, Redis, Elastic, or RabbitMQ 
-        // cannot be started or connected to. This is the ultimate "Sanity Check".
+        // This test ensures the Application Context loads 
+        // and can connect to all Testcontainers (DB, Redis, etc.)
     }
 
 }

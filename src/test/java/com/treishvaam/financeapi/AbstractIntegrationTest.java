@@ -53,8 +53,7 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.rabbitmq.username", rabbitmq::getAdminUsername);
         registry.add("spring.rabbitmq.password", rabbitmq::getAdminPassword);
         
-        // Disable Liquibase during tests if you prefer schema generation by Hibernate, 
-        // OR keep it enabled to test migrations. We'll enable it for strict correctness.
+        // Ensure Liquibase runs to validate schema against the test DB
         registry.add("spring.liquibase.enabled", () -> "true");
     }
 }
