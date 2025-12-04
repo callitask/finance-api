@@ -7,7 +7,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: callitask/finance-api
-  # Keep the API version fix from Phase 7
+  # Ensures Testcontainers talks to the modern Docker Daemon on Ubuntu
   DOCKER_API_VERSION: '1.44'
 
 jobs:
