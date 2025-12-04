@@ -32,9 +32,7 @@ public abstract class AbstractIntegrationTest {
     static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:alpine"))
             .withExposedPorts(6379);
 
-    // FIX: Optimized for CI/CD Stability
-    // 1. Limits Heap to 1GB to prevent OutOfMemory (Exit Code 137)
-    // 2. Disables heavy xPack features (ML, Monitoring) for faster startup
+    // Optimized for CI/CD: 1GB RAM limit + Disabled heavy features
     @Container
     static ElasticsearchContainer elasticsearch = new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:7.17.10")
             .withEnv("discovery.type", "single-node")
@@ -55,8 +53,7 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.datasource.username", mariadb::getUsername);
         registry.add("spring.datasource.password", mariadb::getPassword);
         
-        // CRITICAL FIX: Force MariaDB Driver
-        // This overrides any lingering H2 settings in properties files
+        // Force MariaDB Driver (Overrides any default/H2 settings)
         registry.add("spring.datasource.driver-class-name", () -> "org.mariadb.jdbc.Driver");
         registry.add("spring.jpa.database-platform", () -> "org.hibernate.dialect.MariaDBDialect");
 
@@ -73,7 +70,8 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.rabbitmq.username", rabbitmq::getAdminUsername);
         registry.add("spring.rabbitmq.password", rabbitmq::getAdminPassword);
         
-        // Enable Liquibase for schema validation against the real DB
+        // FIX: Enable Liquibase AND point to the correct XML file
         registry.add("spring.liquibase.enabled", () -> "true");
+        registry.add("spring.liquibase.change-log", () -> "classpath:db/changelog/db.changelog-master.xml");
     }
 }
