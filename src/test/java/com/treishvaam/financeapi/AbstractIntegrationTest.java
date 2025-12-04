@@ -32,7 +32,9 @@ public abstract class AbstractIntegrationTest {
     static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:alpine"))
             .withExposedPorts(6379);
 
-    // FIX: Memory Optimization for CI Environment
+    // FIX: Optimized for CI/CD Stability
+    // 1. Limits Heap to 1GB to prevent OutOfMemory (Exit Code 137)
+    // 2. Disables heavy xPack features (ML, Monitoring) for faster startup
     @Container
     static ElasticsearchContainer elasticsearch = new ElasticsearchContainer("docker.elastic.co/elasticsearch/elasticsearch:7.17.10")
             .withEnv("discovery.type", "single-node")
@@ -40,7 +42,7 @@ public abstract class AbstractIntegrationTest {
             .withEnv("xpack.monitoring.enabled", "false") 
             .withEnv("xpack.ml.enabled", "false")         
             .withEnv("xpack.watcher.enabled", "false")    
-            .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")     // Limit Heap to 1GB
+            .withEnv("ES_JAVA_OPTS", "-Xms1g -Xmx1g")     
             .withStartupTimeout(Duration.ofMinutes(3));
 
     @Container
@@ -48,12 +50,13 @@ public abstract class AbstractIntegrationTest {
 
     @DynamicPropertySource
     static void dynamicProperties(DynamicPropertyRegistry registry) {
-        // MariaDB
+        // MariaDB Connection
         registry.add("spring.datasource.url", mariadb::getJdbcUrl);
         registry.add("spring.datasource.username", mariadb::getUsername);
         registry.add("spring.datasource.password", mariadb::getPassword);
         
-        // CRITICAL FIX: Force MariaDB Driver (Overriding H2 from properties)
+        // CRITICAL FIX: Force MariaDB Driver
+        // This overrides any lingering H2 settings in properties files
         registry.add("spring.datasource.driver-class-name", () -> "org.mariadb.jdbc.Driver");
         registry.add("spring.jpa.database-platform", () -> "org.hibernate.dialect.MariaDBDialect");
 
@@ -70,7 +73,7 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.rabbitmq.username", rabbitmq::getAdminUsername);
         registry.add("spring.rabbitmq.password", rabbitmq::getAdminPassword);
         
-        // Enable Liquibase to test schema validity
+        // Enable Liquibase for schema validation against the real DB
         registry.add("spring.liquibase.enabled", () -> "true");
     }
 }
