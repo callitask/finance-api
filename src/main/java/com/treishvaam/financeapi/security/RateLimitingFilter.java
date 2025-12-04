@@ -2,7 +2,6 @@ package com.treishvaam.financeapi.security;
 
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
-import io.github.bucket4j.Bucket4j;
 import io.github.bucket4j.Refill;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -48,7 +47,8 @@ public class RateLimitingFilter extends OncePerRequestFilter {
     private Bucket createNewBucket(String key) {
         // Allow 20 requests per minute
         Bandwidth limit = Bandwidth.classic(20, Refill.greedy(20, Duration.ofMinutes(1)));
-        return Bucket4j.builder().addLimit(limit).build();
+        // FIX: Changed from Bucket4j.builder() to Bucket.builder() for version 8.x compatibility
+        return Bucket.builder().addLimit(limit).build();
     }
 
     private String getClientIp(HttpServletRequest request) {
