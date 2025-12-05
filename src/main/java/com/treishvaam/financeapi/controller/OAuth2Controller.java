@@ -15,7 +15,7 @@ import java.io.IOException;
 import java.time.Instant;
 
 @Controller
-@RequestMapping("/api")
+@RequestMapping("/api/v1") // Versioned
 public class OAuth2Controller {
 
     @Autowired
@@ -43,6 +43,6 @@ public class OAuth2Controller {
         user.setLinkedinTokenExpiry(tokenExpiry);
         userRepository.save(user);
 
-        response.sendRedirect("http://localhost:3000/dashboard");
+        response.sendRedirect("https://treishfin.treishvaamgroup.com/dashboard"); // Updated to live domain
     }
 }

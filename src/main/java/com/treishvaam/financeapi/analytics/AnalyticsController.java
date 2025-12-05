@@ -12,7 +12,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/analytics")
+@RequestMapping("/api/v1/analytics")
 public class AnalyticsController {
 
     private final AnalyticsService analyticsService;
@@ -21,10 +21,6 @@ public class AnalyticsController {
         this.analyticsService = analyticsService;
     }
 
-    /**
-     * Endpoint to fetch historical audience data from the local database.
-     * Requires ROLE_ADMIN. Accepts a date range and optional multi-level filters.
-     */
     @GetMapping
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<List<AudienceDataDto>> getHistoricalAudienceData(
@@ -32,23 +28,19 @@ public class AnalyticsController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @RequestParam(required = false) String country,
             @RequestParam(required = false) String region,
-            @RequestParam(required = false) String city, // Added back
-            // 'deviceCategory' removed
+            @RequestParam(required = false) String city, 
             @RequestParam(required = false) String operatingSystem,
             @RequestParam(required = false) String osVersion,
             @RequestParam(required = false) String sessionSource
             ) {
 
-        // Default the dates if not provided
         LocalDate finalStartDate = startDate != null ? startDate : LocalDate.now().minusDays(7);
         LocalDate finalEndDate = endDate != null ? endDate : LocalDate.now();
 
-        // Package filters into a single object for the service
         AudienceFilter filters = AudienceFilter.builder()
             .country(country)
             .region(region)
-            .city(city) // Added back
-            // 'deviceCategory' removed
+            .city(city) 
             .operatingSystem(operatingSystem)
             .osVersion(osVersion)
             .sessionSource(sessionSource)
@@ -62,10 +54,6 @@ public class AnalyticsController {
         return ResponseEntity.ok(data);
     }
 
-    /**
-     * Endpoint to fetch dynamic, distinct filter options based on the current context.
-     * This powers the cascading dropdowns on the frontend.
-     */
     @GetMapping("/filters")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<FilterOptionsDto> getFilterOptions(
@@ -73,22 +61,18 @@ public class AnalyticsController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @RequestParam(required = false) String country,
             @RequestParam(required = false) String region,
-            @RequestParam(required = false) String city, // Added back
-            // 'deviceCategory' removed
+            @RequestParam(required = false) String city, 
             @RequestParam(required = false) String operatingSystem,
             @RequestParam(required = false) String osVersion,
             @RequestParam(required = false) String sessionSource
     ) {
-        // Default the dates if not provided
         LocalDate finalStartDate = startDate != null ? startDate : LocalDate.now().minusDays(7);
         LocalDate finalEndDate = endDate != null ? endDate : LocalDate.now();
 
-        // Package filters into a single object for the service
         AudienceFilter filters = AudienceFilter.builder()
             .country(country)
             .region(region)
-            .city(city) // Added back
-            // 'deviceCategory' removed
+            .city(city) 
             .operatingSystem(operatingSystem)
             .osVersion(osVersion)
             .sessionSource(sessionSource)

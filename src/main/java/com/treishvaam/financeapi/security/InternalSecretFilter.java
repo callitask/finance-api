@@ -27,19 +27,16 @@ public class InternalSecretFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
         
-        // --- FIX START: Logic updated for clarity and correctness ---
-        
         // 1. Do NOT filter the public sitemap URL.
         if ("/api/sitemap.xml".equals(path)) {
             return true; // Tells the filter to skip this request.
         }
 
-        // 2. ONLY apply this filter to its intended endpoint.
-        // The filter should ONLY RUN for POST requests to /api/posts.
-        boolean shouldFilter = "POST".equalsIgnoreCase(request.getMethod()) && path.equals("/api/posts");
+        // 2. ONLY apply this filter to its intended endpoint (V1)
+        // The filter should ONLY RUN for POST requests to /api/v1/posts.
+        boolean shouldFilter = "POST".equalsIgnoreCase(request.getMethod()) && path.equals("/api/v1/posts");
 
         return !shouldFilter; // Return true to skip filtering for all other requests.
-        // --- FIX END ---
     }
 
     @Override

@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/search")
+@RequestMapping("/api/v1/search")
 public class SearchController {
 
     @Autowired
@@ -25,7 +25,6 @@ public class SearchController {
             return ResponseEntity.ok(List.of());
         }
         
-        // Smart search with match_phrase_prefix
         List<PostDocument> results = postSearchRepository.searchByTitle(q);
         
         List<BlogPostSuggestionDto> suggestions = results.stream()
@@ -33,9 +32,9 @@ public class SearchController {
                     Long.valueOf(doc.getId()),
                     doc.getTitle(),
                     doc.getSlug(),
-                    doc.getCategorySlug(),     // Mapped field
-                    doc.getUserFriendlySlug(), // Mapped field
-                    doc.getUrlArticleId()      // Mapped field
+                    doc.getCategorySlug(),     
+                    doc.getUserFriendlySlug(), 
+                    doc.getUrlArticleId()      
                 ))
                 .collect(Collectors.toList());
         

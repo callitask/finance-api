@@ -26,8 +26,8 @@ public class RateLimitingFilter extends OncePerRequestFilter {
 
         String uri = request.getRequestURI();
 
-        // Apply strict limiting only to Auth and Contact endpoints
-        if (uri.startsWith("/api/auth") || uri.startsWith("/api/contact")) {
+        // Apply strict limiting only to Auth and Contact endpoints (Versioned)
+        if (uri.startsWith("/api/v1/auth") || uri.startsWith("/api/v1/contact")) {
             
             String clientIp = getClientIp(request);
             Bucket bucket = buckets.computeIfAbsent(clientIp, this::createNewBucket);

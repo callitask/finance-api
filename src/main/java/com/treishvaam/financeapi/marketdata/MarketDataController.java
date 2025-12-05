@@ -1,4 +1,6 @@
-package com.treishvaam.financeapi.marketdata;
+package com.treishvaam.financeapi.controller; // Moved package to align structure if needed, but keeping original
+
+package com.treishvaam.financeapi.marketdata; // Keeping original package
 
 import com.treishvaam.financeapi.apistatus.PasswordDto;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/market")
+@RequestMapping("/api/v1/market")
 public class MarketDataController {
     @Autowired
     @Qualifier("apiMarketDataService")
@@ -22,9 +24,6 @@ public class MarketDataController {
         return ResponseEntity.ok(marketDataService.getQuotesBatch(tickers));
     }
 
-    // --- FIX: Changed from @PathVariable to @RequestParam to handle special chars like '^' safely ---
-    // Old URL: /api/market/widget/^DJI (Blocked by Firewall/Server config sometimes)
-    // New URL: /api/market/widget?ticker=^DJI (Allowed)
     @GetMapping("/widget")
     public ResponseEntity<WidgetDataDto> getWidgetData(@RequestParam String ticker) {
         return ResponseEntity.ok(marketDataService.getWidgetData(ticker));

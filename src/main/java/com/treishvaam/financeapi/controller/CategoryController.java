@@ -13,14 +13,14 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/categories")
+@RequestMapping("/api/v1/categories")
 public class CategoryController {
 
     @Autowired
     private CategoryRepository categoryRepository;
     
     @Autowired
-    private BlogPostService blogPostService; // Re-using slug generator from here
+    private BlogPostService blogPostService; 
 
     @GetMapping
     public ResponseEntity<List<Category>> getAllCategories() {
@@ -36,7 +36,7 @@ public class CategoryController {
         }
         Category newCategory = new Category();
         newCategory.setName(categoryName);
-        newCategory.setSlug(blogPostService.generateUserFriendlySlug(categoryName)); // Generate and set slug
+        newCategory.setSlug(blogPostService.generateUserFriendlySlug(categoryName)); 
         Category savedCategory = categoryRepository.save(newCategory);
         return ResponseEntity.ok(savedCategory);
     }

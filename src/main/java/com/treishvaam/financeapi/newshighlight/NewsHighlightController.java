@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/news")
+@RequestMapping("/api/v1/news")
 public class NewsHighlightController {
 
     @Autowired
@@ -29,7 +29,6 @@ public class NewsHighlightController {
         return ResponseEntity.ok(highlights);
     }
 
-    // --- NEW ENDPOINT FOR MANUAL REFRESH ---
     @PostMapping("/admin/refresh")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<?> refreshNews() {

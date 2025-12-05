@@ -16,7 +16,7 @@ import java.time.Instant;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/auth")
+@RequestMapping("/api/v1/auth")
 public class AuthController {
 
     private final AuthenticationManager authenticationManager;
@@ -37,12 +37,10 @@ public class AuthController {
         SecurityContextHolder.getContext().setAuthentication(authentication);
         String jwt = tokenProvider.createToken(authentication);
 
-        // Fetch the full user entity to check for the LinkedIn token
         User user = userRepository.findByEmail(loginRequest.getEmail()).orElseThrow(() -> new RuntimeException("User not found"));
         boolean isLinkedinConnected = user.getLinkedinAccessToken() != null &&
                                       (user.getLinkedinTokenExpiry() == null || user.getLinkedinTokenExpiry().isAfter(Instant.now()));
 
-        // You may need to fetch roles and username from your user details implementation
         List<String> roles = user.getRoles().stream().map(role -> role.getName().name()).toList();
         String username = user.getEmail();
 

@@ -31,7 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 
 @RestController
-@RequestMapping("/api/posts")
+@RequestMapping("/api/v1/posts")
 public class BlogPostController {
 
     @Autowired
@@ -116,12 +116,10 @@ public class BlogPostController {
             @RequestParam(value = "customSnippet", required = false) String customSnippet,
             @RequestParam(value = "metaDescription", required = false) String metaDescription,
             @RequestParam(value = "keywords", required = false) String keywords,
-            // --- NEW FIELDS ---
             @RequestParam(value = "seoTitle", required = false) String seoTitle,
             @RequestParam(value = "canonicalUrl", required = false) String canonicalUrl,
             @RequestParam(value = "focusKeyword", required = false) String focusKeyword,
             @RequestParam(value = "displaySection", defaultValue = "STANDARD") String displaySection,
-            // ------------------
             @RequestParam("category") String categoryName,
             @RequestParam(value = "tags", required = false) List<String> tags,
             @RequestParam("featured") boolean featured,
@@ -147,7 +145,6 @@ public class BlogPostController {
         newPost.setMetaDescription(metaDescription);
         newPost.setKeywords(keywords);
         
-        // Map new fields
         newPost.setSeoTitle(seoTitle);
         newPost.setCanonicalUrl(canonicalUrl);
         newPost.setFocusKeyword(focusKeyword);
@@ -191,12 +188,10 @@ public class BlogPostController {
             @RequestParam(value = "customSnippet", required = false) String customSnippet,
             @RequestParam(value = "metaDescription", required = false) String metaDescription,
             @RequestParam(value = "keywords", required = false) String keywords,
-            // --- NEW FIELDS ---
             @RequestParam(value = "seoTitle", required = false) String seoTitle,
             @RequestParam(value = "canonicalUrl", required = false) String canonicalUrl,
             @RequestParam(value = "focusKeyword", required = false) String focusKeyword,
             @RequestParam(value = "displaySection", defaultValue = "STANDARD") String displaySection,
-            // ------------------
             @RequestParam("category") String categoryName,
             @RequestParam(value = "tags", required = false) List<String> tags,
             @RequestParam("featured") boolean featured,
@@ -223,7 +218,6 @@ public class BlogPostController {
         existingPost.setMetaDescription(metaDescription);
         existingPost.setKeywords(keywords);
         
-        // Map new fields
         existingPost.setSeoTitle(seoTitle);
         existingPost.setCanonicalUrl(canonicalUrl);
         existingPost.setFocusKeyword(focusKeyword);

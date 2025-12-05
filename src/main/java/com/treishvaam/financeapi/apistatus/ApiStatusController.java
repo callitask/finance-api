@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/status")
+@RequestMapping("/api/v1/status")
 @PreAuthorize("hasAuthority('ROLE_ADMIN')")
 public class ApiStatusController {
 
@@ -21,7 +21,6 @@ public class ApiStatusController {
         return ResponseEntity.ok(apiFetchStatusRepository.findLatestStatusForEachApi());
     }
 
-    // --- NEW ENDPOINT for the full log history ---
     @GetMapping("/history")
     public ResponseEntity<List<ApiFetchStatus>> getFullApiStatusHistory() {
         return ResponseEntity.ok(apiFetchStatusRepository.findAllByOrderByLastFetchTimeDesc());

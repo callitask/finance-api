@@ -8,7 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/contact")
+@RequestMapping("/api/v1/contact")
 public class ContactController {
 
     @Autowired
@@ -22,7 +22,6 @@ public class ContactController {
 
     @GetMapping("/info")
     public ResponseEntity<ContactInfoDTO> getContactInfo() {
-        // Updated with your new contact details
         ContactInfoDTO contactInfo = new ContactInfoDTO(
             "treishvaamfinance@mail.com",
             "(+91)-8178527633",

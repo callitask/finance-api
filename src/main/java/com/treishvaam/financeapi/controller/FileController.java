@@ -21,7 +21,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api") // Set a base path for all API endpoints in this controller
+@RequestMapping("/api/v1") // Versioned Base Path
 public class FileController {
 
     private static final Logger logger = LoggerFactory.getLogger(FileController.class);
@@ -34,10 +34,7 @@ public class FileController {
         this.fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
     }
 
-    /**
-     * NEW ENDPOINT: Serves the converted logo.webp file.
-     * This is a public endpoint.
-     */
+    // Keep logo at V1 path as well
     @GetMapping("/logo")
     public ResponseEntity<Resource> serveLogo() {
         try {
@@ -51,7 +48,6 @@ public class FileController {
                         .body(resource);
             } else {
                 logger.error("Cached logo.webp not found or is not readable at path: {}", filePath);
-                // Fallback or error response can be customized here
                 return ResponseEntity.notFound().build();
             }
         } catch (MalformedURLException ex) {
@@ -60,10 +56,6 @@ public class FileController {
         }
     }
 
-    /**
-     * MODIFIED: This endpoint now processes uploaded images into multiple .webp sizes
-     * and returns URLs for each version.
-     */
     @PostMapping("/files/upload")
     public ResponseEntity<Map<String, Object>> handleFileUpload(@RequestParam("file") MultipartFile file) {
         if (file == null || file.isEmpty()) {
@@ -72,10 +64,15 @@ public class FileController {
 
         String baseName = fileStorageService.storeFile(file);
 
+        // Update returned URLs to use the V1 path if serving via API
+        // NOTE: If serving via Nginx directly, these paths might differ, but for API consistency we use V1.
+        // Nginx location block for /api/v1/uploads/ will need to be checked if proxying is done there.
+        // Assuming Nginx proxies /api/v1/uploads -> MinIO.
+        
         Map<String, String> imageUrls = new HashMap<>();
-        imageUrls.put("large", "/api/uploads/" + baseName + ".webp");
-        imageUrls.put("medium", "/api/uploads/" + baseName + "-medium.webp");
-        imageUrls.put("small", "/api/uploads/" + baseName + "-small.webp");
+        imageUrls.put("large", "/api/v1/uploads/" + baseName + ".webp");
+        imageUrls.put("medium", "/api/v1/uploads/" + baseName + "-medium.webp");
+        imageUrls.put("small", "/api/v1/uploads/" + baseName + "-small.webp");
 
         Map<String, Object> fileInfo = new HashMap<>();
         fileInfo.put("url", imageUrls.get("large"));

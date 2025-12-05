@@ -13,8 +13,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/admin/actions")
-@PreAuthorize("hasAuthority('ROLE_ADMIN')") // Secures all methods in this controller
+@RequestMapping("/api/v1/admin/actions")
+@PreAuthorize("hasAuthority('ROLE_ADMIN')") 
 public class AdminActionsController {
 
     private static final Logger logger = LoggerFactory.getLogger(AdminActionsController.class);
@@ -26,7 +26,6 @@ public class AdminActionsController {
     public ResponseEntity<?> regenerateSitemap() {
         logger.info("Admin manually triggered sitemap regeneration.");
         try {
-            // This calls the same method the schedule uses
             sitemapGenerationService.generateSitemaps();
             logger.info("Sitemap regeneration completed successfully.");
             return ResponseEntity.ok(Map.of("message", "Sitemap regeneration complete."));
