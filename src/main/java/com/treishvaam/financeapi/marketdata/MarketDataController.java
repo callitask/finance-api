@@ -1,6 +1,4 @@
-package com.treishvaam.financeapi.controller; // Moved package to align structure if needed, but keeping original
-
-package com.treishvaam.financeapi.marketdata; // Keeping original package
+package com.treishvaam.financeapi.marketdata;
 
 import com.treishvaam.financeapi.apistatus.PasswordDto;
 import org.springframework.beans.factory.annotation.Autowired;
