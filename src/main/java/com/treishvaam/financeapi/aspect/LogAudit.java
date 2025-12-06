@@ -8,6 +8,7 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface LogAudit {
-    String action();
-    String target() default "N/A";
+  String action();
+
+  String target() default "N/A";
 }

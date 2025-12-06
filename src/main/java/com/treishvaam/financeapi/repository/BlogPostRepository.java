@@ -2,38 +2,43 @@ package com.treishvaam.financeapi.repository;
 
 import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.PostStatus;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.transaction.annotation.Transactional;
-import java.util.List;
-import java.util.Optional;
-import java.time.Instant;
 
 public interface BlogPostRepository extends JpaRepository<BlogPost, Long> {
 
-    // Keep existing methods
-    List<BlogPost> findAllByStatusOrderByCreatedAtDesc(PostStatus status);
-    List<BlogPost> findAllByOrderByCreatedAtDesc();
-    Optional<BlogPost> findBySlug(String slug);
-    List<BlogPost> findAllByStatusOrderByUpdatedAtDesc(PostStatus status);
-    List<BlogPost> findByStatusAndScheduledTimeBefore(PostStatus status, Instant now);
-    List<BlogPost> findByTitleContainingIgnoreCaseAndStatus(String title, PostStatus status);
+  // Keep existing methods
+  List<BlogPost> findAllByStatusOrderByCreatedAtDesc(PostStatus status);
 
-    // This is the key method for pagination
-    Page<BlogPost> findAllByStatus(PostStatus status, Pageable pageable);
+  List<BlogPost> findAllByOrderByCreatedAtDesc();
 
-    long countByLayoutGroupId(String layoutGroupId);
+  Optional<BlogPost> findBySlug(String slug);
 
-    @Transactional
-    void deleteByIdIn(List<Long> ids);
+  List<BlogPost> findAllByStatusOrderByUpdatedAtDesc(PostStatus status);
 
-    // New method for URL validation
-    Optional<BlogPost> findByIdAndUserFriendlySlug(Long id, String userFriendlySlug);
+  List<BlogPost> findByStatusAndScheduledTimeBefore(PostStatus status, Instant now);
 
-    // NEW METHOD to find by the custom URL ID
-    Optional<BlogPost> findByUrlArticleId(String urlArticleId);
+  List<BlogPost> findByTitleContainingIgnoreCaseAndStatus(String title, PostStatus status);
 
-    // NEW METHOD for sitemap generation
-    long countByStatus(PostStatus status);
+  // This is the key method for pagination
+  Page<BlogPost> findAllByStatus(PostStatus status, Pageable pageable);
+
+  long countByLayoutGroupId(String layoutGroupId);
+
+  @Transactional
+  void deleteByIdIn(List<Long> ids);
+
+  // New method for URL validation
+  Optional<BlogPost> findByIdAndUserFriendlySlug(Long id, String userFriendlySlug);
+
+  // NEW METHOD to find by the custom URL ID
+  Optional<BlogPost> findByUrlArticleId(String urlArticleId);
+
+  // NEW METHOD for sitemap generation
+  long countByStatus(PostStatus status);
 }

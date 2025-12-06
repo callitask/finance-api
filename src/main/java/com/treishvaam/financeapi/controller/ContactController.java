@@ -11,22 +11,19 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/contact")
 public class ContactController {
 
-    @Autowired
-    private ContactMessageRepository contactMessageRepository;
+  @Autowired private ContactMessageRepository contactMessageRepository;
 
-    @PostMapping
-    public ResponseEntity<String> submitContactForm(@RequestBody ContactMessage message) {
-        contactMessageRepository.save(message);
-        return ResponseEntity.ok("Message received successfully!");
-    }
+  @PostMapping
+  public ResponseEntity<String> submitContactForm(@RequestBody ContactMessage message) {
+    contactMessageRepository.save(message);
+    return ResponseEntity.ok("Message received successfully!");
+  }
 
-    @GetMapping("/info")
-    public ResponseEntity<ContactInfoDTO> getContactInfo() {
-        ContactInfoDTO contactInfo = new ContactInfoDTO(
-            "treishvaamfinance@mail.com",
-            "(+91)-8178527633",
-            "Bengaluru, Karnataka, India"
-        );
-        return ResponseEntity.ok(contactInfo);
-    }
+  @GetMapping("/info")
+  public ResponseEntity<ContactInfoDTO> getContactInfo() {
+    ContactInfoDTO contactInfo =
+        new ContactInfoDTO(
+            "treishvaamfinance@mail.com", "(+91)-8178527633", "Bengaluru, Karnataka, India");
+    return ResponseEntity.ok(contactInfo);
+  }
 }

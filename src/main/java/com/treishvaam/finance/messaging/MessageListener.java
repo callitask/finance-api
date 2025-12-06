@@ -6,77 +6,74 @@ import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.search.PostDocument;
 import com.treishvaam.financeapi.search.PostSearchRepository;
 import com.treishvaam.financeapi.service.SitemapGenerationService;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.util.Optional;
-
 @Component
 public class MessageListener {
 
-    private static final Logger logger = LoggerFactory.getLogger(MessageListener.class);
+  private static final Logger logger = LoggerFactory.getLogger(MessageListener.class);
 
-    @Autowired
-    private PostSearchRepository postSearchRepository;
+  @Autowired private PostSearchRepository postSearchRepository;
 
-    @Autowired
-    private BlogPostRepository blogPostRepository;
+  @Autowired private BlogPostRepository blogPostRepository;
 
-    @Autowired
-    private SitemapGenerationService sitemapGenerationService;
+  @Autowired private SitemapGenerationService sitemapGenerationService;
 
-    // WORKER 1: Handles Search Indexing (Elasticsearch)
-    @RabbitListener(queues = RabbitMQConfig.QUEUE_SEARCH_INDEX)
-    public void handleSearchIndexEvent(EventMessage message) {
-        logger.info(" [Async] Processing Search Event: {}", message);
+  // WORKER 1: Handles Search Indexing (Elasticsearch)
+  @RabbitListener(queues = RabbitMQConfig.QUEUE_SEARCH_INDEX)
+  public void handleSearchIndexEvent(EventMessage message) {
+    logger.info(" [Async] Processing Search Event: {}", message);
 
-        if ("INDEX".equals(message.getEventType()) || "UPDATE".equals(message.getEventType())) {
-            Optional<BlogPost> postOpt = blogPostRepository.findById(message.getEntityId());
-            if (postOpt.isPresent()) {
-                BlogPost post = postOpt.get();
-                // Only index if published
-                if (post.getStatus() == com.treishvaam.financeapi.model.PostStatus.PUBLISHED) {
-                    try {
-                        String categorySlug = post.getCategory() != null ? post.getCategory().getSlug() : "uncategorized";
-                        PostDocument doc = new PostDocument(
-                            post.getId().toString(),
-                            post.getTitle(),
-                            post.getCustomSnippet(),
-                            post.getSlug(),
-                            post.getStatus().name(),
-                            categorySlug,
-                            post.getUserFriendlySlug(),
-                            post.getUrlArticleId()
-                        );
-                        postSearchRepository.save(doc);
-                        logger.info(" [Async] Successfully Indexed Post ID: {}", post.getId());
-                    } catch (Exception e) {
-                        logger.error("Failed to index post ID: " + post.getId(), e);
-                    }
-                }
-            }
-        } else if ("DELETE".equals(message.getEventType())) {
-            try {
-                postSearchRepository.deleteById(message.getEntityId().toString());
-                logger.info(" [Async] Deleted Post ID: {} from Index", message.getEntityId());
-            } catch (Exception e) {
-                logger.error("Failed to delete post index ID: " + message.getEntityId(), e);
-            }
+    if ("INDEX".equals(message.getEventType()) || "UPDATE".equals(message.getEventType())) {
+      Optional<BlogPost> postOpt = blogPostRepository.findById(message.getEntityId());
+      if (postOpt.isPresent()) {
+        BlogPost post = postOpt.get();
+        // Only index if published
+        if (post.getStatus() == com.treishvaam.financeapi.model.PostStatus.PUBLISHED) {
+          try {
+            String categorySlug =
+                post.getCategory() != null ? post.getCategory().getSlug() : "uncategorized";
+            PostDocument doc =
+                new PostDocument(
+                    post.getId().toString(),
+                    post.getTitle(),
+                    post.getCustomSnippet(),
+                    post.getSlug(),
+                    post.getStatus().name(),
+                    categorySlug,
+                    post.getUserFriendlySlug(),
+                    post.getUrlArticleId());
+            postSearchRepository.save(doc);
+            logger.info(" [Async] Successfully Indexed Post ID: {}", post.getId());
+          } catch (Exception e) {
+            logger.error("Failed to index post ID: " + post.getId(), e);
+          }
         }
+      }
+    } else if ("DELETE".equals(message.getEventType())) {
+      try {
+        postSearchRepository.deleteById(message.getEntityId().toString());
+        logger.info(" [Async] Deleted Post ID: {} from Index", message.getEntityId());
+      } catch (Exception e) {
+        logger.error("Failed to delete post index ID: " + message.getEntityId(), e);
+      }
     }
+  }
 
-    // WORKER 2: Handles Sitemap Generation
-    @RabbitListener(queues = RabbitMQConfig.QUEUE_SITEMAP)
-    public void handleSitemapEvent(EventMessage message) {
-        logger.info(" [Async] Starting Sitemap Regeneration...");
-        try {
-            sitemapGenerationService.generateSitemaps();
-            logger.info(" [Async] Sitemap Regeneration Complete.");
-        } catch (Exception e) {
-            logger.error("Sitemap generation failed", e);
-        }
+  // WORKER 2: Handles Sitemap Generation
+  @RabbitListener(queues = RabbitMQConfig.QUEUE_SITEMAP)
+  public void handleSitemapEvent(EventMessage message) {
+    logger.info(" [Async] Starting Sitemap Regeneration...");
+    try {
+      sitemapGenerationService.generateSitemaps();
+      logger.info(" [Async] Sitemap Regeneration Complete.");
+    } catch (Exception e) {
+      logger.error("Sitemap generation failed", e);
     }
+  }
 }

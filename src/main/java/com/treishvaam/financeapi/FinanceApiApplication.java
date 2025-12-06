@@ -17,28 +17,27 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableCaching // ADDED: Enables Spring's caching capabilities
 @ComponentScan(
     basePackages = {"com.treishvaam.financeapi", "com.treishvaam.finance"},
-    excludeFilters = @ComponentScan.Filter(
-        type = FilterType.REGEX,
-        pattern = "com\\.treishvaam\\.finance\\.marketdata\\..*"
-    )
-)
+    excludeFilters =
+        @ComponentScan.Filter(
+            type = FilterType.REGEX,
+            pattern = "com\\.treishvaam\\.finance\\.marketdata\\..*"))
 public class FinanceApiApplication extends SpringBootServletInitializer {
 
-	@Override
-	protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
-		return application.sources(FinanceApiApplication.class);
-	}
+  @Override
+  protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
+    return application.sources(FinanceApiApplication.class);
+  }
 
-	public static void main(String[] args) {
-		SpringApplication.run(FinanceApiApplication.class, args);
-	}
+  public static void main(String[] args) {
+    SpringApplication.run(FinanceApiApplication.class, args);
+  }
 
-	@Bean
-	public ObjectMapper objectMapper() {
-		ObjectMapper objectMapper = new ObjectMapper();
-		objectMapper.registerModule(new JavaTimeModule());
-		return objectMapper;
-	}
+  @Bean
+  public ObjectMapper objectMapper() {
+    ObjectMapper objectMapper = new ObjectMapper();
+    objectMapper.registerModule(new JavaTimeModule());
+    return objectMapper;
+  }
 }
 
-//Triggering CI/CD Pipeline Build Version v.0.0.0.0.000001
+// Triggering CI/CD Pipeline Build Version v.0.0.0.0.000001
