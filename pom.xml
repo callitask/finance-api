@@ -301,7 +301,7 @@
                     <failBuildOnCVSS>7.0</failBuildOnCVSS>
                     <format>HTML</format>
                     <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
-                </configuration>
+                    <nvdApiDelay>6000</nvdApiDelay> <nvdApiRetryCount>10</nvdApiRetryCount> </configuration>
                 <executions>
                     <execution>
                         <goals>
