@@ -300,6 +300,7 @@
                 <configuration>
                     <failBuildOnCVSS>7.0</failBuildOnCVSS>
                     <format>HTML</format>
+                    <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
                 </configuration>
                 <executions>
                     <execution>
