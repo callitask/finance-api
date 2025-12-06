@@ -51,10 +51,15 @@ public class ImageService {
         public void setBlurHash(String blurHash) { this.blurHash = blurHash; }
     }
 
+    /**
+     * Initializes the ImageIO subsystem and registers the TwelveMonkeys WebP plugins.
+     * This fixes the "Specified format is not supported: webp" error.
+     */
     @PostConstruct
-    public void processAndCacheLogo() {
-        // Optional: Upload default logo to MinIO if missing
-        // Skipped for now as Nginx handles fallback or you can manually upload 'logo.webp' to MinIO bucket
+    public void init() {
+        logger.info("Initializing ImageIO plugins...");
+        ImageIO.scanForPlugins();
+        logger.info("ImageIO plugins scanned. WebP support should now be active.");
     }
 
     public ImageMetadataDto saveImageAndGetMetadata(MultipartFile file) {
@@ -62,6 +67,7 @@ public class ImageService {
             return null;
         }
         try {
+            // Read into memory once to avoid multiple disk reads or stream issues
             byte[] imageBytes = file.getBytes();
             ImageMetadataDto metadata = extractMetadata(imageBytes);
 
@@ -74,16 +80,16 @@ public class ImageService {
             String smallName = baseFilename + "-small.webp";
             String tinyName = baseFilename + "-tiny.webp";
 
-            // Process and Upload Large
+            // Process and Upload Large (1920px)
             uploadResized(imageBytes, 1920, largeName);
             
-            // Process and Upload Medium
+            // Process and Upload Medium (600px)
             uploadResized(imageBytes, 600, mediumName);
             
-            // Process and Upload Small
+            // Process and Upload Small (300px)
             uploadResized(imageBytes, 300, smallName);
             
-            // Process and Upload Tiny
+            // Process and Upload Tiny (20px - for BlurHash fallback)
             uploadResized(imageBytes, 20, tinyName);
 
             return metadata;
@@ -94,12 +100,18 @@ public class ImageService {
         }
     }
 
+    /**
+     * Resizes and uploads a single image variant.
+     * Uses ByteArrayInputStream to ensure thread safety and low memory overhead.
+     */
     private void uploadResized(byte[] originalBytes, int targetWidth, String filename) throws IOException {
         try (ByteArrayInputStream is = new ByteArrayInputStream(originalBytes);
              ByteArrayOutputStream os = new ByteArrayOutputStream()) {
             
+            // Thumbnailator automates the resizing and format conversion
+            // Requires 'imageio-webp' dependency to work
             Thumbnails.of(is)
-                    .size(targetWidth, targetWidth) // Thumbnailator maintains aspect ratio by default
+                    .size(targetWidth, targetWidth) // Maintains aspect ratio by default
                     .outputFormat("webp")
                     .toOutputStream(os);
             
@@ -112,6 +124,7 @@ public class ImageService {
         ImageMetadataDto metadata = new ImageMetadataDto();
         try (ByteArrayInputStream iisBytes = new ByteArrayInputStream(imageBytes)) {
             
+            // 1. Extract Dimensions & MimeType using ImageReaders
             try (ImageInputStream iis = ImageIO.createImageInputStream(iisBytes)) {
                 Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
                 if (readers.hasNext()) {
@@ -131,9 +144,11 @@ public class ImageService {
 
             iisBytes.reset();
 
+            // 2. Generate BlurHash
             try (InputStream blurStream = new ByteArrayInputStream(imageBytes)) {
                 BufferedImage image = ImageIO.read(blurStream);
                 if (image != null) {
+                    // 4x3 components offer a good balance of detail vs string length
                     String hash = BlurHash.encode(image, 4, 3);
                     metadata.setBlurHash(hash);
                 }
