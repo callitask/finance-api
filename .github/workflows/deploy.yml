@@ -28,12 +28,11 @@ jobs:
           cache: maven
 
       # PHASE 12 & 14: Build, Test, and Scan for Vulnerabilities
-      # 'verify' triggers Spotless, Checkstyle, Tests, and OWASP Dependency Check
-      # FIX: Explicitly pass the NVD Key as a system property
+      # FIX: Added quotes around the property to prevent argument splitting errors
       - name: Build and Security Scan
         env:
           MAVEN_OPTS: "-Xmx1024m"
-        run: mvn clean verify -Dnvd.api.key=${{ secrets.NVD_API_KEY }}
+        run: mvn clean verify "-Dnvd.api.key=${{ secrets.NVD_API_KEY }}"
 
       - name: Log in to the Container registry
         uses: docker/login-action@v3
