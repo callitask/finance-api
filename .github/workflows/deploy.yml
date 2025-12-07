@@ -28,7 +28,7 @@ jobs:
           cache: maven
 
       # PHASE 12 & 14: Build, Test, and Scan for Vulnerabilities
-      # FIX: Added quotes around the property to prevent argument splitting errors
+      # FIX: Added quotes ("...") around the argument to prevent syntax errors
       - name: Build and Security Scan
         env:
           MAVEN_OPTS: "-Xmx1024m"
