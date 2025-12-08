@@ -2,7 +2,7 @@
 <suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
     <suppress>
         <notes><![CDATA[
-            Suppressing CVE-2025-7962 for all Angus artifacts.
+            Suppressing CVE-2025-7962 for entire Angus group.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/org\.eclipse\.angus/.*$</packageUrl>
         <cve>CVE-2025-7962</cve>
@@ -10,7 +10,7 @@
 
     <suppress>
         <notes><![CDATA[
-            Suppressing CVE-2025-48924 for Commons Lang.
+            Suppressing CVE-2025-48924 for Commons group.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/org\.apache\.commons/.*$</packageUrl>
         <cve>CVE-2025-48924</cve>
@@ -18,8 +18,8 @@
 
     <suppress>
         <notes><![CDATA[
-            Suppressing Netty vulnerabilities.
-            We are using 4.1.119.Final. These are flagged across multiple modules (transport, codec, etc).
+            Suppressing Netty vulnerabilities for the entire io.netty group.
+            We are using 4.1.119.Final.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/io\.netty/.*$</packageUrl>
         <cve>CVE-2025-55163</cve>
@@ -29,7 +29,7 @@
 
     <suppress>
         <notes><![CDATA[
-            Suppressing Tomcat Embed vulnerabilities.
+            Suppressing Tomcat Embed vulnerabilities for the entire group.
             We forced version 10.1.36.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/org\.apache\.tomcat\.embed/.*$</packageUrl>
@@ -50,7 +50,7 @@
 
     <suppress>
         <notes><![CDATA[
-            Suppressing Protobuf CVE-2024-7254.
+            Suppressing Protobuf CVE-2024-7254 for the entire group.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/com\.google\.protobuf/.*$</packageUrl>
         <cve>CVE-2024-7254</cve>
