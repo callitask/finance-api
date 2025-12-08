@@ -28,7 +28,8 @@ jobs:
           cache: maven
 
       # PHASE 12 & 14: Build, Test, and Scan for Vulnerabilities
-      # FIX: Added quotes ("...") around the argument to prevent syntax errors
+      # 'verify' triggers Spotless, Checkstyle, Tests, and OWASP Dependency Check
+      # FIX: Explicitly pass the NVD Key as a system property with quotes
       - name: Build and Security Scan
         env:
           MAVEN_OPTS: "-Xmx1024m"
