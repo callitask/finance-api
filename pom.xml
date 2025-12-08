@@ -37,11 +37,18 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            
             <dependency>
                 <groupId>com.google.protobuf</groupId>
                 <artifactId>protobuf-java</artifactId>
                 <version>${protobuf.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java-util</artifactId>
+                <version>${protobuf.version}</version>
+            </dependency>
+
             <dependency>
                 <groupId>co.elastic.clients</groupId>
                 <artifactId>elasticsearch-java</artifactId>
@@ -52,6 +59,7 @@
                 <artifactId>elasticsearch-rest-client</artifactId>
                 <version>${elasticsearch.version}</version>
             </dependency>
+
             <dependency>
                 <groupId>org.apache.tomcat.embed</groupId>
                 <artifactId>tomcat-embed-core</artifactId>
@@ -67,6 +75,7 @@
                 <artifactId>tomcat-embed-websocket</artifactId>
                 <version>${tomcat.version}</version>
             </dependency>
+
             <dependency>
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-bom</artifactId>
@@ -363,14 +372,26 @@
                     <connectionTimeout>60000</connectionTimeout>
                     <readTimeout>60000</readTimeout>
                     
+                    <suppressionFile>dependency-check-suppressions.xml</suppressionFile>
+
                     <assemblyAnalyzerEnabled>false</assemblyAnalyzerEnabled>
+                    <nugetconfAnalyzerEnabled>false</nugetconfAnalyzerEnabled>
+                    <nuspecAnalyzerEnabled>false</nuspecAnalyzerEnabled>
                     <nodeAnalyzerEnabled>false</nodeAnalyzerEnabled>
                     <nodeAuditAnalyzerEnabled>false</nodeAuditAnalyzerEnabled>
+                    <yarnAuditAnalyzerEnabled>false</yarnAuditAnalyzerEnabled>
+                    <pnpmAuditAnalyzerEnabled>false</pnpmAuditAnalyzerEnabled>
                     <pyDistributionAnalyzerEnabled>false</pyDistributionAnalyzerEnabled>
                     <pyPackageAnalyzerEnabled>false</pyPackageAnalyzerEnabled>
                     <pipAnalyzerEnabled>false</pipAnalyzerEnabled>
                     <pipfileAnalyzerEnabled>false</pipfileAnalyzerEnabled>
+                    <poetryAnalyzerEnabled>false</poetryAnalyzerEnabled>
                     <retireJsAnalyzerEnabled>false</retireJsAnalyzerEnabled>
+                    <cocoapodsAnalyzerEnabled>false</cocoapodsAnalyzerEnabled>
+                    <bundleAuditAnalyzerEnabled>false</bundleAuditAnalyzerEnabled>
+                    <swiftPackageManagerAnalyzerEnabled>false</swiftPackageManagerAnalyzerEnabled>
+                    <rubyBundleAuditAnalyzerEnabled>false</rubyBundleAuditAnalyzerEnabled>
+                    <rubyGemAnalyzerEnabled>false</rubyGemAnalyzerEnabled>
                 </configuration>
                 <executions>
                     <execution>
