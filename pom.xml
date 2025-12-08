@@ -297,7 +297,7 @@
             <plugin>
                 <groupId>org.owasp</groupId>
                 <artifactId>dependency-check-maven</artifactId>
-                <version>11.1.0</version> <configuration>
+                <version>12.1.0</version> <configuration>
                     <failBuildOnCVSS>7.0</failBuildOnCVSS>
                     <format>HTML</format>
                     <nvdApiKey>${nvd.api.key}</nvdApiKey>
