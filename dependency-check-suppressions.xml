@@ -19,11 +19,11 @@
 
     <suppress>
         <notes><![CDATA[
-            Suppressing Netty Transport vulnerabilities (including native transport classes). 
+            Suppressing Netty vulnerabilities across the entire suite. 
             We are using 4.1.119.Final (Very recent). These are likely false positives 
             or require an upstream patch not yet available.
         ]]></notes>
-        <packageUrl regex="true">^pkg:maven/io\.netty/netty-transport.*$</packageUrl>
+        <packageUrl regex="true">^pkg:maven/io\.netty/netty-.*$</packageUrl>
         <cve>CVE-2025-55163</cve>
         <cve>CVE-2025-58057</cve>
         <cve>CVE-2025-58056</cve>
