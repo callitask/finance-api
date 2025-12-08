@@ -27,17 +27,26 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      # Cache NVD Data to prevent 403 Rate Limits
+      # NEW: Calculate Date (Year-Week) for Rotating Cache Key
+      - name: Get Date
+        id: get-date
+        run: |
+          echo "date=$(date -u "+%Y-%U")" >> $GITHUB_OUTPUT
+
+      # OPTIMIZED: Cache NVD Data (Weekly Rotation)
+      # This prevents re-uploading the 800MB database on every single run.
       - name: Cache NVD Data
         uses: actions/cache@v3
         with:
           path: ~/.m2/repository/org/owasp/dependency-check-data
-          key: nvd-data-${{ runner.os }}-${{ github.run_id }}
+          # Key changes only once a week. 
+          # On cache hit (99% of builds), the "Post-job" upload step is skipped.
+          key: nvd-data-${{ runner.os }}-${{ steps.get-date.outputs.date }}
           restore-keys: |
             nvd-data-${{ runner.os }}-
 
       # Build and Security Scan
-      # ADDED: -DossindexAnalyzerEnabled=false to forcibly disable the failing analyzer
+      # Included -DossindexAnalyzerEnabled=false to enforce the previous fix at the CLI level
       - name: Build and Security Scan
         env:
           MAVEN_OPTS: "-Xmx1024m"
