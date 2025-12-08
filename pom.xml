@@ -6,7 +6,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.5</version>
+        <version>3.4.0</version>
         <relativePath/> </parent>
     <groupId>com.treishvaam</groupId>
     <artifactId>finance-api</artifactId>
@@ -152,7 +152,7 @@
         <dependency>
             <groupId>com.google.analytics</groupId>
             <artifactId>google-analytics-data</artifactId>
-            <version>0.52.0</version>
+            <version>0.58.0</version>
         </dependency>
 
         <dependency>
