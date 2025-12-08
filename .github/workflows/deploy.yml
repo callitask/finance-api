@@ -27,13 +27,21 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      # PHASE 12 & 14: Build, Test, and Scan for Vulnerabilities
-      # FIX: Pass Secret as ENV VAR (Most Robust Method)
+      # PHASE 14 FIX: Cache NVD Data to prevent 403 Rate Limits
+      - name: Cache NVD Data
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2/repository/org/owasp/dependency-check-data
+          key: nvd-data-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            nvd-data-${{ runner.os }}-
+
+      # Build, Test, and Scan for Vulnerabilities
+      # The secret is passed explicitly to avoid shell/env issues
       - name: Build and Security Scan
         env:
           MAVEN_OPTS: "-Xmx1024m"
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: mvn clean verify
+        run: mvn clean verify "-Dnvd.api.key=${{ secrets.NVD_API_KEY }}"
 
       - name: Log in to the Container registry
         uses: docker/login-action@v3

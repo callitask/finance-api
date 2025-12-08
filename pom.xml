@@ -18,6 +18,7 @@
     <properties>
         <java.version>21</java.version>
         <spring-cloud.version>2023.0.1</spring-cloud.version>
+        <nvd.api.key></nvd.api.key>
     </properties>
 
     <dependencies>
@@ -296,11 +297,10 @@
             <plugin>
                 <groupId>org.owasp</groupId>
                 <artifactId>dependency-check-maven</artifactId>
-                <version>9.0.9</version>
-                <configuration>
+                <version>10.0.4</version> <configuration>
                     <failBuildOnCVSS>7.0</failBuildOnCVSS>
                     <format>HTML</format>
-                    <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
+                    <nvdApiKey>${nvd.api.key}</nvdApiKey>
                     <nvdApiDelay>16000</nvdApiDelay> <nvdApiRetryCount>20</nvdApiRetryCount>
                     <connectionTimeout>60000</connectionTimeout>
                     <readTimeout>60000</readTimeout>
