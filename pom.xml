@@ -20,7 +20,62 @@
         <spring-cloud.version>2023.0.1</spring-cloud.version>
         <nvd.api.key></nvd.api.key>
         
-        <tomcat.version>10.1.34</tomcat.version>       <netty.version>4.1.118.Final</netty.version>     <elasticsearch.version>8.17.0</elasticsearch.version> <protobuf.version>3.25.5</protobuf.version>      <grpc.version>1.68.1</grpc.version>              </properties>
+        <tomcat.version>10.1.36</tomcat.version>       
+        <netty.version>4.1.119.Final</netty.version>     
+        <elasticsearch.version>8.17.0</elasticsearch.version> 
+        <protobuf.version>3.25.5</protobuf.version>      
+        <grpc.version>1.70.0</grpc.version>
+        <angus-activation.version>2.0.2</angus-activation.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-bom</artifactId>
+                <version>${netty.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java</artifactId>
+                <version>${protobuf.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>co.elastic.clients</groupId>
+                <artifactId>elasticsearch-java</artifactId>
+                <version>${elasticsearch.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.elasticsearch.client</groupId>
+                <artifactId>elasticsearch-rest-client</artifactId>
+                <version>${elasticsearch.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-core</artifactId>
+                <version>${tomcat.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-el</artifactId>
+                <version>${tomcat.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-websocket</artifactId>
+                <version>${tomcat.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-bom</artifactId>
+                <version>${grpc.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -298,13 +353,24 @@
             <plugin>
                 <groupId>org.owasp</groupId>
                 <artifactId>dependency-check-maven</artifactId>
-                <version>12.1.0</version> <configuration>
+                <version>12.1.0</version> 
+                <configuration>
                     <failBuildOnCVSS>7.0</failBuildOnCVSS>
                     <format>HTML</format>
                     <nvdApiKey>${nvd.api.key}</nvdApiKey>
-                    <nvdApiDelay>16000</nvdApiDelay> <nvdApiRetryCount>20</nvdApiRetryCount>
+                    <nvdApiDelay>16000</nvdApiDelay> 
+                    <nvdApiRetryCount>20</nvdApiRetryCount>
                     <connectionTimeout>60000</connectionTimeout>
                     <readTimeout>60000</readTimeout>
+                    
+                    <assemblyAnalyzerEnabled>false</assemblyAnalyzerEnabled>
+                    <nodeAnalyzerEnabled>false</nodeAnalyzerEnabled>
+                    <nodeAuditAnalyzerEnabled>false</nodeAuditAnalyzerEnabled>
+                    <pyDistributionAnalyzerEnabled>false</pyDistributionAnalyzerEnabled>
+                    <pyPackageAnalyzerEnabled>false</pyPackageAnalyzerEnabled>
+                    <pipAnalyzerEnabled>false</pipAnalyzerEnabled>
+                    <pipfileAnalyzerEnabled>false</pipfileAnalyzerEnabled>
+                    <retireJsAnalyzerEnabled>false</retireJsAnalyzerEnabled>
                 </configuration>
                 <executions>
                     <execution>
