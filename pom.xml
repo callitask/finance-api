@@ -18,7 +18,6 @@
     <properties>
         <java.version>21</java.version>
         <spring-cloud.version>2023.0.1</spring-cloud.version>
-        <nvd.api.key></nvd.api.key>
     </properties>
 
     <dependencies>
@@ -301,8 +300,10 @@
                 <configuration>
                     <failBuildOnCVSS>7.0</failBuildOnCVSS>
                     <format>HTML</format>
-                    <nvdApiKey>${nvd.api.key}</nvdApiKey>
-                    <nvdApiDelay>12000</nvdApiDelay> <nvdApiRetryCount>20</nvdApiRetryCount>
+                    <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
+                    <nvdApiDelay>16000</nvdApiDelay> <nvdApiRetryCount>20</nvdApiRetryCount>
+                    <connectionTimeout>60000</connectionTimeout>
+                    <readTimeout>60000</readTimeout>
                 </configuration>
                 <executions>
                     <execution>
