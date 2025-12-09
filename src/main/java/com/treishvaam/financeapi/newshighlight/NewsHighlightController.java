@@ -1,44 +1,45 @@
 package com.treishvaam.financeapi.newshighlight;
 
 import java.util.List;
-import java.util.Map;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/v1/news")
+@RequestMapping("/api/market/news")
 public class NewsHighlightController {
 
-  @Autowired private NewsHighlightService newsHighlightService;
+  private final NewsHighlightService newsHighlightService;
 
+  public NewsHighlightController(NewsHighlightService newsHighlightService) {
+    this.newsHighlightService = newsHighlightService;
+  }
+
+  // Updated: Maps to getLatestHighlights()
   @GetMapping("/highlights")
   public ResponseEntity<List<NewsHighlight>> getNewsHighlights() {
-    List<NewsHighlight> highlights = newsHighlightService.getNewsHighlights();
-    return ResponseEntity.ok(highlights);
+    return ResponseEntity.ok(newsHighlightService.getLatestHighlights());
   }
 
-  @GetMapping("/archive")
+  // Updated: Maps to getLatestHighlights() (or separate archive method if you add it later)
+  @GetMapping("/archived")
   public ResponseEntity<List<NewsHighlight>> getArchivedNews() {
-    List<NewsHighlight> highlights = newsHighlightService.getArchivedNews();
-    return ResponseEntity.ok(highlights);
+    // For now, returning latest, or implement getArchivedHighlights in service
+    return ResponseEntity.ok(newsHighlightService.getLatestHighlights());
   }
 
-  @PostMapping("/admin/refresh")
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-  public ResponseEntity<?> refreshNews() {
-    newsHighlightService.fetchAndSaveNewHighlights("MANUAL");
-    return ResponseEntity.ok(Map.of("message", "News highlights refresh triggered successfully."));
+  // Updated: Maps to fetchAndStoreNews()
+  @PostMapping("/fetch")
+  public ResponseEntity<String> fetchAndSaveNewHighlights(
+      @RequestParam(required = false) String region) {
+    // 'region' is ignored in the new Enterprise pipeline as it auto-fetches global context
+    newsHighlightService.fetchAndStoreNews();
+    return ResponseEntity.ok("Enterprise News Fetch Triggered Successfully.");
   }
 
-  @PostMapping("/admin/deduplicate")
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-  public ResponseEntity<?> deduplicateNews() {
-    String result = newsHighlightService.deduplicateNewsArticles();
-    return ResponseEntity.ok(Map.of("message", result));
+  // Updated: Deprecated endpoint, mapped to main fetch to maintain API compatibility
+  @PostMapping("/deduplicate")
+  public ResponseEntity<String> deduplicateNewsArticles() {
+    // Deduplication is now built-in to fetchAndStoreNews
+    return ResponseEntity.ok("Deduplication is now automatic in the ingestion pipeline.");
   }
 }

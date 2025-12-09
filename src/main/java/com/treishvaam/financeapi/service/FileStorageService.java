@@ -1,119 +1,78 @@
 package com.treishvaam.financeapi.service;
 
-import jakarta.annotation.PostConstruct;
-import java.io.IOException;
+import io.minio.GetPresignedObjectUrlArgs;
+import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import io.minio.http.Method;
 import java.io.InputStream;
-import java.util.UUID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.InputStreamResource;
-import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.*;
 
 @Service
 public class FileStorageService {
 
-  private static final Logger logger = LoggerFactory.getLogger(FileStorageService.class);
+  private final MinioClient minioClient;
 
-  private final S3Client s3Client;
-  private final String bucketName;
+  @Value("${minio.bucket-name}")
+  private String bucketName;
 
-  public FileStorageService(S3Client s3Client, @Value("${storage.s3.bucket}") String bucketName) {
-    this.s3Client = s3Client;
-    this.bucketName = bucketName;
+  @Value("${storage.s3.endpoint}") // Ensure this matches your .env/properties
+  private String endpoint;
+
+  public FileStorageService(MinioClient minioClient) {
+    this.minioClient = minioClient;
   }
 
-  @PostConstruct
-  public void init() {
-    try {
-      HeadBucketRequest headBucketRequest = HeadBucketRequest.builder().bucket(bucketName).build();
-      s3Client.headBucket(headBucketRequest);
-      logger.info("MinIO bucket '{}' exists.", bucketName);
-    } catch (NoSuchBucketException e) {
-      try {
-        CreateBucketRequest bucketRequest =
-            CreateBucketRequest.builder().bucket(bucketName).build();
-        s3Client.createBucket(bucketRequest);
-
-        // Set bucket policy to public read (Optional, usually handled by Nginx proxy in your setup)
-        // But strictly speaking for enterprise, we keep it private and let Nginx proxy it.
-
-        logger.info("MinIO bucket '{}' created successfully.", bucketName);
-      } catch (Exception ex) {
-        throw new RuntimeException("Could not create MinIO bucket: " + bucketName, ex);
-      }
-    } catch (Exception e) {
-      throw new RuntimeException("Error checking MinIO bucket: " + bucketName, e);
-    }
-  }
-
-  // Legacy method for direct MultipartFile upload
+  // Existing method for MultipartFile (Controller uploads)
   public String storeFile(MultipartFile file) {
     try {
-      return storeBytes(
-          file.getInputStream(), file.getSize(), file.getContentType(), file.getOriginalFilename());
-    } catch (IOException e) {
-      throw new RuntimeException("Failed to store file " + file.getOriginalFilename(), e);
+      String fileName = System.currentTimeMillis() + "_" + file.getOriginalFilename();
+      InputStream inputStream = file.getInputStream();
+      return storeFile(inputStream, fileName, file.getContentType());
+    } catch (Exception e) {
+      throw new RuntimeException(
+          "Could not store file " + file.getOriginalFilename() + ". Please try again!", e);
     }
   }
 
-  // New robust method to store byte streams (used by ImageService after resizing)
-  public String storeBytes(
-      InputStream inputStream, long size, String contentType, String originalFilename) {
-    String extension = "webp"; // Defaulting to webp as per your system standard
-    if (originalFilename != null && originalFilename.contains(".")) {
-      // If we want to preserve original extension, logic goes here.
-      // But your system enforces WebP, so we generate baseName.
-    }
-
-    String baseName = UUID.randomUUID().toString();
-    String fileName = baseName + "." + extension;
-
+  // NEW OVERLOADED METHOD: Accepts raw InputStream (For Internal Image Pipeline)
+  public String storeFile(InputStream inputStream, String fileName, String contentType) {
     try {
-      PutObjectRequest putOb =
-          PutObjectRequest.builder()
-              .bucket(bucketName)
-              .key(fileName)
+      // Ensure bucket exists (Optional, good for safety)
+      // boolean found =
+      // minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build());
+      // if (!found) { minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
+      // }
+
+      minioClient.putObject(
+          PutObjectArgs.builder().bucket(bucketName).object(fileName).stream(
+                  inputStream, -1, 10485760) // -1 size, 10MB part size
               .contentType(contentType)
-              .build();
+              .build());
 
-      s3Client.putObject(putOb, RequestBody.fromInputStream(inputStream, size));
-      return baseName; // Returning UUID base
+      // Return the public URL or relative path depending on your Nginx setup
+      // Returning relative path assuming Nginx proxies /uploads/ -> MinIO
+      return "/uploads/" + fileName;
+
     } catch (Exception e) {
-      throw new RuntimeException("Failed to upload file to MinIO", e);
+      throw new RuntimeException("Failed to store file: " + fileName, e);
     }
   }
 
-  // Direct upload with explicit filename (for resized versions)
-  public void upload(String fileName, byte[] content, String contentType) {
+  // Helper to get presigned URL if needed
+  public String getPresignedUrl(String objectName) {
     try {
-      PutObjectRequest putOb =
-          PutObjectRequest.builder()
+      return minioClient.getPresignedObjectUrl(
+          GetPresignedObjectUrlArgs.builder()
+              .method(Method.GET)
               .bucket(bucketName)
-              .key(fileName)
-              .contentType(contentType)
-              .build();
-
-      s3Client.putObject(putOb, RequestBody.fromBytes(content));
+              .object(objectName)
+              .expiry(7, TimeUnit.DAYS)
+              .build());
     } catch (Exception e) {
-      throw new RuntimeException("Failed to upload " + fileName + " to MinIO", e);
-    }
-  }
-
-  // Used for serving files if not using Nginx direct proxy
-  public Resource loadAsResource(String filename) {
-    try {
-      GetObjectRequest getObjectRequest =
-          GetObjectRequest.builder().bucket(bucketName).key(filename).build();
-
-      return new InputStreamResource(s3Client.getObject(getObjectRequest));
-    } catch (Exception e) {
-      throw new RuntimeException("File not found in MinIO: " + filename, e);
+      return null;
     }
   }
 }

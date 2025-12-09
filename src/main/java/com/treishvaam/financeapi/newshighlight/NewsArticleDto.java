@@ -1,20 +1,61 @@
 package com.treishvaam.financeapi.newshighlight;
 
-public class NewsArticleDto {
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.io.Serializable;
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class NewsArticleDto implements Serializable {
+
   private String title;
+
+  // Support multiple field names from different APIs (FMP, NewsAPI)
+  @JsonAlias({"image", "urlToImage", "imageUrl"})
+  private String image;
+
+  @JsonAlias({"site", "source", "author"})
+  private String source;
+
+  @JsonAlias({"text", "description", "summary"})
+  private String text;
+
+  @JsonAlias({"url", "link"})
   private String link;
-  private String source_id;
-  private String pubDate;
-  private String image_url; // Added field
 
-  public NewsArticleDto() {}
+  @JsonAlias({"publishedDate", "date", "publishedAt"})
+  private String date;
 
+  // Getters and Setters
   public String getTitle() {
     return title;
   }
 
   public void setTitle(String title) {
     this.title = title;
+  }
+
+  public String getImage() {
+    return image;
+  }
+
+  public void setImage(String image) {
+    this.image = image;
+  }
+
+  public String getSource() {
+    return source;
+  }
+
+  public void setSource(String source) {
+    this.source = source;
+  }
+
+  public String getText() {
+    return text;
+  }
+
+  public void setText(String text) {
+    this.text = text;
   }
 
   public String getLink() {
@@ -25,27 +66,11 @@ public class NewsArticleDto {
     this.link = link;
   }
 
-  public String getSource_id() {
-    return source_id;
+  public String getDate() {
+    return date;
   }
 
-  public void setSource_id(String source_id) {
-    this.source_id = source_id;
-  }
-
-  public String getPubDate() {
-    return pubDate;
-  }
-
-  public void setPubDate(String pubDate) {
-    this.pubDate = pubDate;
-  }
-
-  public String getImage_url() {
-    return image_url;
-  }
-
-  public void setImage_url(String image_url) {
-    this.image_url = image_url;
+  public void setDate(String date) {
+    this.date = date;
   }
 }

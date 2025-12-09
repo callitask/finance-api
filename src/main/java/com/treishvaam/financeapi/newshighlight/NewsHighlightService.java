@@ -9,6 +9,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
@@ -27,6 +28,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate; // Added for API call
 
 @Service
 public class NewsHighlightService {
@@ -34,6 +36,7 @@ public class NewsHighlightService {
   private static final Logger logger = LoggerFactory.getLogger(NewsHighlightService.class);
   private final NewsHighlightRepository repository;
   private final FileStorageService fileStorageService;
+  private final RestTemplate restTemplate;
 
   @Value("${market.data.api.key}")
   private String apiKey;
@@ -42,6 +45,7 @@ public class NewsHighlightService {
       NewsHighlightRepository repository, FileStorageService fileStorageService) {
     this.repository = repository;
     this.fileStorageService = fileStorageService;
+    this.restTemplate = new RestTemplate();
   }
 
   public List<NewsHighlight> getLatestHighlights() {
@@ -53,9 +57,13 @@ public class NewsHighlightService {
   public void fetchAndStoreNews() {
     logger.info("Starting Enterprise News Ingestion...");
     try {
-      // Fetch logic (Simulated for brevity - replace with your actual FMP/NewsAPI call)
-      // List<NewsArticleDto> articles = ... fetch from API ...
-      List<NewsArticleDto> articles = new ArrayList<>();
+      // 1. Fetch from FMP API
+      String url =
+          "https://financialmodelingprep.com/api/v3/fmp/articles?page=0&size=10&apikey=" + apiKey;
+      NewsArticleDto[] response = restTemplate.getForObject(url, NewsArticleDto[].class);
+
+      List<NewsArticleDto> articles =
+          (response != null) ? Arrays.asList(response) : new ArrayList<>();
 
       for (NewsArticleDto article : articles) {
         if (repository.existsByTitle(article.getTitle())) continue;
@@ -66,17 +74,20 @@ public class NewsHighlightService {
         entity.setSource(article.getSource());
         entity.setPublishedAt(article.getDate());
 
-        // --- ENTERPRISE PIPELINE: SCRAPE -> RESIZE -> STORE ---
+        // --- IMAGE OPTIMIZATION PIPELINE ---
         String rawImageUrl = article.getImage();
         if (rawImageUrl == null || rawImageUrl.isEmpty()) {
           rawImageUrl = scrapeImageFromArticle(article.getLink());
         }
 
         if (rawImageUrl != null && !rawImageUrl.isEmpty()) {
-          // This converts a slow 4MB external image into a fast 50KB internal WebP/JPG
+          // Optimized: Resize -> Compress -> Internal Store
           String internalUrl = processAndStoreImage(rawImageUrl);
           entity.setImageUrl(internalUrl != null ? internalUrl : rawImageUrl);
+        } else {
+          entity.setImageUrl(null);
         }
+
         repository.save(entity);
       }
     } catch (Exception e) {
@@ -90,7 +101,7 @@ public class NewsHighlightService {
       BufferedImage originalImage = ImageIO.read(url);
       if (originalImage == null) return null;
 
-      // Smart Resize: Max width 800px, maintain aspect ratio
+      // Resize Logic
       int targetWidth = 800;
       int originalWidth = originalImage.getWidth();
       int originalHeight = originalImage.getHeight();
@@ -105,7 +116,6 @@ public class NewsHighlightService {
       BufferedImage resizedImage =
           new BufferedImage(targetWidth, originalHeight, BufferedImage.TYPE_INT_RGB);
       Graphics2D g = resizedImage.createGraphics();
-      // High Quality Rendering Hints
       g.setRenderingHint(
           RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
       g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
@@ -113,9 +123,11 @@ public class NewsHighlightService {
       g.drawImage(originalImage, 0, 0, targetWidth, originalHeight, null);
       g.dispose();
 
-      // Compress to JPEG 75%
+      // Compress Logic
       ByteArrayOutputStream os = new ByteArrayOutputStream();
       Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpg");
+      if (!writers.hasNext()) return null;
+
       ImageWriter writer = writers.next();
       ImageWriteParam param = writer.getDefaultWriteParam();
       param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
@@ -127,13 +139,15 @@ public class NewsHighlightService {
       }
       writer.dispose();
 
-      // Upload
+      // Store Logic
       String filename = "news-" + UUID.randomUUID() + ".jpg";
+      // Calls the OVERLOADED method in FileStorageService
       return fileStorageService.storeFile(
           new ByteArrayInputStream(os.toByteArray()), filename, "image/jpeg");
 
     } catch (Exception e) {
-      return null; // Fail silently, frontend will handle it
+      logger.warn("Image Optimization Skipped: {}", e.getMessage());
+      return null;
     }
   }
 
