@@ -5,7 +5,7 @@ import com.treishvaam.financeapi.apistatus.ApiFetchStatus;
 import com.treishvaam.financeapi.apistatus.ApiFetchStatusRepository;
 import com.treishvaam.financeapi.common.SystemProperty;
 import com.treishvaam.financeapi.common.SystemPropertyRepository;
-import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker; // IMPORTED
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -13,6 +13,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.jsoup.Jsoup; // IMPORTED
+import org.jsoup.nodes.Document; // IMPORTED
+import org.jsoup.nodes.Element; // IMPORTED
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
@@ -68,7 +71,6 @@ public class NewsHighlightService {
   }
 
   @Transactional
-  // --- NEW: Circuit Breaker ---
   @CircuitBreaker(name = "newsApi", fallbackMethod = "fallbackNewsFetch")
   public void fetchAndSaveNewHighlights(String triggerSource) {
     String url =
@@ -119,7 +121,6 @@ public class NewsHighlightService {
     }
   }
 
-  // --- NEW: Fallback Method ---
   public void fallbackNewsFetch(String triggerSource, Throwable t) {
     System.err.println("Circuit Breaker Open for News API: " + t.getMessage());
     apiFetchStatusRepository.save(
@@ -132,12 +133,51 @@ public class NewsHighlightService {
     }
     try {
       LocalDateTime publishedAt = LocalDateTime.parse(dto.getPubDate(), NEWS_API_FORMATTER);
-      // Map image_url from DTO to Entity
+
+      String finalImageUrl = dto.getImage_url();
+
+      // --- ENTERPRISE FEATURE: Fallback Scraping ---
+      // If the API provides no image, we try to fetch it from the article's Open Graph tags.
+      if (finalImageUrl == null || finalImageUrl.isEmpty()) {
+        finalImageUrl = extractImageFromUrl(dto.getLink());
+      }
+
       return new NewsHighlight(
-          dto.getTitle(), dto.getLink(), dto.getSource_id(), publishedAt, dto.getImage_url());
+          dto.getTitle(), dto.getLink(), dto.getSource_id(), publishedAt, finalImageUrl);
     } catch (java.time.format.DateTimeParseException e) {
       return null;
     }
+  }
+
+  /**
+   * Visits the target URL and extracts the og:image or twitter:image. Uses a strict 3s timeout to
+   * avoid performance bottlenecks.
+   */
+  private String extractImageFromUrl(String articleUrl) {
+    try {
+      Document doc =
+          Jsoup.connect(articleUrl)
+              .userAgent("Mozilla/5.0 (compatible; TreishvaamBot/1.0)")
+              .timeout(3000) // 3 Seconds Max
+              .get();
+
+      // Priority 1: Open Graph Image
+      Element ogImage = doc.selectFirst("meta[property=og:image]");
+      if (ogImage != null) {
+        return ogImage.attr("content");
+      }
+
+      // Priority 2: Twitter Image
+      Element twitterImage = doc.selectFirst("meta[name=twitter:image]");
+      if (twitterImage != null) {
+        return twitterImage.attr("content");
+      }
+
+    } catch (Exception e) {
+      // Scraping failed (timeout, 403, etc.). Ignore and return null.
+      // This is expected for some sites that block bots.
+    }
+    return null;
   }
 
   @Transactional
