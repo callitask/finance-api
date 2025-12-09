@@ -165,7 +165,8 @@ public class ImageService {
 
         byte[] resizedBytes = os.toByteArray();
         // FIXED: Using storeFile with ByteArrayInputStream instead of upload
-        fileStorageService.storeFile(new ByteArrayInputStream(resizedBytes), filename, "image/webp");
+        fileStorageService.storeFile(
+            new ByteArrayInputStream(resizedBytes), filename, "image/webp");
 
       } catch (IllegalArgumentException e) {
         // FALLBACK: If WebP fails, use PNG
