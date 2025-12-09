@@ -13,9 +13,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import org.jsoup.Jsoup; // IMPORTED
-import org.jsoup.nodes.Document; // IMPORTED
-import org.jsoup.nodes.Element; // IMPORTED
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
@@ -157,18 +157,20 @@ public class NewsHighlightService {
     try {
       Document doc =
           Jsoup.connect(articleUrl)
-              .userAgent("Mozilla/5.0 (compatible; TreishvaamBot/1.0)")
+              .userAgent(
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
               .timeout(3000) // 3 Seconds Max
               .get();
 
-      // Priority 1: Open Graph Image
-      Element ogImage = doc.selectFirst("meta[property=og:image]");
+      // Priority 1: Open Graph Image (Standard)
+      // Note the single quotes around the property value to handle the colon correctly
+      Element ogImage = doc.selectFirst("meta[property='og:image']");
       if (ogImage != null) {
         return ogImage.attr("content");
       }
 
       // Priority 2: Twitter Image
-      Element twitterImage = doc.selectFirst("meta[name=twitter:image]");
+      Element twitterImage = doc.selectFirst("meta[name='twitter:image']");
       if (twitterImage != null) {
         return twitterImage.attr("content");
       }
