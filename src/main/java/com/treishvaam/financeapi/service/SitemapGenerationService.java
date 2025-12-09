@@ -184,6 +184,16 @@ public class SitemapGenerationService {
                   post.getMetaDescription() != null ? post.getMetaDescription() : post.getTitle()))
           .append("</description>\n");
 
+      // --- ENTERPRISE UPGRADE: Add Cover Image Enclosure ---
+      if (post.getCoverImageUrl() != null && !post.getCoverImageUrl().isEmpty()) {
+        // Construct public image URL. Nginx handles /api/uploads/
+        String imgUrl = baseUrl + "/api/uploads/" + post.getCoverImageUrl();
+        // Type is implicitly webp based on your system
+        rss.append("      <enclosure url=\"")
+            .append(imgUrl)
+            .append("\" length=\"0\" type=\"image/webp\" />\n");
+      }
+
       // Content Encoded for syndicators like Flipboard
       if (post.getContent() != null) {
         rss.append("      <content:encoded><![CDATA[")
