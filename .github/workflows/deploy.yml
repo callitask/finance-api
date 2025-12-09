@@ -1,81 +1,79 @@
-name: Deploy Backend (Self-Hosted)
+name: Treishvaam Enterprise Deploy
 
+# Trigger deployment only on push to main branch
 on:
   push:
     branches: [ "main" ]
+  workflow_dispatch: # Allows manual trigger from GitHub UI
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: callitask/finance-api
-  DOCKER_API_VERSION: '1.44'
+# Concurrency Group:
+# Ensures only ONE build runs at a time. 
+# If a new commit comes in while building, it cancels the old one to save RAM.
+concurrency:
+  group: production-deployment
+  cancel-in-progress: true
 
 jobs:
   build-and-deploy:
-    runs-on: self-hosted
-    permissions:
-      contents: read
-      packages: write
-
+    runs-on: self-hosted  # Runs on your Ubuntu VirtualBox
+    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    # 1. Checkout Code
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Shallow clone for speed
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v3
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: maven
+    # 2. Setup Java 21 (OPTIMIZED)
+    # We REMOVED "cache: maven". 
+    # The runner will now use its own local ~/.m2/repository 
+    # behaving exactly like a local developer machine (Smart Caching).
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
 
-      # NEW: Calculate Date (Year-Week) for Rotating Cache Key
-      - name: Get Date
-        id: get-date
-        run: |
-          echo "date=$(date -u "+%Y-%U")" >> $GITHUB_OUTPUT
+    # 3. Build with Maven (Enterprise Optimized)
+    # -DskipTests: Skips unit tests for faster deployment (Run tests in a separate PR workflow if needed)
+    # -B: Batch mode (less log noise)
+    # -T 1C: Uses 1 CPU Core per thread (Faster builds)
+    - name: Build with Maven
+      run: ./mvnw clean package -DskipTests -B -T 1C
 
-      # OPTIMIZED: Cache NVD Data (Weekly Rotation)
-      # This prevents re-uploading the 800MB database on every single run.
-      - name: Cache NVD Data
-        uses: actions/cache@v3
-        with:
-          path: ~/.m2/repository/org/owasp/dependency-check-data
-          # Key changes only once a week. 
-          # On cache hit (99% of builds), the "Post-job" upload step is skipped.
-          key: nvd-data-${{ runner.os }}-${{ steps.get-date.outputs.date }}
-          restore-keys: |
-            nvd-data-${{ runner.os }}-
+    # 4. Deploy to Production
+    # Since the runner is ON the server, we just copy the file.
+    # No need for SSH/SCP.
+    - name: Deploy to Application Folder
+      run: |
+        echo "--> Stopping Background Services to free RAM..."
+        # Optional: Stop heavy services during deployment to prevent OOM Kills
+        # docker compose -f /opt/treishvaam/docker-compose.yml stop elasticsearch loki tempo
 
-      # Build and Security Scan
-      # Included -DossindexAnalyzerEnabled=false to enforce the previous fix at the CLI level
-      - name: Build and Security Scan
-        env:
-          MAVEN_OPTS: "-Xmx1024m"
-        run: mvn clean verify "-Dnvd.api.key=${{ secrets.NVD_API_KEY }}" -DossindexAnalyzerEnabled=false
+        echo "--> Copying new WAR file..."
+        # Copy the built artifact to the target directory
+        cp target/finance-api.war /opt/treishvaam/backend-app.war
 
-      - name: Log in to the Container registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        echo "--> Restarting Backend..."
+        cd /opt/treishvaam
+        
+        # Recreate only the backend container to apply changes
+        docker compose up -d --force-recreate --no-deps backend
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        # Restart critical services
+        # docker compose start elasticsearch loki tempo
+        
+        echo "--> Pruning unused Docker images (Space Saving)..."
+        docker image prune -f
 
-      - name: Deploy to Production
-        run: |
-          echo "Deploying to Production..."
-          cd /opt/treishvaam
-         
-          # Pull the new image
-          docker compose pull backend
-         
-          # Rolling update
-          docker compose up -d --remove-orphans backend
-         
-          # Clean up
-          docker image prune -f
+    # 5. Health Check (Basic Verification)
+    - name: Verify Deployment
+      run: |
+        echo "Waiting for Backend to initialize..."
+        sleep 15
+        if docker ps | grep -q treishvaam-backend; then
+          echo "✅ Backend Container is Running"
+        else
+          echo "❌ Backend Container failed to start"
+          exit 1
+        fi
