@@ -11,6 +11,7 @@ import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -29,7 +30,8 @@ import org.springframework.stereotype.Service;
  * SitemapGenerationService
  *
  * <p>Generates: - /sitemaps/static.xml - /sitemaps/categories.xml - /sitemaps/posts-<n>.xml (paged)
- * - /sitemap.xml (index referencing the above, with <lastmod> timestamps)
+ * - /sitemap.xml (index) - /sitemaps/sitemap-news.xml (Google News, last 48h) - /sitemaps/feed.xml
+ * (RSS 2.0)
  *
  * <p>Runs once on application ready and then every 3 hours (cron).
  */
@@ -71,7 +73,7 @@ public class SitemapGenerationService {
         logger.info("Created sitemap directory: {}", sitemapPath.toAbsolutePath());
       }
 
-      // Generate content sitemaps first
+      // 1. Standard Sitemaps
       generateStaticSitemap();
       generateCategoriesSitemap();
 
@@ -83,7 +85,11 @@ public class SitemapGenerationService {
         generatePostsSitemap(i, SITEMAP_PAGE_SIZE);
       }
 
-      // Generate the Index last, ensuring it points to the fresh files with a fresh timestamp
+      // 2. Enterprise SEO (News & RSS)
+      generateNewsSitemap();
+      generateRssFeed();
+
+      // 3. Index (Must be last)
       generateSitemapIndex(totalPostPages);
       logger.info("Sitemap generation task finished successfully.");
 
@@ -92,20 +98,122 @@ public class SitemapGenerationService {
     }
   }
 
+  private void generateNewsSitemap() throws IOException {
+    StringBuilder sitemap = new StringBuilder();
+    sitemap.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    sitemap.append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"\n");
+    sitemap.append("        xmlns:news=\"http://www.google.com/schemas/sitemap-news/0.9\">\n");
+
+    // Google News only accepts articles from the last 48 hours
+    Instant fortyEightHoursAgo = Instant.now().minus(48, ChronoUnit.HOURS);
+
+    // Efficiently filtering in memory for now (Optimization: Move to DB query in future)
+    List<BlogPost> recentPosts =
+        blogPostService.findAll().stream()
+            .filter(p -> p.getCreatedAt().isAfter(fortyEightHoursAgo))
+            .collect(Collectors.toList());
+
+    Map<String, String> categorySlugMap = getCategorySlugMap();
+
+    for (BlogPost post : recentPosts) {
+      String url = buildPostUrl(post, categorySlugMap);
+      String date =
+          post.getCreatedAt()
+              .atZone(ZoneId.of("UTC"))
+              .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+      String title = escapeXml(post.getTitle());
+      String keywords = post.getKeywords() != null ? escapeXml(post.getKeywords()) : "";
+
+      sitemap.append("  <url>\n");
+      sitemap.append("    <loc>").append(url).append("</loc>\n");
+      sitemap.append("    <news:news>\n");
+      sitemap.append("      <news:publication>\n");
+      sitemap.append("        <news:name>Treishvaam Finance</news:name>\n");
+      sitemap.append("        <news:language>en</news:language>\n");
+      sitemap.append("      </news:publication>\n");
+      sitemap
+          .append("      <news:publication_date>")
+          .append(date)
+          .append("</news:publication_date>\n");
+      sitemap.append("      <news:title>").append(title).append("</news:title>\n");
+      if (!keywords.isEmpty()) {
+        sitemap.append("      <news:keywords>").append(keywords).append("</news:keywords>\n");
+      }
+      sitemap.append("    </news:news>\n");
+      sitemap.append("  </url>\n");
+    }
+
+    sitemap.append("</urlset>\n");
+    writeToFile("sitemap-news.xml", sitemap.toString());
+    logger.info("Generated sitemap-news.xml with {} items.", recentPosts.size());
+  }
+
+  private void generateRssFeed() throws IOException {
+    StringBuilder rss = new StringBuilder();
+    rss.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    rss.append(
+        "<rss version=\"2.0\" xmlns:content=\"http://purl.org/rss/1.0/modules/content/\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n");
+    rss.append("  <channel>\n");
+    rss.append("    <title>Treishvaam Finance</title>\n");
+    rss.append("    <link>").append(baseUrl).append("</link>\n");
+    rss.append(
+        "    <description>Expert financial analysis, market news, and insights.</description>\n");
+    rss.append("    <language>en-us</language>\n");
+    rss.append("    <atom:link href=\"")
+        .append(baseUrl)
+        .append("/feed.xml\" rel=\"self\" type=\"application/rss+xml\" />\n");
+
+    // RSS Feed usually contains the last 20-50 items
+    Page<BlogPost> posts = blogPostService.findAllPublishedPosts(PageRequest.of(0, 50));
+    Map<String, String> categorySlugMap = getCategorySlugMap();
+    DateTimeFormatter rfc1123 = DateTimeFormatter.RFC_1123_DATE_TIME.withZone(ZoneId.of("UTC"));
+
+    for (BlogPost post : posts) {
+      String url = buildPostUrl(post, categorySlugMap);
+      String pubDate = rfc1123.format(post.getCreatedAt());
+
+      rss.append("    <item>\n");
+      rss.append("      <title>").append(escapeXml(post.getTitle())).append("</title>\n");
+      rss.append("      <link>").append(url).append("</link>\n");
+      rss.append("      <guid isPermaLink=\"true\">").append(url).append("</guid>\n");
+      rss.append("      <pubDate>").append(pubDate).append("</pubDate>\n");
+      rss.append("      <description>")
+          .append(
+              escapeXml(
+                  post.getMetaDescription() != null ? post.getMetaDescription() : post.getTitle()))
+          .append("</description>\n");
+
+      // Content Encoded for syndicators like Flipboard
+      if (post.getContent() != null) {
+        rss.append("      <content:encoded><![CDATA[")
+            .append(post.getContent())
+            .append("]]></content:encoded>\n");
+      }
+
+      rss.append("    </item>\n");
+    }
+
+    rss.append("  </channel>\n");
+    rss.append("</rss>\n");
+    writeToFile("feed.xml", rss.toString());
+    logger.info("Generated feed.xml (RSS 2.0).");
+  }
+
   private void generateSitemapIndex(int totalPostPages) throws IOException {
     StringBuilder index = new StringBuilder();
     index.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     index.append("<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
 
-    // Use full offset timestamp for lastmod (ISO_OFFSET_DATE_TIME)
     String now =
         DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(Instant.now().atZone(ZoneId.of("UTC")));
 
     index.append(createSitemapEntry(normalizeUrl(baseUrl + "/sitemaps/static.xml"), now));
     index.append(createSitemapEntry(normalizeUrl(baseUrl + "/sitemaps/categories.xml"), now));
 
+    // Add News Sitemap to Index
+    index.append(createSitemapEntry(normalizeUrl(baseUrl + "/sitemaps/sitemap-news.xml"), now));
+
     for (int i = 0; i < totalPostPages; i++) {
-      // posts files are 1-indexed in name (posts-1.xml, posts-2.xml, ...)
       index.append(
           createSitemapEntry(
               String.format("%s/sitemaps/posts-%d.xml", normalizeUrl(baseUrl), i + 1), now));
@@ -153,35 +261,16 @@ public class SitemapGenerationService {
     sitemap.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     sitemap.append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
 
-    Map<String, String> categorySlugMap =
-        categoryRepository.findAll().stream()
-            .collect(
-                Collectors.toMap(Category::getName, Category::getSlug, (slug1, slug2) -> slug1));
+    Map<String, String> categorySlugMap = getCategorySlugMap();
 
     Page<BlogPost> posts = blogPostService.findAllPublishedPosts(PageRequest.of(page, pageSize));
     if (posts == null || posts.isEmpty()) {
-      // no posts on this page - still write an empty sitemap with header/footer
       logger.info(
           "No posts found for page {} (pageSize {}). Writing empty sitemap file.", page, pageSize);
     } else {
       for (BlogPost post : posts) {
-        if (post == null
-            || post.getUserFriendlySlug() == null
-            || post.getUrlArticleId() == null
-            || post.getCategory() == null) {
-          continue;
-        }
-
-        String categorySlug =
-            categorySlugMap.getOrDefault(post.getCategory().getName(), "uncategorized");
-
-        String postUrl =
-            String.format(
-                "%s/category/%s/%s/%s",
-                normalizeUrl(baseUrl),
-                categorySlug,
-                post.getUserFriendlySlug(),
-                post.getUrlArticleId());
+        String postUrl = buildPostUrl(post, categorySlugMap);
+        if (postUrl == null) continue;
 
         String lastMod = formatLastMod(post.getUpdatedAt());
         sitemap.append(createUrlEntry(postUrl, lastMod, "weekly", "0.9"));
@@ -192,14 +281,34 @@ public class SitemapGenerationService {
     writeToFile(String.format("posts-%d.xml", page + 1), sitemap.toString());
   }
 
-  /** Create a sitemapindex <sitemap> entry with lastmod */
+  // --- Helpers ---
+
+  private Map<String, String> getCategorySlugMap() {
+    return categoryRepository.findAll().stream()
+        .collect(Collectors.toMap(Category::getName, Category::getSlug, (slug1, slug2) -> slug1));
+  }
+
+  private String buildPostUrl(BlogPost post, Map<String, String> categorySlugMap) {
+    if (post == null
+        || post.getUserFriendlySlug() == null
+        || post.getUrlArticleId() == null
+        || post.getCategory() == null) {
+      return null;
+    }
+    String categorySlug =
+        categorySlugMap.getOrDefault(post.getCategory().getName(), "uncategorized");
+
+    return String.format(
+        "%s/category/%s/%s/%s",
+        normalizeUrl(baseUrl), categorySlug, post.getUserFriendlySlug(), post.getUrlArticleId());
+  }
+
   private String createSitemapEntry(String loc, String lastMod) {
     return String.format(
         "  <sitemap>\n    <loc>%s</loc>\n    <lastmod>%s</lastmod>\n  </sitemap>\n",
         escapeXml(loc), escapeXml(lastMod));
   }
 
-  /** Create a <url> entry for the urlset */
   private String createUrlEntry(String loc, String lastmod, String changefreq, String priority) {
     StringBuilder urlEntry = new StringBuilder();
     urlEntry.append("  <url>\n");
@@ -213,16 +322,11 @@ public class SitemapGenerationService {
     return urlEntry.toString();
   }
 
-  /**
-   * Format Instant -> ISO_LOCAL_DATE (YYYY-MM-DD) for <lastmod> on individual URLs. We use
-   * date-only for per-URL lastmod which is acceptable to Google.
-   */
   private String formatLastMod(Instant instant) {
     if (instant == null) return LocalDateStr();
     return instant.atZone(ZoneId.of("UTC")).toLocalDate().format(DateTimeFormatter.ISO_LOCAL_DATE);
   }
 
-  /** Today's date as YYYY-MM-DD */
   private String LocalDateStr() {
     return Instant.now()
         .atZone(ZoneId.of("UTC"))
@@ -230,14 +334,12 @@ public class SitemapGenerationService {
         .format(DateTimeFormatter.ISO_LOCAL_DATE);
   }
 
-  /** Writes content to sitemapDir/fileName using UTF-8 and truncates existing. */
   private void writeToFile(String fileName, String content) throws IOException {
     Path filePath = Paths.get(sitemapDir, fileName);
     Files.writeString(filePath, content, StandardCharsets.UTF_8);
     logger.debug("Generated sitemap file: {}", filePath.toAbsolutePath());
   }
 
-  /** Basic XML escaping for values used inside tags. */
   private String escapeXml(String s) {
     if (s == null) return "";
     return s.replace("&", "&amp;")
@@ -247,10 +349,8 @@ public class SitemapGenerationService {
         .replace("'", "&apos;");
   }
 
-  /** Ensure no double-slash when concatenating baseUrl with paths. */
   private String normalizeUrl(String url) {
     if (url == null) return "";
-    // replace // (except the protocol part "https://")
     return url.replaceAll("(?<!(http:|https:))//+", "/");
   }
 }

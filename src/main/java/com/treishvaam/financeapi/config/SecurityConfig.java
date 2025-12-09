@@ -76,6 +76,8 @@ public class SecurityConfig {
                         "/api/v1/news/**",
                         "/api/v1/search/**",
                         "/sitemap.xml",
+                        "/sitemap-news.xml", // ADDED
+                        "/feed.xml", // ADDED
                         "/sitemaps/**",
                         "/favicon.ico")
                     .permitAll()
