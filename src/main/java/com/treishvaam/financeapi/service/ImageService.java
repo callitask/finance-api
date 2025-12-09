@@ -81,10 +81,6 @@ public class ImageService {
     }
   }
 
-  /**
-   * CRITICAL FIX: Explicitly register ImageIO plugins (TwelveMonkeys). This ensures the 'webp'
-   * writer is available to Thumbnailator.
-   */
   @PostConstruct
   public void init() {
     try {
@@ -107,29 +103,36 @@ public class ImageService {
       String baseFilename = UUID.randomUUID().toString();
       metadata.setBaseFilename(baseFilename);
 
-      // Define filenames
-      String largeName = baseFilename + ".webp";
-      String mediumName = baseFilename + "-medium.webp";
-      String smallName = baseFilename + "-small.webp";
-      String tinyName = baseFilename + "-tiny.webp";
+      // --- PHASE 16: Enterprise Responsive Strategy ---
+      // We generate specific breakpoints to allow the Frontend to use 'srcset'.
+      // Naming Convention: UUID (Stable) + Suffix (Variant).
 
-      // Process and Upload Variants
-      // PHASE 12 OPTIMIZATION: Parallel Processing using Java 21 Virtual Threads
-      // This reduces upload time by ~75% compared to sequential processing.
+      String masterName = baseFilename + ".webp"; // 1920w (Master)
+      String desktopName = baseFilename + "-1200.webp"; // 1200w (Standard Desktop)
+      String tabletName = baseFilename + "-800.webp"; // 800w (Tablet/Small Laptop)
+      String mobileName = baseFilename + "-480.webp"; // 480w (Mobile)
+
+      // Use Virtual Threads for high-throughput parallel processing
       try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
         var futures =
             new CompletableFuture<?>[] {
+              // Master: High Quality (0.90), Max Width 1920
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(imageBytes, 1920, largeName), executor),
+                  () -> uploadResizedSafe(imageBytes, 1920, masterName, 0.90), executor),
+
+              // Desktop: Good Quality (0.85), Max Width 1200
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(imageBytes, 600, mediumName), executor),
+                  () -> uploadResizedSafe(imageBytes, 1200, desktopName, 0.85), executor),
+
+              // Tablet: Standard Quality (0.80), Max Width 800
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(imageBytes, 300, smallName), executor),
+                  () -> uploadResizedSafe(imageBytes, 800, tabletName, 0.80), executor),
+
+              // Mobile: Optimized (0.80), Max Width 480
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(imageBytes, 20, tinyName), executor)
+                  () -> uploadResizedSafe(imageBytes, 480, mobileName, 0.80), executor)
             };
 
-        // Wait for all uploads to complete
         CompletableFuture.allOf(futures).join();
       }
 
@@ -141,40 +144,43 @@ public class ImageService {
     }
   }
 
-  // Helper wrapper to handle checked exceptions within CompletableFuture
-  private void uploadResizedSafe(byte[] originalBytes, int targetWidth, String filename) {
+  private void uploadResizedSafe(
+      byte[] originalBytes, int targetWidth, String filename, double quality) {
     try {
-      uploadResized(originalBytes, targetWidth, filename);
+      uploadResized(originalBytes, targetWidth, filename, quality);
     } catch (IOException e) {
       throw new RuntimeException("Async upload failed for " + filename, e);
     }
   }
 
-  private void uploadResized(byte[] originalBytes, int targetWidth, String filename)
+  private void uploadResized(byte[] originalBytes, int targetWidth, String filename, double quality)
       throws IOException {
     try (ByteArrayInputStream is = new ByteArrayInputStream(originalBytes);
         ByteArrayOutputStream os = new ByteArrayOutputStream()) {
 
       try {
-        // Try converting to WebP
-        Thumbnails.of(is).size(targetWidth, targetWidth).outputFormat("webp").toOutputStream(os);
+        // --- PHASE 16 OPTIMIZATION ---
+        // 1. .width(targetWidth): Preserves aspect ratio perfectly.
+        // 2. .outputQuality(quality): Ensures we don't compress too hard.
+        // 3. .outputFormat("webp"): Modern, lightweight format.
+        Thumbnails.of(is)
+            .width(targetWidth)
+            .outputQuality(quality)
+            .outputFormat("webp")
+            .toOutputStream(os);
 
         byte[] resizedBytes = os.toByteArray();
         fileStorageService.upload(filename, resizedBytes, "image/webp");
 
       } catch (IllegalArgumentException e) {
-        // FALLBACK: If WebP writer is missing, fail over to PNG gracefully
-        // This prevents the 500 error crashing the post upload
-        logger.error(
-            "WebP format not supported (Plugin issue). Falling back to PNG for {}", filename);
+        // FALLBACK: If WebP fails (rare env issue), use PNG without compression settings
+        logger.error("WebP not supported. Falling back to PNG for {}", filename);
         is.reset();
         os.reset();
 
-        Thumbnails.of(is).size(targetWidth, targetWidth).outputFormat("png").toOutputStream(os);
+        Thumbnails.of(is).width(targetWidth).outputFormat("png").toOutputStream(os);
 
         byte[] pngBytes = os.toByteArray();
-        // Note: We keep the filename extension .webp for consistency in database references,
-        // even though content is PNG. Browsers handle this mismatch fine.
         fileStorageService.upload(filename, pngBytes, "image/png");
       }
     }
