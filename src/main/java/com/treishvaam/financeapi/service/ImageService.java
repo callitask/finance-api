@@ -104,9 +104,6 @@ public class ImageService {
       metadata.setBaseFilename(baseFilename);
 
       // --- PHASE 16: Enterprise Responsive Strategy ---
-      // We generate specific breakpoints to allow the Frontend to use 'srcset'.
-      // Naming Convention: UUID (Stable) + Suffix (Variant).
-
       String masterName = baseFilename + ".webp"; // 1920w (Master)
       String desktopName = baseFilename + "-1200.webp"; // 1200w (Standard Desktop)
       String tabletName = baseFilename + "-800.webp"; // 800w (Tablet/Small Laptop)
@@ -160,9 +157,6 @@ public class ImageService {
 
       try {
         // --- PHASE 16 OPTIMIZATION ---
-        // 1. .width(targetWidth): Preserves aspect ratio perfectly.
-        // 2. .outputQuality(quality): Ensures we don't compress too hard.
-        // 3. .outputFormat("webp"): Modern, lightweight format.
         Thumbnails.of(is)
             .width(targetWidth)
             .outputQuality(quality)
@@ -170,10 +164,11 @@ public class ImageService {
             .toOutputStream(os);
 
         byte[] resizedBytes = os.toByteArray();
-        fileStorageService.upload(filename, resizedBytes, "image/webp");
+        // FIXED: Using storeFile with ByteArrayInputStream instead of upload
+        fileStorageService.storeFile(new ByteArrayInputStream(resizedBytes), filename, "image/webp");
 
       } catch (IllegalArgumentException e) {
-        // FALLBACK: If WebP fails (rare env issue), use PNG without compression settings
+        // FALLBACK: If WebP fails, use PNG
         logger.error("WebP not supported. Falling back to PNG for {}", filename);
         is.reset();
         os.reset();
@@ -181,7 +176,8 @@ public class ImageService {
         Thumbnails.of(is).width(targetWidth).outputFormat("png").toOutputStream(os);
 
         byte[] pngBytes = os.toByteArray();
-        fileStorageService.upload(filename, pngBytes, "image/png");
+        // FIXED: Using storeFile with ByteArrayInputStream instead of upload
+        fileStorageService.storeFile(new ByteArrayInputStream(pngBytes), filename, "image/png");
       }
     }
   }
