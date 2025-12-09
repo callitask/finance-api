@@ -132,7 +132,9 @@ public class NewsHighlightService {
     }
     try {
       LocalDateTime publishedAt = LocalDateTime.parse(dto.getPubDate(), NEWS_API_FORMATTER);
-      return new NewsHighlight(dto.getTitle(), dto.getLink(), dto.getSource_id(), publishedAt);
+      // Map image_url from DTO to Entity
+      return new NewsHighlight(
+          dto.getTitle(), dto.getLink(), dto.getSource_id(), publishedAt, dto.getImage_url());
     } catch (java.time.format.DateTimeParseException e) {
       return null;
     }
