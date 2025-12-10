@@ -9,7 +9,7 @@ import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "news_highlight")
+@Table(name = "news_highlights") // FIXED: Plural name to match Database
 public class NewsHighlight {
 
   @Id
@@ -31,7 +31,6 @@ public class NewsHighlight {
   @Column(name = "image_url", length = 1000)
   private String imageUrl;
 
-  // --- NEW FIELD: Archival Flag ---
   @Column(name = "is_archived", nullable = false)
   private boolean isArchived = false;
 

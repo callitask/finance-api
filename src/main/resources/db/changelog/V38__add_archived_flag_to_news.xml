@@ -6,7 +6,7 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
 
     <changeSet id="38-1" author="treishvaam">
-        <addColumn tableName="news_highlight">
+        <addColumn tableName="news_highlights">
             <column name="is_archived" type="BOOLEAN" defaultValueBoolean="false">
                 <constraints nullable="false"/>
             </column>
@@ -14,7 +14,7 @@
     </changeSet>
 
     <changeSet id="38-2" author="treishvaam">
-        <createIndex tableName="news_highlight" indexName="idx_news_archived_published">
+        <createIndex tableName="news_highlights" indexName="idx_news_archived_published">
             <column name="is_archived"/>
             <column name="published_at" descending="true"/>
         </createIndex>
