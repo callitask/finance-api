@@ -50,5 +50,6 @@
     <include file="db/changelog/V35__add_editorial_fields.xml"/>
     <include file="db/changelog/V36__add_audit_log_table.xml"/>
     <include file="db/changelog/V37__add_image_url_to_news_highlights.xml"/>
+     <include file="db/changelog/V38__add_archived_flag_to_news.xml"/>
 
 </databaseChangeLog>
