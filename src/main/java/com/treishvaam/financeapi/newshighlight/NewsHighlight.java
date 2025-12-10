@@ -1,44 +1,41 @@
 package com.treishvaam.financeapi.newshighlight;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(
-    name = "news_highlights",
-    uniqueConstraints = {@UniqueConstraint(columnNames = {"link"})})
+@Table(name = "news_highlight")
 public class NewsHighlight {
+
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
-  @Column(nullable = false, length = 512)
+  @Column(nullable = false, length = 500)
   private String title;
 
-  @Column(nullable = false, length = 1024)
+  @Column(nullable = false, length = 1000)
   private String link;
 
+  @Column(length = 100)
   private String source;
+
+  @Column(name = "published_at")
   private LocalDateTime publishedAt;
 
-  @Column(name = "image_url", length = 1024)
-  private String imageUrl; // Added field
+  @Column(name = "image_url", length = 1000)
+  private String imageUrl;
 
-  private LocalDateTime createdAt = LocalDateTime.now();
+  // --- NEW FIELD: Archival Flag ---
+  @Column(name = "is_archived", nullable = false)
+  private boolean isArchived = false;
 
-  // Default (no-argument) constructor required by Hibernate
   public NewsHighlight() {}
-
-  // Constructor for creating new instances
-  public NewsHighlight(
-      String title, String link, String source, LocalDateTime publishedAt, String imageUrl) {
-    this.title = title;
-    this.link = link;
-    this.source = source;
-    this.publishedAt = publishedAt;
-    this.imageUrl = imageUrl;
-  }
 
   // Getters and Setters
   public Long getId() {
@@ -73,7 +70,6 @@ public class NewsHighlight {
     this.source = source;
   }
 
-  @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
   public LocalDateTime getPublishedAt() {
     return publishedAt;
   }
@@ -90,12 +86,11 @@ public class NewsHighlight {
     this.imageUrl = imageUrl;
   }
 
-  @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
-  public LocalDateTime getCreatedAt() {
-    return createdAt;
+  public boolean isArchived() {
+    return isArchived;
   }
 
-  public void setCreatedAt(LocalDateTime createdAt) {
-    this.createdAt = createdAt;
+  public void setArchived(boolean archived) {
+    isArchived = archived;
   }
 }

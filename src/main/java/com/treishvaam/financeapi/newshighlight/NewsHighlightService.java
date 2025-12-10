@@ -89,20 +89,20 @@ public class NewsHighlightService {
     this.restTemplate = new RestTemplate();
   }
 
+  // CHANGED: Now fetches only "Hot" (non-archived) data
   public Page<NewsHighlight> getHighlights(Pageable pageable) {
-    return repository.findAllByOrderByPublishedAtDesc(pageable);
+    return repository.findByIsArchivedFalseOrderByPublishedAtDesc(pageable);
   }
 
-  // --- NEW: CLEANUP ROUTINE ---
-  // Runs every day at midnight to remove articles older than 3 days
-  // This prevents "Previous Articles" from cluttering the feed.
+  // --- ARCHIVAL ROUTINE ---
+  // Runs every day at midnight.
+  // Moves articles older than 3 days to "Cold Storage" (isArchived=true).
   @Scheduled(cron = "0 0 0 * * *")
   @Transactional
-  public void cleanupOldNews() {
+  public void archiveOldNews() {
     LocalDateTime cutoff = LocalDateTime.now().minusDays(3);
-    repository.deleteByPublishedAtBefore(
-        cutoff); // Ensure this method exists in Repo or use custom query
-    logger.info("Executed Daily News Cleanup. Removed articles older than {}", cutoff);
+    int archivedCount = repository.archiveOldNews(cutoff);
+    logger.info("Executed Daily News Archival. Moved {} articles to archive.", archivedCount);
   }
 
   @Scheduled(fixedRate = 30, timeUnit = TimeUnit.MINUTES)
@@ -132,6 +132,7 @@ public class NewsHighlightService {
         entity.setLink(article.getLink());
         entity.setSource(article.getSource());
         entity.setPublishedAt(parseDate(article.getDate()));
+        entity.setArchived(false); // Explicitly set as Hot Data
 
         String rawImageUrl = article.getImage();
         if (rawImageUrl == null || rawImageUrl.isEmpty()) {
