@@ -1,5 +1,6 @@
 package com.treishvaam.financeapi.config;
 
+import io.minio.MinioClient;
 import java.net.URI;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -25,6 +26,7 @@ public class MinioConfig {
   @Value("${storage.s3.region}")
   private String region;
 
+  // --- 1. EXISTING AWS SDK CLIENT (Kept for safety/legacy compatibility) ---
   @Bean
   public S3Client s3Client() {
     return S3Client.builder()
@@ -36,6 +38,16 @@ public class MinioConfig {
             S3Configuration.builder()
                 .pathStyleAccessEnabled(true) // MinIO requires path style access
                 .build())
+        .build();
+  }
+
+  // --- 2. NEW MINIO CLIENT (CRITICAL FIX for FileStorageService) ---
+  @Bean
+  public MinioClient minioClient() {
+    return MinioClient.builder()
+        .endpoint(endpoint)
+        .credentials(accessKey, secretKey)
+        .region(region)
         .build();
   }
 }
