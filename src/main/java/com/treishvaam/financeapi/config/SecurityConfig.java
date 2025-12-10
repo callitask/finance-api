@@ -1,20 +1,17 @@
 package com.treishvaam.financeapi.config;
 
 import com.treishvaam.financeapi.security.InternalSecretFilter;
-import com.treishvaam.financeapi.security.JwtTokenFilter;
+import com.treishvaam.financeapi.security.KeycloakRealmRoleConverter;
 import com.treishvaam.financeapi.security.RateLimitingFilter;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -25,28 +22,14 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @EnableWebSecurity
 @EnableMethodSecurity
 public class SecurityConfig {
-  private final JwtTokenFilter jwtTokenFilter;
+
   private final InternalSecretFilter internalSecretFilter;
   private final RateLimitingFilter rateLimitingFilter;
 
   public SecurityConfig(
-      JwtTokenFilter jwtTokenFilter,
-      InternalSecretFilter internalSecretFilter,
-      RateLimitingFilter rateLimitingFilter) {
-    this.jwtTokenFilter = jwtTokenFilter;
+      InternalSecretFilter internalSecretFilter, RateLimitingFilter rateLimitingFilter) {
     this.internalSecretFilter = internalSecretFilter;
     this.rateLimitingFilter = rateLimitingFilter;
-  }
-
-  @Bean
-  public PasswordEncoder passwordEncoder() {
-    return new BCryptPasswordEncoder();
-  }
-
-  @Bean
-  public AuthenticationManager authenticationManager(
-      AuthenticationConfiguration authenticationConfiguration) throws Exception {
-    return authenticationConfiguration.getAuthenticationManager();
   }
 
   @Bean
@@ -82,7 +65,7 @@ public class SecurityConfig {
                         "/favicon.ico")
                     .permitAll()
                     .requestMatchers(
-                        "/api/v1/auth/**",
+                        "/api/v1/auth/**", // Auth endpoint might still be used for user info lookup
                         "/api/v1/contact/**",
                         "/api/v1/market/quotes/batch",
                         "/api/v1/market/widget",
@@ -91,39 +74,57 @@ public class SecurityConfig {
                         "/error")
                     .permitAll()
 
-                    // --- 3. Admin Secured V1 Endpoints ---
+                    // --- 3. Protected Endpoints (RBAC) ---
+                    // Analytics: Only Analyst and Admin
+                    .requestMatchers("/api/v1/analytics/**")
+                    .hasAnyRole("ANALYST", "ADMIN")
+
+                    // Publishing: Only Publisher and Admin
                     .requestMatchers(
-                        "/api/v1/posts/admin/**",
+                        "/api/v1/posts/admin/publish/**",
+                        "/api/v1/posts/admin/delete/**",
                         "/api/v1/market/admin/**",
                         "/api/v1/status/**",
-                        "/api/v1/analytics/**",
                         "/api/v1/admin/actions/**",
                         "/api/v1/files/upload")
-                    .hasAuthority("ROLE_ADMIN")
-                    .anyRequest()
-                    .authenticated());
+                    .hasAnyRole("PUBLISHER", "ADMIN")
 
-    // --- ORDER MATTERS: RateLimit -> InternalSecret -> JWT ---
+                    // Editing: Editor, Publisher, and Admin
+                    .requestMatchers(
+                        "/api/v1/posts/draft", "/api/v1/posts/draft/**", "/api/v1/posts/admin/**")
+                    .hasAnyRole("EDITOR", "PUBLISHER", "ADMIN")
+
+                    // Default Fallback
+                    .anyRequest()
+                    .authenticated())
+        .oauth2ResourceServer(
+            oauth2 ->
+                oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
+
+    // --- ORDER MATTERS: RateLimit -> InternalSecret -> OAuth2 (handled by FilterChain) ---
     http.addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class);
     http.addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class);
-    http.addFilterBefore(jwtTokenFilter, UsernamePasswordAuthenticationFilter.class);
 
     return http.build();
   }
 
   @Bean
+  public JwtAuthenticationConverter jwtAuthenticationConverter() {
+    JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+    converter.setJwtGrantedAuthoritiesConverter(new KeycloakRealmRoleConverter());
+    return converter;
+  }
+
+  @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-    // Allow all origins (Production grade: restrict this if strictly necessary, but '*' patterns
-    // are safe for public APIs with creds)
-    configuration.setAllowedOriginPatterns(List.of("*"));
+    configuration.setAllowedOriginPatterns(
+        List.of("https://treishfin.treishvaamgroup.com", "http://localhost:3000"));
     configuration.setAllowedMethods(
         List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"));
     configuration.setAllowedHeaders(List.of("*"));
-    // CRITICAL: Expose headers so the browser can see them
     configuration.setExposedHeaders(List.of("*"));
     configuration.setAllowCredentials(true);
-    // Cache CORS preflight for 1 hour to reduce OPTIONS requests
     configuration.setMaxAge(3600L);
 
     UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

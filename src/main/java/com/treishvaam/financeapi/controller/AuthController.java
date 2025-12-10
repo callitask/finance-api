@@ -1,58 +1,31 @@
 package com.treishvaam.financeapi.controller;
 
-import com.treishvaam.financeapi.dto.AuthResponse;
-import com.treishvaam.financeapi.dto.LoginRequest;
-import com.treishvaam.financeapi.model.User;
-import com.treishvaam.financeapi.repository.UserRepository;
-import com.treishvaam.financeapi.security.JwtTokenProvider;
-import java.time.Instant;
-import java.util.List;
+import java.util.Map;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
-  private final AuthenticationManager authenticationManager;
-  private final JwtTokenProvider tokenProvider;
-  private final UserRepository userRepository;
+  @GetMapping("/me")
+  public ResponseEntity<?> getCurrentUser() {
+    Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+    if (authentication == null || !(authentication.getPrincipal() instanceof Jwt)) {
+      return ResponseEntity.status(401).body(Map.of("message", "Not authenticated"));
+    }
 
-  public AuthController(
-      AuthenticationManager authenticationManager,
-      JwtTokenProvider tokenProvider,
-      UserRepository userRepository) {
-    this.authenticationManager = authenticationManager;
-    this.tokenProvider = tokenProvider;
-    this.userRepository = userRepository;
-  }
+    Jwt jwt = (Jwt) authentication.getPrincipal();
+    String username = jwt.getClaimAsString("preferred_username");
+    String email = jwt.getClaimAsString("email");
 
-  @PostMapping("/login")
-  public ResponseEntity<?> authenticateUser(@RequestBody LoginRequest loginRequest) {
-    Authentication authentication =
-        authenticationManager.authenticate(
-            new UsernamePasswordAuthenticationToken(
-                loginRequest.getEmail(), loginRequest.getPassword()));
-    SecurityContextHolder.getContext().setAuthentication(authentication);
-    String jwt = tokenProvider.createToken(authentication);
-
-    User user =
-        userRepository
-            .findByEmail(loginRequest.getEmail())
-            .orElseThrow(() -> new RuntimeException("User not found"));
-    boolean isLinkedinConnected =
-        user.getLinkedinAccessToken() != null
-            && (user.getLinkedinTokenExpiry() == null
-                || user.getLinkedinTokenExpiry().isAfter(Instant.now()));
-
-    List<String> roles = user.getRoles().stream().map(role -> role.getName().name()).toList();
-    String username = user.getEmail();
-
-    return ResponseEntity.ok(
-        new AuthResponse(jwt, user.getId(), username, user.getEmail(), roles, isLinkedinConnected));
+    // In Keycloak, roles are in realm_access, handled by the converter in SecurityConfig
+    // We return basic profile info here if the frontend needs it beyond what's in the ID token
+    return ResponseEntity.ok(Map.of("username", username, "email", email));
   }
 }
