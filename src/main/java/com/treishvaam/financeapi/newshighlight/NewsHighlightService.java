@@ -77,7 +77,7 @@ public class NewsHighlightService {
           "Regulation",
           "Bankruptcy");
 
-  private static final int QUALITY_THRESHOLD = 15; // Minimum score to be indexed
+  private static final int QUALITY_THRESHOLD = 15;
 
   @Value("${fmp.api.key}")
   private String apiKey;
@@ -89,24 +89,32 @@ public class NewsHighlightService {
     this.restTemplate = new RestTemplate();
   }
 
-  /** Retrieves paginated highlights for infinite scrolling. */
   public Page<NewsHighlight> getHighlights(Pageable pageable) {
     return repository.findAllByOrderByPublishedAtDesc(pageable);
   }
 
-  @Scheduled(fixedRate = 30, timeUnit = TimeUnit.MINUTES) // Run every 30 mins
+  // --- NEW: CLEANUP ROUTINE ---
+  // Runs every day at midnight to remove articles older than 3 days
+  // This prevents "Previous Articles" from cluttering the feed.
+  @Scheduled(cron = "0 0 0 * * *")
+  @Transactional
+  public void cleanupOldNews() {
+    LocalDateTime cutoff = LocalDateTime.now().minusDays(3);
+    repository.deleteByPublishedAtBefore(
+        cutoff); // Ensure this method exists in Repo or use custom query
+    logger.info("Executed Daily News Cleanup. Removed articles older than {}", cutoff);
+  }
+
+  @Scheduled(fixedRate = 30, timeUnit = TimeUnit.MINUTES)
   @Transactional
   public void fetchAndStoreNews() {
     logger.info("Starting Enterprise News Intelligence Cycle...");
     try {
-      // 1. Fetch Larger Batch (50 items) to allow for aggressive filtering
       String url =
           "https://financialmodelingprep.com/api/v3/fmp/articles?page=0&size=50&apikey=" + apiKey;
       NewsArticleDto[] response = restTemplate.getForObject(url, NewsArticleDto[].class);
-
       List<NewsArticleDto> articles =
           (response != null) ? Arrays.asList(response) : new ArrayList<>();
-
       int savedCount = 0;
 
       for (NewsArticleDto article : articles) {
@@ -114,10 +122,8 @@ public class NewsHighlightService {
           continue;
         }
 
-        // 2. INTELLIGENCE CHECK: Calculate Relevance Score
         int score = calculateRelevanceScore(article);
         if (score < QUALITY_THRESHOLD) {
-          logger.debug("Skipping low-quality article: {} (Score: {})", article.getTitle(), score);
           continue;
         }
 
@@ -127,7 +133,6 @@ public class NewsHighlightService {
         entity.setSource(article.getSource());
         entity.setPublishedAt(parseDate(article.getDate()));
 
-        // 3. MEDIA PIPELINE
         String rawImageUrl = article.getImage();
         if (rawImageUrl == null || rawImageUrl.isEmpty()) {
           rawImageUrl = scrapeImageFromArticle(article.getLink());
@@ -151,40 +156,20 @@ public class NewsHighlightService {
     }
   }
 
-  /** Enterprise Scoring Algorithm Determines if a piece of news is "Front Page Worthy" */
   private int calculateRelevanceScore(NewsArticleDto article) {
     int score = 0;
-
-    // Rule 1: Trusted Source Authority (+10)
-    if (article.getSource() != null && TRUSTED_SOURCES.contains(article.getSource())) {
-      score += 10;
-    }
-
-    // Rule 2: Impact Keywords (+5 per keyword)
+    if (article.getSource() != null && TRUSTED_SOURCES.contains(article.getSource())) score += 10;
     String titleLower = article.getTitle().toLowerCase();
     for (String keyword : IMPACT_KEYWORDS) {
-      if (titleLower.contains(keyword.toLowerCase())) {
-        score += 5;
-      }
+      if (titleLower.contains(keyword.toLowerCase())) score += 5;
     }
-
-    // Rule 3: Visual Appeal (+5)
-    if (article.getImage() != null && !article.getImage().isEmpty()) {
-      score += 5;
-    }
-
-    // Rule 4: HTML Content Penalty (-100) -> FMP sometimes sends raw HTML garbage
-    if (article.getTitle().contains("<") || article.getTitle().contains("{")) {
-      score -= 100;
-    }
-
+    if (article.getImage() != null && !article.getImage().isEmpty()) score += 5;
+    if (article.getTitle().contains("<") || article.getTitle().contains("{")) score -= 100;
     return score;
   }
 
   private LocalDateTime parseDate(String dateStr) {
-    if (dateStr == null || dateStr.isEmpty()) {
-      return LocalDateTime.now();
-    }
+    if (dateStr == null || dateStr.isEmpty()) return LocalDateTime.now();
     try {
       DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
       return LocalDateTime.parse(dateStr, formatter);
@@ -201,9 +186,7 @@ public class NewsHighlightService {
     try {
       URL url = new URL(externalUrl);
       BufferedImage originalImage = ImageIO.read(url);
-      if (originalImage == null) {
-        return null;
-      }
+      if (originalImage == null) return null;
 
       int targetWidth = 800;
       int originalWidth = originalImage.getWidth();
@@ -221,16 +204,12 @@ public class NewsHighlightService {
       Graphics2D g = resizedImage.createGraphics();
       g.setRenderingHint(
           RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-      g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-      g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
       g.drawImage(originalImage, 0, 0, targetWidth, originalHeight, null);
       g.dispose();
 
       ByteArrayOutputStream os = new ByteArrayOutputStream();
       Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpg");
-      if (!writers.hasNext()) {
-        return null;
-      }
+      if (!writers.hasNext()) return null;
 
       ImageWriter writer = writers.next();
       ImageWriteParam param = writer.getDefaultWriteParam();
