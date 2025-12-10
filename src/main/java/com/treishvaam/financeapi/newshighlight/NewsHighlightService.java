@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import javax.imageio.IIOImage;
@@ -27,6 +28,8 @@ import org.jsoup.nodes.Element;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,7 +43,43 @@ public class NewsHighlightService {
   private final FileStorageService fileStorageService;
   private final RestTemplate restTemplate;
 
-  @Value("${market.data.api.key}")
+  // --- INTELLIGENCE ENGINE CONFIGURATION ---
+  private static final Set<String> TRUSTED_SOURCES =
+      Set.of(
+          "Bloomberg",
+          "Reuters",
+          "CNBC",
+          "Wall Street Journal",
+          "Financial Times",
+          "Yahoo Finance",
+          "MarketWatch",
+          "Forbes",
+          "Business Insider",
+          "The Guardian",
+          "BBC News",
+          "TechCrunch");
+
+  private static final Set<String> IMPACT_KEYWORDS =
+      Set.of(
+          "Earnings",
+          "Fed",
+          "Acquisition",
+          "Merger",
+          "IPO",
+          "Crisis",
+          "Surge",
+          "Plunge",
+          "Recession",
+          "Inflation",
+          "Rate Hike",
+          "Crypto",
+          "AI",
+          "Regulation",
+          "Bankruptcy");
+
+  private static final int QUALITY_THRESHOLD = 15; // Minimum score to be indexed
+
+  @Value("${fmp.api.key}")
   private String apiKey;
 
   public NewsHighlightService(
@@ -50,25 +89,35 @@ public class NewsHighlightService {
     this.restTemplate = new RestTemplate();
   }
 
-  public List<NewsHighlight> getLatestHighlights() {
-    return repository.findTop10ByOrderByPublishedAtDesc();
+  /** Retrieves paginated highlights for infinite scrolling. */
+  public Page<NewsHighlight> getHighlights(Pageable pageable) {
+    return repository.findAllByOrderByPublishedAtDesc(pageable);
   }
 
-  @Scheduled(fixedRate = 15, timeUnit = TimeUnit.MINUTES)
+  @Scheduled(fixedRate = 30, timeUnit = TimeUnit.MINUTES) // Run every 30 mins
   @Transactional
   public void fetchAndStoreNews() {
-    logger.info("Starting Enterprise News Ingestion...");
+    logger.info("Starting Enterprise News Intelligence Cycle...");
     try {
-      // 1. Fetch from FMP API
+      // 1. Fetch Larger Batch (50 items) to allow for aggressive filtering
       String url =
-          "https://financialmodelingprep.com/api/v3/fmp/articles?page=0&size=10&apikey=" + apiKey;
+          "https://financialmodelingprep.com/api/v3/fmp/articles?page=0&size=50&apikey=" + apiKey;
       NewsArticleDto[] response = restTemplate.getForObject(url, NewsArticleDto[].class);
 
       List<NewsArticleDto> articles =
           (response != null) ? Arrays.asList(response) : new ArrayList<>();
 
+      int savedCount = 0;
+
       for (NewsArticleDto article : articles) {
         if (repository.existsByTitle(article.getTitle())) {
+          continue;
+        }
+
+        // 2. INTELLIGENCE CHECK: Calculate Relevance Score
+        int score = calculateRelevanceScore(article);
+        if (score < QUALITY_THRESHOLD) {
+          logger.debug("Skipping low-quality article: {} (Score: {})", article.getTitle(), score);
           continue;
         }
 
@@ -76,18 +125,15 @@ public class NewsHighlightService {
         entity.setTitle(article.getTitle());
         entity.setLink(article.getLink());
         entity.setSource(article.getSource());
-
-        // FIXED: Date Parsing Logic
         entity.setPublishedAt(parseDate(article.getDate()));
 
-        // --- IMAGE OPTIMIZATION PIPELINE ---
+        // 3. MEDIA PIPELINE
         String rawImageUrl = article.getImage();
         if (rawImageUrl == null || rawImageUrl.isEmpty()) {
           rawImageUrl = scrapeImageFromArticle(article.getLink());
         }
 
         if (rawImageUrl != null && !rawImageUrl.isEmpty()) {
-          // Optimized: Resize -> Compress -> Internal Store
           String internalUrl = processAndStoreImage(rawImageUrl);
           entity.setImageUrl(internalUrl != null ? internalUrl : rawImageUrl);
         } else {
@@ -95,10 +141,44 @@ public class NewsHighlightService {
         }
 
         repository.save(entity);
+        savedCount++;
       }
+      logger.info(
+          "Intelligence Cycle Complete. Processed: {}, Indexed: {}", articles.size(), savedCount);
+
     } catch (Exception e) {
       logger.error("News Ingestion Failed: {}", e.getMessage());
     }
+  }
+
+  /** Enterprise Scoring Algorithm Determines if a piece of news is "Front Page Worthy" */
+  private int calculateRelevanceScore(NewsArticleDto article) {
+    int score = 0;
+
+    // Rule 1: Trusted Source Authority (+10)
+    if (article.getSource() != null && TRUSTED_SOURCES.contains(article.getSource())) {
+      score += 10;
+    }
+
+    // Rule 2: Impact Keywords (+5 per keyword)
+    String titleLower = article.getTitle().toLowerCase();
+    for (String keyword : IMPACT_KEYWORDS) {
+      if (titleLower.contains(keyword.toLowerCase())) {
+        score += 5;
+      }
+    }
+
+    // Rule 3: Visual Appeal (+5)
+    if (article.getImage() != null && !article.getImage().isEmpty()) {
+      score += 5;
+    }
+
+    // Rule 4: HTML Content Penalty (-100) -> FMP sometimes sends raw HTML garbage
+    if (article.getTitle().contains("<") || article.getTitle().contains("{")) {
+      score -= 100;
+    }
+
+    return score;
   }
 
   private LocalDateTime parseDate(String dateStr) {
@@ -106,15 +186,12 @@ public class NewsHighlightService {
       return LocalDateTime.now();
     }
     try {
-      // Try standard SQL format first (Common in FMP: 2025-12-09 10:30:00)
       DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
       return LocalDateTime.parse(dateStr, formatter);
     } catch (Exception e) {
       try {
-        // Try ISO format fallback
         return LocalDateTime.parse(dateStr, DateTimeFormatter.ISO_DATE_TIME);
       } catch (Exception ex) {
-        // Fallback to current time if parsing fails
         return LocalDateTime.now();
       }
     }
@@ -128,7 +205,6 @@ public class NewsHighlightService {
         return null;
       }
 
-      // Resize Logic
       int targetWidth = 800;
       int originalWidth = originalImage.getWidth();
       int originalHeight = originalImage.getHeight();
@@ -150,7 +226,6 @@ public class NewsHighlightService {
       g.drawImage(originalImage, 0, 0, targetWidth, originalHeight, null);
       g.dispose();
 
-      // Compress Logic
       ByteArrayOutputStream os = new ByteArrayOutputStream();
       Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpg");
       if (!writers.hasNext()) {
@@ -168,9 +243,7 @@ public class NewsHighlightService {
       }
       writer.dispose();
 
-      // Store Logic
       String filename = "news-" + UUID.randomUUID() + ".jpg";
-      // Calls the OVERLOADED method in FileStorageService
       return fileStorageService.storeFile(
           new ByteArrayInputStream(os.toByteArray()), filename, "image/jpeg");
 

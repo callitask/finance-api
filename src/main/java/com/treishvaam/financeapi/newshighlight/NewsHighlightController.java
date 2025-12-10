@@ -1,6 +1,9 @@
 package com.treishvaam.financeapi.newshighlight;
 
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -9,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/market/news") // FIXED: Added /v1 to match SecurityConfig
+@RequestMapping("/api/v1/market/news")
 public class NewsHighlightController {
 
   private final NewsHighlightService newsHighlightService;
@@ -19,13 +22,18 @@ public class NewsHighlightController {
   }
 
   @GetMapping("/highlights")
-  public ResponseEntity<List<NewsHighlight>> getNewsHighlights() {
-    return ResponseEntity.ok(newsHighlightService.getLatestHighlights());
+  public ResponseEntity<List<NewsHighlight>> getNewsHighlights(
+      @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "12") int size) {
+    Pageable pageable = PageRequest.of(page, size);
+    Page<NewsHighlight> newsPage = newsHighlightService.getHighlights(pageable);
+    return ResponseEntity.ok(newsPage.getContent());
   }
 
   @GetMapping("/archived")
-  public ResponseEntity<List<NewsHighlight>> getArchivedNews() {
-    return ResponseEntity.ok(newsHighlightService.getLatestHighlights());
+  public ResponseEntity<Page<NewsHighlight>> getArchivedNews(
+      @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+    Pageable pageable = PageRequest.of(page, size);
+    return ResponseEntity.ok(newsHighlightService.getHighlights(pageable));
   }
 
   @PostMapping("/fetch")
