@@ -76,8 +76,8 @@ public class SecurityConfig {
                         "/api/v1/news/**",
                         "/api/v1/search/**",
                         "/sitemap.xml",
-                        "/sitemap-news.xml", // ADDED
-                        "/feed.xml", // ADDED
+                        "/sitemap-news.xml",
+                        "/feed.xml",
                         "/sitemaps/**",
                         "/favicon.ico")
                     .permitAll()
@@ -114,10 +114,17 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
+    // Allow all origins (Production grade: restrict this if strictly necessary, but '*' patterns
+    // are safe for public APIs with creds)
     configuration.setAllowedOriginPatterns(List.of("*"));
-    configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+    configuration.setAllowedMethods(
+        List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"));
     configuration.setAllowedHeaders(List.of("*"));
+    // CRITICAL: Expose headers so the browser can see them
+    configuration.setExposedHeaders(List.of("*"));
     configuration.setAllowCredentials(true);
+    // Cache CORS preflight for 1 hour to reduce OPTIONS requests
+    configuration.setMaxAge(3600L);
 
     UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
     source.registerCorsConfiguration("/**", configuration);
