@@ -1,0 +1,100 @@
+$content = @"
+# ===================================================================
+# TREISHVAAM FINANCE - GLOBAL CONFIGURATION
+# ===================================================================
+
+global:
+  storageClass: "local-path" # Uses local storage on your VM (K3s default)
+
+# --- 1. BACKEND CONFIGURATION ---
+backend:
+  enabled: true
+  replicaCount: 2 # High Availability (starts with 2 pods)
+  image:
+    repository: ghcr.io/callitask/finance-api
+    pullPolicy: Always
+    tag: "latest"
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+  env:
+    # Vault Integration (Points to the Vault Service inside K8s)
+    SPRING_CLOUD_VAULT_URI: "http://treishvaam-global-vault:8200"
+    SPRING_PROFILES_ACTIVE: "prod"
+
+# --- 2. FRONTEND CONFIGURATION ---
+frontend:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: owasp/modsecurity-crs
+    tag: "nginx"
+  service:
+    type: ClusterIP
+    port: 80
+
+# --- 3. INGRESS (Routing) ---
+ingress:
+  enabled: true
+  className: "traefik"
+  hosts:
+    - host: treishfin.treishvaamgroup.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: frontend
+        - path: /api
+          pathType: Prefix
+          service: backend
+    - host: backend.treishvaamgroup.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: backend
+
+# --- 4. DEPENDENCY CONFIGURATION ---
+
+mariadb:
+  enabled: true
+  auth:
+    rootPassword: "strong_root_password"
+    database: "finance_db"
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+
+rabbitmq:
+  enabled: true
+  auth:
+    username: guest
+    password: guest
+
+keycloak:
+  enabled: true
+  auth:
+    adminUser: admin
+    adminPassword: "admin_password"
+  service:
+    type: ClusterIP
+
+vault:
+  enabled: true
+  server:
+    dev:
+      enabled: true # Dev mode for easy migration (stores secrets in memory)
+"@
+Set-Content -Path "k8s\charts\treishvaam-global\values.yaml" -Value $content

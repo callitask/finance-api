@@ -1,0 +1,28 @@
+$content = @"
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-ingress
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ $.Release.Name }}-{{ .service }}
+                port:
+                  number: {{ if eq .service "backend" }}8080{{ else }}80{{ end }}
+          {{- end }}
+    {{- end }}
+{{- end }}
+"@
+Set-Content -Path "k8s\charts\treishvaam-global\templates\ingress.yaml" -Value $content
