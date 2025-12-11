@@ -11,6 +11,8 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -30,6 +32,12 @@ public class SecurityConfig {
       InternalSecretFilter internalSecretFilter, RateLimitingFilter rateLimitingFilter) {
     this.internalSecretFilter = internalSecretFilter;
     this.rateLimitingFilter = rateLimitingFilter;
+  }
+
+  // --- FIX: Restore PasswordEncoder for DataInitializer ---
+  @Bean
+  public PasswordEncoder passwordEncoder() {
+    return new BCryptPasswordEncoder();
   }
 
   @Bean
@@ -65,7 +73,7 @@ public class SecurityConfig {
                         "/favicon.ico")
                     .permitAll()
                     .requestMatchers(
-                        "/api/v1/auth/**", // Auth endpoint might still be used for user info lookup
+                        "/api/v1/auth/**",
                         "/api/v1/contact/**",
                         "/api/v1/market/quotes/batch",
                         "/api/v1/market/widget",
@@ -75,11 +83,8 @@ public class SecurityConfig {
                     .permitAll()
 
                     // --- 3. Protected Endpoints (RBAC) ---
-                    // Analytics: Only Analyst and Admin
                     .requestMatchers("/api/v1/analytics/**")
                     .hasAnyRole("ANALYST", "ADMIN")
-
-                    // Publishing: Only Publisher and Admin
                     .requestMatchers(
                         "/api/v1/posts/admin/publish/**",
                         "/api/v1/posts/admin/delete/**",
@@ -88,20 +93,15 @@ public class SecurityConfig {
                         "/api/v1/admin/actions/**",
                         "/api/v1/files/upload")
                     .hasAnyRole("PUBLISHER", "ADMIN")
-
-                    // Editing: Editor, Publisher, and Admin
                     .requestMatchers(
                         "/api/v1/posts/draft", "/api/v1/posts/draft/**", "/api/v1/posts/admin/**")
                     .hasAnyRole("EDITOR", "PUBLISHER", "ADMIN")
-
-                    // Default Fallback
                     .anyRequest()
                     .authenticated())
         .oauth2ResourceServer(
             oauth2 ->
                 oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
 
-    // --- ORDER MATTERS: RateLimit -> InternalSecret -> OAuth2 (handled by FilterChain) ---
     http.addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class);
     http.addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class);
 
