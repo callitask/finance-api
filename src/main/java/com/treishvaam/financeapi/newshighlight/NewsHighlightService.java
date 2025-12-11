@@ -28,6 +28,8 @@ import org.jsoup.nodes.Element;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -79,6 +81,7 @@ public class NewsHighlightService {
 
   private static final int QUALITY_THRESHOLD = 15;
 
+  // FIX: Removed backslash '\' for valid Java syntax
   @Value("${fmp.api.key}")
   private String apiKey;
 
@@ -89,14 +92,20 @@ public class NewsHighlightService {
     this.restTemplate = new RestTemplate();
   }
 
-  // CHANGED: Now fetches only "Hot" (non-archived) data
+  // --- COLD START BOOTSTRAPPER ---
+  // If the DB is empty on startup, fetch news immediately.
+  @EventListener(ApplicationReadyEvent.class)
+  public void onStartup() {
+    if (repository.count() == 0) {
+      logger.info("Fresh Database Detected. Triggering Initial News Intelligence Cycle...");
+      fetchAndStoreNews();
+    }
+  }
+
   public Page<NewsHighlight> getHighlights(Pageable pageable) {
     return repository.findByIsArchivedFalseOrderByPublishedAtDesc(pageable);
   }
 
-  // --- ARCHIVAL ROUTINE ---
-  // Runs every day at midnight.
-  // Moves articles older than 3 days to "Cold Storage" (isArchived=true).
   @Scheduled(cron = "0 0 0 * * *")
   @Transactional
   public void archiveOldNews() {
@@ -132,7 +141,7 @@ public class NewsHighlightService {
         entity.setLink(article.getLink());
         entity.setSource(article.getSource());
         entity.setPublishedAt(parseDate(article.getDate()));
-        entity.setArchived(false); // Explicitly set as Hot Data
+        entity.setArchived(false);
 
         String rawImageUrl = article.getImage();
         if (rawImageUrl == null || rawImageUrl.isEmpty()) {
