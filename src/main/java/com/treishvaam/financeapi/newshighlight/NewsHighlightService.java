@@ -26,6 +26,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -61,7 +62,6 @@ public class NewsHighlightService {
           "moneycontrol",
           "livemint");
 
-  // Maximum number of news items to show on the site (Active Window)
   private static final int MAX_ACTIVE_NEWS = 50;
 
   @Value("${newsdata.api.key}")
@@ -87,10 +87,10 @@ public class NewsHighlightService {
     return repository.findByIsArchivedFalseOrderByPublishedAtDesc(pageable);
   }
 
-  // --- INTELLIGENCE CYCLE (Every 1 Hour) ---
-  // 10 credits per fetch. 24 fetches/day = 240 credits max (adjusts within free tier)
+  // --- INTELLIGENCE CYCLE ---
+  // Removed @Transactional from method level to handle individual save failures (duplicates)
+  // gracefully
   @Scheduled(fixedRate = 1, timeUnit = TimeUnit.HOURS)
-  @Transactional
   public void fetchAndStoreNews() {
     logger.info("Starting Enterprise News Intelligence Cycle (NewsData.io)...");
 
@@ -100,7 +100,6 @@ public class NewsHighlightService {
     }
 
     try {
-      // Fetch Business News in English
       String url =
           "https://newsdata.io/api/1/news?apikey="
               + apiKey
@@ -117,55 +116,55 @@ public class NewsHighlightService {
       int savedCount = 0;
 
       for (NewsDataArticle article : articles) {
-        // 1. Deduplication
+        // 1. First Check (Fast)
         if (repository.existsByLink(article.getLink())
             || repository.existsByTitle(article.getTitle())) {
           continue;
         }
 
-        // 2. Strict Source Filtering
         if (!isValidSource(article)) {
           continue;
         }
 
-        // 3. Entity Mapping
         NewsHighlight entity = new NewsHighlight();
         entity.setTitle(cleanTitle(article.getTitle()));
         entity.setLink(article.getLink());
         entity.setDescription(article.getDescription());
-        // Use source_id as source name if available
         entity.setSource(
             article.getSourceId() != null ? article.getSourceId().toUpperCase() : "NEWS");
         entity.setPublishedAt(parseDate(article.getPubDate()));
-        entity.setArchived(false); // New news is always active
+        entity.setArchived(false);
 
-        // 4. Image Optimization (Self-Hosted)
         if (article.getImageUrl() != null && !article.getImageUrl().isEmpty()) {
-          // Download and optimize image to prevent hotlink blocks
           String internalUrl = processAndStoreImage(article.getImageUrl());
           entity.setImageUrl(internalUrl != null ? internalUrl : null);
-        } else {
-          entity.setImageUrl(null);
         }
 
-        repository.save(entity);
-        savedCount++;
+        // 2. Safe Save (Handle Race Conditions from Replicas)
+        try {
+          repository.save(entity);
+          savedCount++;
+        } catch (DataIntegrityViolationException e) {
+          // Another replica saved it first. Ignore.
+          logger.debug("Duplicate entry ignored: {}", article.getTitle());
+        }
       }
 
-      logger.info(
-          "Intelligence Cycle Complete. Fetched: {}, Indexed: {}", articles.size(), savedCount);
-
-      // 5. Enforce Active Window (Auto-Archival)
-      enforceActiveWindow();
+      if (savedCount > 0) {
+        logger.info(
+            "Intelligence Cycle Complete. Fetched: {}, Indexed: {}", articles.size(), savedCount);
+        enforceActiveWindow();
+      } else {
+        logger.info("Intelligence Cycle Complete. No new unique articles found.");
+      }
 
     } catch (Exception e) {
-      logger.error("News Ingestion Failed: {}", e.getMessage());
+      logger.error("News Ingestion Cycle Error: {}", e.getMessage());
     }
   }
 
   private boolean isValidSource(NewsDataArticle article) {
     if (article.getSourceId() == null) return false;
-    // Check if the source_id matches our trusted list (partial match allowed for safety)
     String sourceId = article.getSourceId().toLowerCase();
     for (String trusted : TRUSTED_SOURCE_IDS) {
       if (sourceId.contains(trusted)) return true;
@@ -175,19 +174,17 @@ public class NewsHighlightService {
 
   private String cleanTitle(String title) {
     if (title == null) return "Market Update";
-    // Remove generic suffixes often found in titles
     return title.split(" - ")[0];
   }
 
-  /** Ensures we only keep MAX_ACTIVE_NEWS (50) visible. Everything else is marked as archived. */
-  private void enforceActiveWindow() {
+  // Moved Transactional here to keep the cleanup atomic
+  @Transactional
+  protected void enforceActiveWindow() {
     long activeCount = repository.countByIsArchivedFalse();
     if (activeCount > MAX_ACTIVE_NEWS) {
       long toArchiveCount = activeCount - MAX_ACTIVE_NEWS;
-      // Find the oldest active ones
       List<NewsHighlight> oldNews =
           repository.findOldestActive(PageRequest.of(0, (int) toArchiveCount));
-
       for (NewsHighlight news : oldNews) {
         news.setArchived(true);
       }
@@ -199,7 +196,6 @@ public class NewsHighlightService {
   private LocalDateTime parseDate(String dateStr) {
     if (dateStr == null || dateStr.isEmpty()) return LocalDateTime.now();
     try {
-      // NewsData.io format: "2022-11-16 14:32:00"
       DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
       return LocalDateTime.parse(dateStr, formatter);
     } catch (Exception e) {
@@ -239,7 +235,7 @@ public class NewsHighlightService {
       ImageWriter writer = writers.next();
       ImageWriteParam param = writer.getDefaultWriteParam();
       param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
-      param.setCompressionQuality(0.70f); // Good compression for thumbnails
+      param.setCompressionQuality(0.70f);
 
       try (ImageOutputStream ios = ImageIO.createImageOutputStream(os)) {
         writer.setOutput(ios);
@@ -252,7 +248,6 @@ public class NewsHighlightService {
           new ByteArrayInputStream(os.toByteArray()), filename, "image/jpeg");
 
     } catch (Exception e) {
-      // If image download fails, return null so we just don't have an image (better than crashing)
       return null;
     }
   }
