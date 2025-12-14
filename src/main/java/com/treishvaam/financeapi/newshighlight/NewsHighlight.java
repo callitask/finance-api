@@ -5,11 +5,17 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "news_highlights") // FIXED: Plural name to match Database
+@Table(
+    name = "news_highlights",
+    indexes = {
+      @Index(name = "idx_news_archived_published", columnList = "is_archived, published_at"),
+      @Index(name = "idx_news_link", columnList = "link", unique = true)
+    })
 public class NewsHighlight {
 
   @Id
@@ -18,6 +24,10 @@ public class NewsHighlight {
 
   @Column(nullable = false, length = 500)
   private String title;
+
+  // Description for SEO/Preview text
+  @Column(columnDefinition = "TEXT")
+  private String description;
 
   @Column(nullable = false, length = 1000)
   private String link;
@@ -51,6 +61,14 @@ public class NewsHighlight {
 
   public void setTitle(String title) {
     this.title = title;
+  }
+
+  public String getDescription() {
+    return description;
+  }
+
+  public void setDescription(String description) {
+    this.description = description;
   }
 
   public String getLink() {

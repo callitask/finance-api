@@ -1,17 +1,16 @@
 package com.treishvaam.financeapi.newshighlight;
 
+import com.treishvaam.financeapi.newshighlight.dto.NewsDataArticle;
+import com.treishvaam.financeapi.newshighlight.dto.NewsDataResponse;
 import com.treishvaam.financeapi.service.FileStorageService;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.net.URL;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -22,15 +21,13 @@ import javax.imageio.ImageIO;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
 import javax.imageio.stream.ImageOutputStream;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -45,44 +42,29 @@ public class NewsHighlightService {
   private final FileStorageService fileStorageService;
   private final RestTemplate restTemplate;
 
-  // --- INTELLIGENCE ENGINE CONFIGURATION ---
-  private static final Set<String> TRUSTED_SOURCES =
+  // --- TIER 1 TRUSTED SOURCES (AllowList) ---
+  private static final Set<String> TRUSTED_SOURCE_IDS =
       Set.of(
-          "Bloomberg",
-          "Reuters",
-          "CNBC",
-          "Wall Street Journal",
-          "Financial Times",
-          "Yahoo Finance",
-          "MarketWatch",
-          "Forbes",
-          "Business Insider",
-          "The Guardian",
-          "BBC News",
-          "TechCrunch");
+          "bloomberg",
+          "reuters",
+          "cnbc",
+          "wsj",
+          "financial_times",
+          "yahoofinance",
+          "marketwatch",
+          "forbes",
+          "businessinsider",
+          "theguardian",
+          "bbc",
+          "techcrunch",
+          "economictimes",
+          "moneycontrol",
+          "livemint");
 
-  private static final Set<String> IMPACT_KEYWORDS =
-      Set.of(
-          "Earnings",
-          "Fed",
-          "Acquisition",
-          "Merger",
-          "IPO",
-          "Crisis",
-          "Surge",
-          "Plunge",
-          "Recession",
-          "Inflation",
-          "Rate Hike",
-          "Crypto",
-          "AI",
-          "Regulation",
-          "Bankruptcy");
+  // Maximum number of news items to show on the site (Active Window)
+  private static final int MAX_ACTIVE_NEWS = 50;
 
-  private static final int QUALITY_THRESHOLD = 15;
-
-  // FIX: Removed backslash '\' for valid Java syntax
-  @Value("${fmp.api.key}")
+  @Value("${newsdata.api.key}")
   private String apiKey;
 
   public NewsHighlightService(
@@ -93,7 +75,6 @@ public class NewsHighlightService {
   }
 
   // --- COLD START BOOTSTRAPPER ---
-  // If the DB is empty on startup, fetch news immediately.
   @EventListener(ApplicationReadyEvent.class)
   public void onStartup() {
     if (repository.count() == 0) {
@@ -106,51 +87,63 @@ public class NewsHighlightService {
     return repository.findByIsArchivedFalseOrderByPublishedAtDesc(pageable);
   }
 
-  @Scheduled(cron = "0 0 0 * * *")
-  @Transactional
-  public void archiveOldNews() {
-    LocalDateTime cutoff = LocalDateTime.now().minusDays(3);
-    int archivedCount = repository.archiveOldNews(cutoff);
-    logger.info("Executed Daily News Archival. Moved {} articles to archive.", archivedCount);
-  }
-
-  @Scheduled(fixedRate = 30, timeUnit = TimeUnit.MINUTES)
+  // --- INTELLIGENCE CYCLE (Every 1 Hour) ---
+  // 10 credits per fetch. 24 fetches/day = 240 credits max (adjusts within free tier)
+  @Scheduled(fixedRate = 1, timeUnit = TimeUnit.HOURS)
   @Transactional
   public void fetchAndStoreNews() {
-    logger.info("Starting Enterprise News Intelligence Cycle...");
+    logger.info("Starting Enterprise News Intelligence Cycle (NewsData.io)...");
+
+    if (apiKey == null || apiKey.contains("your_key")) {
+      logger.warn("NewsData API Key is missing. Skipping fetch.");
+      return;
+    }
+
     try {
+      // Fetch Business News in English
       String url =
-          "https://financialmodelingprep.com/api/v3/fmp/articles?page=0&size=50&apikey=" + apiKey;
-      NewsArticleDto[] response = restTemplate.getForObject(url, NewsArticleDto[].class);
-      List<NewsArticleDto> articles =
-          (response != null) ? Arrays.asList(response) : new ArrayList<>();
+          "https://newsdata.io/api/1/news?apikey="
+              + apiKey
+              + "&category=business&language=en&country=us,in,gb";
+
+      NewsDataResponse response = restTemplate.getForObject(url, NewsDataResponse.class);
+
+      if (response == null || !"success".equals(response.getStatus())) {
+        logger.error("NewsData API returned invalid status: {}", response);
+        return;
+      }
+
+      List<NewsDataArticle> articles = response.getResults();
       int savedCount = 0;
 
-      for (NewsArticleDto article : articles) {
-        if (repository.existsByTitle(article.getTitle())) {
+      for (NewsDataArticle article : articles) {
+        // 1. Deduplication
+        if (repository.existsByLink(article.getLink())
+            || repository.existsByTitle(article.getTitle())) {
           continue;
         }
 
-        int score = calculateRelevanceScore(article);
-        if (score < QUALITY_THRESHOLD) {
+        // 2. Strict Source Filtering
+        if (!isValidSource(article)) {
           continue;
         }
 
+        // 3. Entity Mapping
         NewsHighlight entity = new NewsHighlight();
-        entity.setTitle(article.getTitle());
+        entity.setTitle(cleanTitle(article.getTitle()));
         entity.setLink(article.getLink());
-        entity.setSource(article.getSource());
-        entity.setPublishedAt(parseDate(article.getDate()));
-        entity.setArchived(false);
+        entity.setDescription(article.getDescription());
+        // Use source_id as source name if available
+        entity.setSource(
+            article.getSourceId() != null ? article.getSourceId().toUpperCase() : "NEWS");
+        entity.setPublishedAt(parseDate(article.getPubDate()));
+        entity.setArchived(false); // New news is always active
 
-        String rawImageUrl = article.getImage();
-        if (rawImageUrl == null || rawImageUrl.isEmpty()) {
-          rawImageUrl = scrapeImageFromArticle(article.getLink());
-        }
-
-        if (rawImageUrl != null && !rawImageUrl.isEmpty()) {
-          String internalUrl = processAndStoreImage(rawImageUrl);
-          entity.setImageUrl(internalUrl != null ? internalUrl : rawImageUrl);
+        // 4. Image Optimization (Self-Hosted)
+        if (article.getImageUrl() != null && !article.getImageUrl().isEmpty()) {
+          // Download and optimize image to prevent hotlink blocks
+          String internalUrl = processAndStoreImage(article.getImageUrl());
+          entity.setImageUrl(internalUrl != null ? internalUrl : null);
         } else {
           entity.setImageUrl(null);
         }
@@ -158,37 +151,59 @@ public class NewsHighlightService {
         repository.save(entity);
         savedCount++;
       }
+
       logger.info(
-          "Intelligence Cycle Complete. Processed: {}, Indexed: {}", articles.size(), savedCount);
+          "Intelligence Cycle Complete. Fetched: {}, Indexed: {}", articles.size(), savedCount);
+
+      // 5. Enforce Active Window (Auto-Archival)
+      enforceActiveWindow();
 
     } catch (Exception e) {
       logger.error("News Ingestion Failed: {}", e.getMessage());
     }
   }
 
-  private int calculateRelevanceScore(NewsArticleDto article) {
-    int score = 0;
-    if (article.getSource() != null && TRUSTED_SOURCES.contains(article.getSource())) score += 10;
-    String titleLower = article.getTitle().toLowerCase();
-    for (String keyword : IMPACT_KEYWORDS) {
-      if (titleLower.contains(keyword.toLowerCase())) score += 5;
+  private boolean isValidSource(NewsDataArticle article) {
+    if (article.getSourceId() == null) return false;
+    // Check if the source_id matches our trusted list (partial match allowed for safety)
+    String sourceId = article.getSourceId().toLowerCase();
+    for (String trusted : TRUSTED_SOURCE_IDS) {
+      if (sourceId.contains(trusted)) return true;
     }
-    if (article.getImage() != null && !article.getImage().isEmpty()) score += 5;
-    if (article.getTitle().contains("<") || article.getTitle().contains("{")) score -= 100;
-    return score;
+    return false;
+  }
+
+  private String cleanTitle(String title) {
+    if (title == null) return "Market Update";
+    // Remove generic suffixes often found in titles
+    return title.split(" - ")[0];
+  }
+
+  /** Ensures we only keep MAX_ACTIVE_NEWS (50) visible. Everything else is marked as archived. */
+  private void enforceActiveWindow() {
+    long activeCount = repository.countByIsArchivedFalse();
+    if (activeCount > MAX_ACTIVE_NEWS) {
+      long toArchiveCount = activeCount - MAX_ACTIVE_NEWS;
+      // Find the oldest active ones
+      List<NewsHighlight> oldNews =
+          repository.findOldestActive(PageRequest.of(0, (int) toArchiveCount));
+
+      for (NewsHighlight news : oldNews) {
+        news.setArchived(true);
+      }
+      repository.saveAll(oldNews);
+      logger.info("Auto-Archived {} old news articles.", oldNews.size());
+    }
   }
 
   private LocalDateTime parseDate(String dateStr) {
     if (dateStr == null || dateStr.isEmpty()) return LocalDateTime.now();
     try {
+      // NewsData.io format: "2022-11-16 14:32:00"
       DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
       return LocalDateTime.parse(dateStr, formatter);
     } catch (Exception e) {
-      try {
-        return LocalDateTime.parse(dateStr, DateTimeFormatter.ISO_DATE_TIME);
-      } catch (Exception ex) {
-        return LocalDateTime.now();
-      }
+      return LocalDateTime.now();
     }
   }
 
@@ -224,7 +239,7 @@ public class NewsHighlightService {
       ImageWriter writer = writers.next();
       ImageWriteParam param = writer.getDefaultWriteParam();
       param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
-      param.setCompressionQuality(0.75f);
+      param.setCompressionQuality(0.70f); // Good compression for thumbnails
 
       try (ImageOutputStream ios = ImageIO.createImageOutputStream(os)) {
         writer.setOutput(ios);
@@ -237,21 +252,7 @@ public class NewsHighlightService {
           new ByteArrayInputStream(os.toByteArray()), filename, "image/jpeg");
 
     } catch (Exception e) {
-      logger.warn("Image Optimization Skipped: {}", e.getMessage());
-      return null;
-    }
-  }
-
-  private String scrapeImageFromArticle(String articleUrl) {
-    try {
-      Document doc =
-          Jsoup.connect(articleUrl)
-              .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-              .timeout(3000)
-              .get();
-      Element og = doc.selectFirst("meta[property=og:image]");
-      return (og != null) ? og.attr("content") : null;
-    } catch (IOException e) {
+      // If image download fails, return null so we just don't have an image (better than crashing)
       return null;
     }
   }
