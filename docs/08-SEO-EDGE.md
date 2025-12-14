@@ -3,11 +3,18 @@
 ## 1. Edge Rendering Strategy
 The Cloudflare Worker intercepts requests to `/category/` URLs and injects SEO-critical Schema.org and meta tags directly into the HTML before the React app loads. This Edge-Side Rendering ensures that search engines and social media crawlers receive rich metadata and structured data, improving SEO and link previews even if the backend is slow or down.
 
+### Flow Overview
+1. Requests to `/category/` are intercepted at the edge.
+2. The Worker fetches blog post data from the backend API.
+3. It generates and injects JSON-LD schemas (`NewsArticle` or `BlogPosting`, plus `BreadcrumbList` and `VideoObject` if needed) and updates meta tags in the HTML response.
+4. The modified HTML is returned to the client or crawler before the React app loads.
+
 ## 2. High Availability Robots.txt (Edge-Served)
 Requests to `/robots.txt` are handled entirely at the edge. The Worker serves a static, always-available robots.txt that:
 - Allows Googlebot and other crawlers to access public API endpoints for content rendering.
 - Disallows indexing of sensitive paths (auth, admin, dashboard, internal search).
 - Always includes a valid Sitemap reference.
+- **Note:** The static robots.txt file was deleted from the backend; it is now hardcoded and served directly from the Cloudflare Worker for high availability.
 This ensures that even if the backend is unavailable, search engines can still crawl and index the site correctly.
 
 ## 3. Sitemap Proxying
@@ -24,4 +31,4 @@ The Worker injects JSON-LD schemas for:
 - For HTML requests, if the backend is unavailable, the Worker attempts to serve a cached HTML shell from Cloudflare's edge cache, ensuring the site remains available to users and bots.
 
 ---
-This document describes the Cloudflare Worker logic for SEO, edge rendering, and high-availability crawling for Treishvaam Finance.
+This document describes the Cloudflare Worker logic for SEO, edge rendering, and high-availability crawling for Treishvaam Finance, with a detailed flow of how requests are handled and SEO is injected at the edge.

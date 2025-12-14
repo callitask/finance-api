@@ -21,9 +21,24 @@
   - Circuit breakers and fallback methods ensure resilience if APIs or scripts fail.
 - **Smart Sync:**
   - Before fetching, the system checks the last date in the DB and only requests new data, reducing API calls and improving efficiency.
+- **Self-Healing Cold Start:**
+  - On application startup, the service listens for `ApplicationReadyEvent` and triggers a cold start sync if the market data tables are empty or stale, ensuring the system is always ready after downtime or redeployments.
 
 ## 3. Data Handling
 - Entities are mapped to DTOs using Jackson's `ObjectMapper` for serialization and deserialization, ensuring clean API responses and internal data consistency.
 
+## 4. ImageService
+- **Responsive Image Generation:**
+  - Uses Lanczos resampling for high-quality resizing and generates multiple responsive image sizes for each upload.
+  - Leverages Java virtual threads for parallel image processing, improving throughput and reducing latency for bulk uploads.
+  - All images are stored in MinIO and served via CDN URLs.
+
+## 5. SitemapGenerationService
+- **Google News Sitemap & RSS Feed Generation:**
+  - Generates `/sitemap.xml`, `/sitemap-news.xml`, and `/feed.xml` endpoints.
+  - Sitemaps are updated automatically on post publish/update events.
+  - Google News sitemap includes only posts from the last 48 hours, as per Google News requirements.
+  - RSS feed is compliant with major news aggregators.
+
 ---
-This document summarizes the core business logic and data synchronization strategies for blog and market data services.
+This document summarizes the core business logic and data synchronization strategies for blog, market data, image, and sitemap services.

@@ -3,7 +3,7 @@
 ## Backend Core & Security (Production)
 
 ### 1. Security Architecture
-The application uses a `SecurityFilterChain` to define endpoint access:
+The application now uses **Keycloak (OIDC/OAuth2)** for authentication and authorization, replacing the legacy custom JWT filter. All authentication flows are handled via Keycloak, and user roles are mapped using a `KeycloakRealmRoleConverter` for Spring Security RBAC. The custom JWT filter has been fully removed.
 - **Public Endpoints**: No authentication required for:
   - `/actuator/**`, `/health` (metrics/health)
   - `GET` requests to `/api/v1/posts`, `/api/v1/posts/public/**`, `/api/v1/posts/url/**`, `/api/v1/categories`, `/api/v1/uploads/**`, `/api/v1/market/**`, `/api/v1/news/**`, `/api/v1/search/**`, `/sitemap.xml`, `/sitemap-news.xml`, `/feed.xml`, `/sitemaps/**`, `/favicon.ico`
@@ -15,15 +15,23 @@ The application uses a `SecurityFilterChain` to define endpoint access:
 - **All other endpoints** require authentication.
 
 ### 2. Authentication Flow
-- The backend uses `oauth2ResourceServer` with JWT support.
+- The backend uses `oauth2ResourceServer` with JWT support, fully integrated with Keycloak.
 - JWTs are validated and authorities are mapped using a custom `KeycloakRealmRoleConverter`, which translates Keycloak roles into Spring Security authorities for RBAC.
 
-### 3. CORS Configuration
+### 3. Rate Limiting (Bucket4j)
+- **Bucket4j** is used to enforce API rate limits per IP and/or user, protecting against brute-force and abuse.
+- Rate limits are configured in application properties and can be adjusted per endpoint or user role.
+
+### 4. Circuit Breakers (Resilience4j)
+- **Resilience4j** is used for circuit breaking, retries, and bulkheading on all external API calls (e.g., market data, news, email).
+- Circuit breaker configs are set in `application-prod.properties` and monitored via Actuator endpoints.
+
+### 5. CORS Configuration
 - Allowed origins: `https://treishfin.treishvaamgroup.com`, `http://localhost:3000`
 - Allowed methods: `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`, `HEAD`, `PATCH`
 - All headers and credentials are permitted; CORS is applied globally.
 
-### 4. Production Configuration (`application-prod.properties`)
+### 6. Production Configuration (`application-prod.properties`)
 Key configuration groups (secrets/values not shown):
 - **Base URL & Server**: `app.base-url`, `server.port`
 - **Vault Integration**: Loads secrets from HashiCorp Vault
@@ -32,15 +40,15 @@ Key configuration groups (secrets/values not shown):
 - **JPA**: Hibernate dialect, DDL mode
 - **Redis**: Host, port, cache TTL
 - **Elasticsearch**: URI, timeouts
-- **RabbitMQ**: Host, port, credentials, exchange
+- **RabbitMQ**: Host, port, credentials, exchange, DLX
 - **Logging**: File path for logs
 - **JSON Serialization**: Ensures ISO date strings
 
 This file overrides the default `application.properties` for production deployments.
 
-### 5. Caching
+### 7. Caching
 - The application uses `@EnableCaching` (in both the main application and a dedicated `CachingConfig` class).
 - **Redis** is configured as the cache provider, with custom serializers and TTLs for different cache groups (e.g., blog posts, market widgets, batch quotes).
 
 ---
-This configuration ensures secure, scalable, and observable backend operations in production.
+This configuration ensures secure, scalable, observable, and resilient backend operations in production, with modern IAM, rate limiting, and circuit breaking.

@@ -22,8 +22,8 @@ Treishvaam Finance is an enterprise-grade financial platform built with Spring B
 | [03-BACKEND-API.md](03-BACKEND-API.md) | API endpoints, controller logic, and request/response payload documentation. |
 | [04-BACKEND-SERVICES.md](04-BACKEND-SERVICES.md) | Business logic, service layer, schedulers, and external API integrations. |
 | [05-DATABASE-SCHEMA.md](05-DATABASE-SCHEMA.md) | Database schema, Liquibase changelogs, and entity relationship diagrams. |
-| [06-FRONTEND-ARCH.md](06-FRONTEND-ARCH.md) | Frontend architecture, state management, and integration patterns. |
-| [07-FRONTEND-COMPONENTS.md](07-FRONTEND-COMPONENTS.md) | UI components, design system, and reusable frontend modules. |
+| [06-FRONTEND-ARCH.md](https://github.com/YOUR_ORG/YOUR_FRONTEND_REPO/blob/main/docs/06-FRONTEND-ARCH.md) | Frontend architecture, state management, and integration patterns. |
+| [07-FRONTEND-COMPONENTS.md](https://github.com/YOUR_ORG/YOUR_FRONTEND_REPO/blob/main/docs/07-FRONTEND-COMPONENTS.md) | UI components, design system, and reusable frontend modules. |
 | [08-SEO-EDGE.md](08-SEO-EDGE.md) | SEO, edge logic, Cloudflare Worker, robots.txt, and sitemap generation. |
 | [09-DEPLOYMENT-OPS.md](09-DEPLOYMENT-OPS.md) | CI/CD pipelines, deployment automation, and monitoring/observability. |
 | [10-CHANGELOG.md](10-CHANGELOG.md) | Chronological log of project changes and release notes. |
