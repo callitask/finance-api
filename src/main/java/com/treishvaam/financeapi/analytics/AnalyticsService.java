@@ -10,7 +10,6 @@ import com.google.analytics.data.v1beta.RunReportResponse;
 import com.google.auth.oauth2.GoogleCredentials;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.IOException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -59,7 +58,9 @@ public class AnalyticsService {
       File credentialsFile = new File(credentialsPath);
       if (!credentialsFile.exists()) {
         logger.error("GA4 Credentials file not found at: {}", credentialsPath);
-        throw new IOException("GA4 Credentials file not found at: " + credentialsPath);
+        // We do not throw exception here to allow app to start even if GA4 fails
+        this.analyticsDataClient = null;
+        return;
       }
 
       GoogleCredentials credentials =
@@ -73,6 +74,8 @@ public class AnalyticsService {
       this.analyticsDataClient = BetaAnalyticsDataClient.create(settings);
       logger.info(
           "Google Analytics Data Client initialized successfully for Property: {}", propertyId);
+
+      // Perform initial fetch on startup
       initialHistoricalFetch();
 
     } catch (Exception e) {
@@ -122,19 +125,18 @@ public class AnalyticsService {
       return;
     }
 
-    // FIX: Swapped 'deviceCategory' for 'city' to stay at the 9-dimension limit.
+    // 9 dimensions limit in GA4 standard API
     List<Dimension> dimensions =
         List.of(
             Dimension.newBuilder().setName("date").build(), // 0
             Dimension.newBuilder().setName("sessionSource").build(), // 1
             Dimension.newBuilder().setName("country").build(), // 2
             Dimension.newBuilder().setName("region").build(), // 3
-            Dimension.newBuilder().setName("city").build(), // 4 (Added back)
+            Dimension.newBuilder().setName("city").build(), // 4
             Dimension.newBuilder().setName("operatingSystem").build(), // 5
             Dimension.newBuilder().setName("mobileDeviceModel").build(), // 6
             Dimension.newBuilder().setName("operatingSystemVersion").build(), // 7
             Dimension.newBuilder().setName("screenResolution").build() // 8
-            // 'deviceCategory' was removed
             );
 
     List<Metric> metrics =
@@ -178,65 +180,64 @@ public class AnalyticsService {
     for (com.google.analytics.data.v1beta.Row row : response.getRowsList()) {
       AudienceVisit visit = new AudienceVisit();
 
-      // Map dimensions based on the new 9-dimension list
-      visit.setSessionDate(
-          LocalDate.parse(
-              row.getDimensionValues(0).getValue(), DateTimeFormatter.ofPattern("yyyyMMdd")));
-      visit.setSessionSource(row.getDimensionValues(1).getValue());
-      visit.setCountry(row.getDimensionValues(2).getValue());
-      visit.setRegion(row.getDimensionValues(3).getValue());
-      visit.setCity(row.getDimensionValues(4).getValue()); // Added back
-      visit.setOperatingSystem(row.getDimensionValues(5).getValue());
+      try {
+        visit.setSessionDate(
+            LocalDate.parse(
+                row.getDimensionValues(0).getValue(), DateTimeFormatter.ofPattern("yyyyMMdd")));
+        visit.setSessionSource(row.getDimensionValues(1).getValue());
+        visit.setCountry(row.getDimensionValues(2).getValue());
+        visit.setRegion(row.getDimensionValues(3).getValue());
+        visit.setCity(row.getDimensionValues(4).getValue());
+        visit.setOperatingSystem(row.getDimensionValues(5).getValue());
+        visit.setDeviceModel(row.getDimensionValues(6).getValue());
+        visit.setOsVersion(row.getDimensionValues(7).getValue());
+        visit.setScreenResolution(row.getDimensionValues(8).getValue());
 
-      // Set removed/restricted fields
-      visit.setDeviceCategory("GA4 Restricted"); // Removed from query
-      visit.setLandingPage("GA4 Restricted");
-      visit.setClientId("GA4 Restricted");
-      visit.setSessionId("GA4 Restricted");
+        // Defaults for missing/restricted fields
+        visit.setDeviceCategory("Unknown");
+        visit.setLandingPage("Not available (GA4)");
+        visit.setClientId("Not available (GA4)");
+        visit.setSessionId("Not available (GA4)");
 
-      // Map the remaining dimensions
-      visit.setDeviceModel(row.getDimensionValues(6).getValue());
-      visit.setOsVersion(row.getDimensionValues(7).getValue());
-      visit.setScreenResolution(row.getDimensionValues(8).getValue());
+        visit.setViews(Long.valueOf(row.getMetricValues(0).getValue()).intValue());
+        visit.setSessionDurationSeconds(
+            Math.round(Double.parseDouble(row.getMetricValues(1).getValue())));
 
-      // Map metrics
-      visit.setViews(Long.valueOf(row.getMetricValues(0).getValue()).intValue());
-      visit.setSessionDurationSeconds(
-          Math.round(Double.parseDouble(row.getMetricValues(1).getValue())));
-
-      visits.add(visit);
+        visits.add(visit);
+      } catch (Exception e) {
+        logger.warn("Skipping malformed row from GA4: {}", e.getMessage());
+      }
     }
     return visits;
   }
 
-  /** Fetches historical data from the local database based on date range and dynamic filters. */
   public List<AudienceDataDto> getHistoricalData(
       LocalDate startDate, LocalDate endDate, AudienceFilter filters) {
 
+    // FIX: Removed deviceCategory argument to match Repository signature
     List<AudienceVisit> visits =
         audienceVisitRepository.findHistoricalDataWithFilters(
             startDate,
             endDate,
             filters.getCountry(),
             filters.getRegion(),
-            filters.getCity(), // Added back
-            // 'deviceCategory' removed
+            filters.getCity(),
             filters.getOperatingSystem(),
             filters.getOsVersion(),
             filters.getSessionSource());
+
     return visits.stream().map(this::mapEntityToDto).toList();
   }
 
-  /** Fetches distinct, dynamic filter options for the frontend dropdowns. */
   public FilterOptionsDto getFilterOptions(
       LocalDate startDate, LocalDate endDate, AudienceFilter filters) {
 
+    // FIX: Removed unnecessary nulls/arguments to match Repository signatures
     return FilterOptionsDto.builder()
         .countries(
             audienceVisitRepository.findDistinctCountries(
                 startDate,
                 endDate,
-                null,
                 filters.getRegion(),
                 filters.getCity(),
                 filters.getOperatingSystem(),
@@ -247,24 +248,19 @@ public class AnalyticsService {
                 startDate,
                 endDate,
                 filters.getCountry(),
-                null,
                 filters.getCity(),
                 filters.getOperatingSystem(),
                 filters.getOsVersion(),
                 filters.getSessionSource()))
         .cities(
-            audienceVisitRepository.findDistinctCities( // Added back
+            audienceVisitRepository.findDistinctCities(
                 startDate,
                 endDate,
                 filters.getCountry(),
                 filters.getRegion(),
-                null,
                 filters.getOperatingSystem(),
                 filters.getOsVersion(),
                 filters.getSessionSource()))
-
-        // 'deviceCategories' list removed
-
         .operatingSystems(
             audienceVisitRepository.findDistinctOperatingSystems(
                 startDate,
@@ -272,7 +268,6 @@ public class AnalyticsService {
                 filters.getCountry(),
                 filters.getRegion(),
                 filters.getCity(),
-                null,
                 filters.getOsVersion(),
                 filters.getSessionSource()))
         .osVersions(
@@ -283,7 +278,6 @@ public class AnalyticsService {
                 filters.getRegion(),
                 filters.getCity(),
                 filters.getOperatingSystem(),
-                null,
                 filters.getSessionSource()))
         .sessionSources(
             audienceVisitRepository.findDistinctSessionSources(
@@ -293,12 +287,10 @@ public class AnalyticsService {
                 filters.getRegion(),
                 filters.getCity(),
                 filters.getOperatingSystem(),
-                filters.getOsVersion(),
-                null))
+                filters.getOsVersion()))
         .build();
   }
 
-  /** Maps the JPA Entity to the DTO for presentation. */
   private AudienceDataDto mapEntityToDto(AudienceVisit entity) {
     return AudienceDataDto.builder()
         .id(entity.getId())
