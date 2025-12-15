@@ -4,7 +4,7 @@ import com.treishvaam.financeapi.config.CachingConfig;
 import com.treishvaam.financeapi.config.tenant.TenantContext;
 import com.treishvaam.financeapi.dto.BlogPostDto;
 import com.treishvaam.financeapi.dto.PostThumbnailDto;
-import com.treishvaam.financeapi.messaging.MessagePublisher; // IMPORTED
+import com.treishvaam.financeapi.messaging.MessagePublisher;
 import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.Category;
 import com.treishvaam.financeapi.model.PostStatus;
@@ -43,15 +43,11 @@ public class BlogPostServiceImpl implements BlogPostService {
 
   @Autowired private BlogPostRepository blogPostRepository;
 
-  // --- PHASE 3 CHANGE: Removed direct PostSearchRepository dependency ---
-
-  @Autowired private MessagePublisher messagePublisher; // --- PHASE 3 CHANGE: Added Publisher ---
+  @Autowired private MessagePublisher messagePublisher;
 
   @Autowired private CategoryRepository categoryRepository;
   @Autowired private ImageService imageService;
 
-  // ... (Helper methods generateUniqueId, generateUrlArticleId, generateUserFriendlySlug remain
-  // unchanged) ...
   private String generateUniqueId() {
     SecureRandom random = new SecureRandom();
     byte[] bytes = new byte[8];
@@ -77,7 +73,6 @@ public class BlogPostServiceImpl implements BlogPostService {
         .replaceAll("^-|-$", "");
   }
 
-  // ... (Read-only find methods remain unchanged) ...
   @Override
   public List<BlogPost> findAll() {
     return blogPostRepository.findAllByStatusOrderByCreatedAtDesc(PostStatus.PUBLISHED);
@@ -118,7 +113,6 @@ public class BlogPostServiceImpl implements BlogPostService {
     return blogPostRepository.findAllByStatusOrderByUpdatedAtDesc(PostStatus.DRAFT);
   }
 
-  // ... (Draft methods remain unchanged) ...
   @Override
   @Transactional
   public BlogPost createDraft(BlogPostDto blogPostDto) {
@@ -236,12 +230,21 @@ public class BlogPostServiceImpl implements BlogPostService {
       savedPost = blogPostRepository.save(savedPost);
     }
 
-    // --- PHASE 3 CHANGE: Async Processing ---
+    // --- PHASE 6 FIX: Robust Messaging Handling ---
+    // Wrapped in try-catch to prevent 500 Error if RabbitMQ is down
     if (savedPost.getStatus() == PostStatus.PUBLISHED) {
-      // 1. Trigger Search Indexing
-      messagePublisher.publishSearchIndexEvent(savedPost.getId(), "INDEX");
-      // 2. Trigger Sitemap Regeneration (This is heavy, so perfect for async)
-      messagePublisher.publishSitemapRegenerateEvent();
+      try {
+        // 1. Trigger Search Indexing
+        messagePublisher.publishSearchIndexEvent(savedPost.getId(), "INDEX");
+        // 2. Trigger Sitemap Regeneration
+        messagePublisher.publishSitemapRegenerateEvent();
+      } catch (Exception e) {
+        // Log the failure but DO NOT rollback the transaction
+        logger.error(
+            "Failed to publish async events for post ID: {}. Post was saved successfully.",
+            savedPost.getId(),
+            e);
+      }
     }
 
     return savedPost;
@@ -252,9 +255,13 @@ public class BlogPostServiceImpl implements BlogPostService {
   @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, allEntries = true)
   public void deleteById(Long id) {
     blogPostRepository.deleteById(id);
-    // --- PHASE 3 CHANGE: Async Delete from Search ---
-    messagePublisher.publishSearchIndexEvent(id, "DELETE");
-    messagePublisher.publishSitemapRegenerateEvent();
+    // --- PHASE 6 FIX: Robust Messaging Handling ---
+    try {
+      messagePublisher.publishSearchIndexEvent(id, "DELETE");
+      messagePublisher.publishSitemapRegenerateEvent();
+    } catch (Exception e) {
+      logger.error("Failed to publish delete events for post ID: {}", id, e);
+    }
   }
 
   @Override
@@ -263,11 +270,15 @@ public class BlogPostServiceImpl implements BlogPostService {
   public void deletePostsInBulk(List<Long> postIds) {
     if (postIds != null && !postIds.isEmpty()) {
       blogPostRepository.deleteByIdIn(postIds);
-      // --- PHASE 3 CHANGE: Async Bulk Delete ---
-      for (Long id : postIds) {
-        messagePublisher.publishSearchIndexEvent(id, "DELETE");
+      // --- PHASE 6 FIX: Robust Messaging Handling ---
+      try {
+        for (Long id : postIds) {
+          messagePublisher.publishSearchIndexEvent(id, "DELETE");
+        }
+        messagePublisher.publishSitemapRegenerateEvent();
+      } catch (Exception e) {
+        logger.error("Failed to publish bulk delete events", e);
       }
-      messagePublisher.publishSitemapRegenerateEvent();
     }
   }
 
@@ -285,16 +296,23 @@ public class BlogPostServiceImpl implements BlogPostService {
       }
       blogPostRepository.save(post);
 
-      // --- PHASE 3 CHANGE: Async Indexing for Scheduled Posts ---
-      messagePublisher.publishSearchIndexEvent(post.getId(), "INDEX");
-      logger.info("Published scheduled post with ID: {}", post.getId());
+      // --- PHASE 6 FIX: Robust Messaging Handling ---
+      try {
+        messagePublisher.publishSearchIndexEvent(post.getId(), "INDEX");
+        logger.info("Published scheduled post with ID: {}", post.getId());
+      } catch (Exception e) {
+        logger.error("Failed to publish index event for scheduled post: {}", post.getId(), e);
+      }
     }
     if (!postsToPublish.isEmpty()) {
-      messagePublisher.publishSitemapRegenerateEvent();
+      try {
+        messagePublisher.publishSitemapRegenerateEvent();
+      } catch (Exception e) {
+        logger.error("Failed to publish sitemap regeneration event", e);
+      }
     }
   }
 
-  // ... (Remaining methods remain unchanged) ...
   @Override
   public List<BlogPost> findAllByStatus(PostStatus status) {
     return blogPostRepository.findAllByStatusOrderByCreatedAtDesc(status);
@@ -354,7 +372,6 @@ public class BlogPostServiceImpl implements BlogPostService {
     newPost.setSlug(generateUniqueId());
     newPost.setUserFriendlySlug(generateUserFriendlySlug(newPost.getTitle()));
     newPost.setLayoutStyle(originalPost.getLayoutStyle());
-    // Simple logic for layout group duplication
     newPost.setLayoutGroupId(null);
     return blogPostRepository.save(newPost);
   }
