@@ -58,7 +58,6 @@ public class AnalyticsService {
       File credentialsFile = new File(credentialsPath);
       if (!credentialsFile.exists()) {
         logger.error("GA4 Credentials file not found at: {}", credentialsPath);
-        // We do not throw exception here to allow app to start even if GA4 fails
         this.analyticsDataClient = null;
         return;
       }
@@ -75,8 +74,12 @@ public class AnalyticsService {
       logger.info(
           "Google Analytics Data Client initialized successfully for Property: {}", propertyId);
 
-      // Perform initial fetch on startup
+      // 1. Try initial fetch (only if DB is empty)
       initialHistoricalFetch();
+
+      // 2. FORCE CHECK: Run the daily fetch immediately on startup to catch up missing days
+      logger.info("Running startup check for missing daily audience data...");
+      dailyIncrementalFetch();
 
     } catch (Exception e) {
       logger.error("Failed to initialize Google Analytics Data Client (GA4).", e);
@@ -87,7 +90,7 @@ public class AnalyticsService {
   private void initialHistoricalFetch() {
     if (analyticsDataClient == null) return;
     if (audienceVisitRepository.findMaxSessionDate().isPresent()) {
-      logger.info("Historical audience data already exists. Skipping full historical fetch.");
+      // Data exists, so we rely on dailyIncrementalFetch to fill gaps
       return;
     }
     logger.info("Starting initial historical fetch...");
@@ -109,13 +112,14 @@ public class AnalyticsService {
             .map(date -> date.plusDays(1))
             .orElse(LocalDate.parse(initialFetchStartDate, GA_DATE_FORMATTER));
 
+    // GA4 data is typically reliable for "yesterday"
     LocalDate endDate = LocalDate.now().minusDays(1);
 
     if (startDate.isBefore(endDate) || startDate.isEqual(endDate)) {
       logger.info("Starting incremental GA data fetch from {} to {}", startDate, endDate);
       fetchAndSaveGAData(startDate, endDate);
     } else {
-      logger.info("No new historical data available to fetch. Max date is already up to date.");
+      logger.info("Audience data is up to date. Max date: {}", maxDateOpt.orElse(null));
     }
   }
 
@@ -159,18 +163,14 @@ public class AnalyticsService {
     try {
       RunReportResponse response = analyticsDataClient.runReport(request);
       List<AudienceVisit> visits = mapResponseToEntity(response);
-      audienceVisitRepository.saveAll(visits);
-      logger.info(
-          "Successfully fetched and saved {} historical audience records for period {} to {}",
-          visits.size(),
-          startDate,
-          endDate);
+      if (!visits.isEmpty()) {
+        audienceVisitRepository.saveAll(visits);
+        logger.info("Fetched and saved {} records for {} to {}", visits.size(), startDate, endDate);
+      } else {
+        logger.info("No records found in GA4 for {} to {}", startDate, endDate);
+      }
     } catch (Exception e) {
-      logger.error(
-          "Error fetching historical Analytics Data from GA4 API for period {} to {}",
-          startDate,
-          endDate,
-          e);
+      logger.error("Error fetching GA4 data for {} to {}", startDate, endDate, e);
     }
   }
 
@@ -193,7 +193,7 @@ public class AnalyticsService {
         visit.setOsVersion(row.getDimensionValues(7).getValue());
         visit.setScreenResolution(row.getDimensionValues(8).getValue());
 
-        // Defaults for missing/restricted fields
+        // Defaults
         visit.setDeviceCategory("Unknown");
         visit.setLandingPage("Not available (GA4)");
         visit.setClientId("Not available (GA4)");
@@ -214,7 +214,7 @@ public class AnalyticsService {
   public List<AudienceDataDto> getHistoricalData(
       LocalDate startDate, LocalDate endDate, AudienceFilter filters) {
 
-    // FIX: Removed deviceCategory argument to match Repository signature
+    // MATCHES REPOSITORY SIGNATURE (8 arguments)
     List<AudienceVisit> visits =
         audienceVisitRepository.findHistoricalDataWithFilters(
             startDate,
@@ -232,7 +232,7 @@ public class AnalyticsService {
   public FilterOptionsDto getFilterOptions(
       LocalDate startDate, LocalDate endDate, AudienceFilter filters) {
 
-    // FIX: Removed unnecessary nulls/arguments to match Repository signatures
+    // MATCHES REPOSITORY SIGNATURES (7 arguments)
     return FilterOptionsDto.builder()
         .countries(
             audienceVisitRepository.findDistinctCountries(
