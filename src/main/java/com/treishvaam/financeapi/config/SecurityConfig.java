@@ -77,6 +77,7 @@ public class SecurityConfig {
                         "/api/v1/contact/**",
                         "/api/v1/market/quotes/batch",
                         "/api/v1/market/widget",
+                        "/faro-collector/**", // Added Faro Collector endpoint
                         "/swagger-ui/**",
                         "/v3/api-docs/**",
                         "/error")
