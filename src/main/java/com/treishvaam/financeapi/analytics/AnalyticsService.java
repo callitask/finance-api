@@ -277,7 +277,7 @@ public class AnalyticsService {
                 filters.getCountry(),
                 filters.getRegion(),
                 filters.getCity(),
-                filters.getOperatingSystem(),
+                filters.getOsVersion(),
                 filters.getSessionSource()))
         .sessionSources(
             audienceVisitRepository.findDistinctSessionSources(
