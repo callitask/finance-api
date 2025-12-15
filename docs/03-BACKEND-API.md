@@ -98,6 +98,14 @@
 |--------|----------|--------------|-------------|
 | POST   | `/api/v1/contact` | Public | Submit a "Contact Us" form |
 
+## FaroCollectorController
+**Base URL:** `/faro-collector`
+
+### Endpoints Table
+| Method | Endpoint | Role Required | Description |
+|--------|----------|--------------|-------------|
+| POST   | `/faro-collector/collect` | Public | Receive Grafana Faro telemetry data |
+
 ## FileController
 **Base URL:** `/api/v1/files`
 

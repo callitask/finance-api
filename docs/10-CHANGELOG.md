@@ -4,9 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-### Added
-- Comprehensive documentation architecture (`docs/` folder).
+## [2.1.0] - Analytics & Telemetry Resilience
+### Phase 18: Real User Monitoring (RUM) & Analytics
+- **Feat**: Added `/faro-collector/collect` endpoint to ingest Grafana Faro telemetry directly.
+- **Feat**: Implemented "Catch-Up" logic in `AnalyticsService` to force synchronization of missing GA4 data on startup.
+- **Fix**: Resolved CORS issues for telemetry ingestion.
+- **Fix**: Corrected argument mismatch in `AnalyticsService` compilation.
 
 ## [2.0.0] - Enterprise Transformation Complete (Phases 1-17)
 ### Phase 17: IAM & Infrastructure Stabilization
