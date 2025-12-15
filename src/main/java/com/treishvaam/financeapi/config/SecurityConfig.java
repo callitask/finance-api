@@ -73,7 +73,7 @@ public class SecurityConfig {
                         "/api/v1/contact/**",
                         "/api/v1/market/quotes/batch",
                         "/api/v1/market/widget",
-                        "/faro-collector/**", // CRITICAL: Allows Faro traffic
+                        "/api/v1/monitoring/**", // CRITICAL: Allows Faro traffic (Camouflaged)
                         "/swagger-ui/**",
                         "/v3/api-docs/**",
                         "/error")

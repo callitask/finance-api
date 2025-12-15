@@ -21,25 +21,25 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 
 @RestController
-@RequestMapping("/faro-collector")
-public class FaroCollectorController {
+@RequestMapping("/api/v1/monitoring")
+public class MonitoringController {
 
-  private static final Logger logger = LoggerFactory.getLogger(FaroCollectorController.class);
+  private static final Logger logger = LoggerFactory.getLogger(MonitoringController.class);
 
-  // Internal Docker URL for Grafana Alloy (Receiver)
-  private static final String ALLOY_URL = "http://alloy:12345/collect";
+  // Internal Docker URL for Grafana Alloy Faro Receiver (Standard Port 12347)
+  private static final String ALLOY_URL = "http://alloy:12347/collect";
 
   private final AudienceVisitRepository audienceVisitRepository;
   private final RestTemplate restTemplate;
 
-  public FaroCollectorController(
+  public MonitoringController(
       AudienceVisitRepository audienceVisitRepository, RestTemplateBuilder builder) {
     this.audienceVisitRepository = audienceVisitRepository;
     this.restTemplate = builder.build();
   }
 
-  @PostMapping("/collect")
-  public ResponseEntity<Void> collect(
+  @PostMapping("/ingest")
+  public ResponseEntity<Void> ingest(
       @RequestBody FaroPayload payload,
       @RequestHeader(value = "CF-IPCountry", required = false) String cfCountry,
       @RequestHeader(value = "CF-IPCity", required = false) String cfCity,
