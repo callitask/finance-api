@@ -15,10 +15,7 @@ public class FaroCollectorController {
 
   private static final Logger logger = LoggerFactory.getLogger(FaroCollectorController.class);
 
-  /**
-   * Endpoint to receive Grafana Faro telemetry data. Accepts the payload and logs it (can be
-   * extended to forward to Loki).
-   */
+  /** Endpoint to receive Grafana Faro telemetry data. Accepts the payload and logs it. */
   @PostMapping("/collect")
   public ResponseEntity<Void> collect(@RequestBody Map<String, Object> payload) {
     // Log reception to confirm connectivity.
