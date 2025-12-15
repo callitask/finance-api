@@ -34,7 +34,6 @@ public class SecurityConfig {
     this.rateLimitingFilter = rateLimitingFilter;
   }
 
-  // --- FIX: Restore PasswordEncoder for DataInitializer ---
   @Bean
   public PasswordEncoder passwordEncoder() {
     return new BCryptPasswordEncoder();
@@ -49,11 +48,8 @@ public class SecurityConfig {
         .authorizeHttpRequests(
             authz ->
                 authz
-                    // --- 1. Allow Prometheus Metrics & Health ---
                     .requestMatchers("/actuator/**", "/health")
                     .permitAll()
-
-                    // --- 2. Public V1 API Endpoints ---
                     .requestMatchers(HttpMethod.OPTIONS, "/**")
                     .permitAll()
                     .requestMatchers(
@@ -77,13 +73,11 @@ public class SecurityConfig {
                         "/api/v1/contact/**",
                         "/api/v1/market/quotes/batch",
                         "/api/v1/market/widget",
-                        "/faro-collector/**", // Added Faro Collector endpoint
+                        "/faro-collector/**", // CRITICAL: Allows Faro traffic
                         "/swagger-ui/**",
                         "/v3/api-docs/**",
                         "/error")
                     .permitAll()
-
-                    // --- 3. Protected Endpoints (RBAC) ---
                     .requestMatchers("/api/v1/analytics/**")
                     .hasAnyRole("ANALYST", "ADMIN")
                     .requestMatchers(

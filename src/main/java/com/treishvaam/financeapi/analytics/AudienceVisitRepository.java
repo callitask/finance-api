@@ -7,106 +7,135 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-/** Repository for AudienceVisit Entity. */
 public interface AudienceVisitRepository extends JpaRepository<AudienceVisit, Long> {
 
-  /** Base query fragment for filtering. Reused by data and filter option queries. */
-  String FILTER_QUERY_BASE =
-      """
-        FROM AudienceVisit av
-        WHERE av.sessionDate BETWEEN :startDate AND :endDate
-        AND (:country IS NULL OR av.country = :country)
-        AND (:region IS NULL OR av.region = :region)
-        AND (:city IS NULL OR av.city = :city)
-        AND (:operatingSystem IS NULL OR av.operatingSystem = :operatingSystem)
-        AND (:osVersion IS NULL OR av.osVersion = :osVersion)
-        AND (:sessionSource IS NULL OR av.sessionSource = :sessionSource)
-    """; // 'deviceCategory' filter removed
-
-  /** Finds all audience visits within a given date range, with optional dynamic filters. */
-  @Query("SELECT av " + FILTER_QUERY_BASE + " ORDER BY av.sessionDate DESC")
-  List<AudienceVisit> findHistoricalDataWithFilters(
-      @Param("startDate") LocalDate startDate,
-      @Param("endDate") LocalDate endDate,
-      @Param("country") String country,
-      @Param("region") String region,
-      @Param("city") String city, // Added back
-      // 'deviceCategory' removed
-      @Param("operatingSystem") String operatingSystem,
-      @Param("osVersion") String osVersion,
-      @Param("sessionSource") String sessionSource);
-
-  /** Gets the latest session date available in the database. */
   @Query("SELECT MAX(av.sessionDate) FROM AudienceVisit av")
   Optional<LocalDate> findMaxSessionDate();
 
-  // --- Methods for Dynamic Filter Options ---
+  @Query(
+      "SELECT av FROM AudienceVisit av WHERE av.sessionId = :sessionId AND av.sessionDate = :date")
+  Optional<AudienceVisit> findBySessionIdAndDate(
+      @Param("sessionId") String sessionId, @Param("date") LocalDate date);
 
-  @Query("SELECT DISTINCT av.country " + FILTER_QUERY_BASE + " ORDER BY av.country")
+  @Query(
+      "SELECT DISTINCT av.country FROM AudienceVisit av "
+          + "WHERE av.sessionDate BETWEEN :startDate AND :endDate "
+          + "AND (:region IS NULL OR av.region = :region) "
+          + "AND (:city IS NULL OR av.city = :city) "
+          + "AND (:os IS NULL OR av.operatingSystem = :os) "
+          + "AND (:osVersion IS NULL OR av.osVersion = :osVersion) "
+          + "AND (:source IS NULL OR av.sessionSource = :source)")
   List<String> findDistinctCountries(
       @Param("startDate") LocalDate startDate,
       @Param("endDate") LocalDate endDate,
-      @Param("country") String country,
       @Param("region") String region,
       @Param("city") String city,
-      @Param("operatingSystem") String operatingSystem,
+      @Param("os") String os,
       @Param("osVersion") String osVersion,
-      @Param("sessionSource") String sessionSource);
+      @Param("source") String source);
 
-  @Query("SELECT DISTINCT av.region " + FILTER_QUERY_BASE + " ORDER BY av.region")
+  @Query(
+      "SELECT DISTINCT av.region FROM AudienceVisit av "
+          + "WHERE av.sessionDate BETWEEN :startDate AND :endDate "
+          + "AND (:country IS NULL OR av.country = :country) "
+          + "AND (:city IS NULL OR av.city = :city) "
+          + "AND (:os IS NULL OR av.operatingSystem = :os) "
+          + "AND (:osVersion IS NULL OR av.osVersion = :osVersion) "
+          + "AND (:source IS NULL OR av.sessionSource = :source)")
   List<String> findDistinctRegions(
       @Param("startDate") LocalDate startDate,
       @Param("endDate") LocalDate endDate,
       @Param("country") String country,
-      @Param("region") String region,
       @Param("city") String city,
-      @Param("operatingSystem") String operatingSystem,
+      @Param("os") String os,
       @Param("osVersion") String osVersion,
-      @Param("sessionSource") String sessionSource);
+      @Param("source") String source);
 
-  @Query("SELECT DISTINCT av.city " + FILTER_QUERY_BASE + " ORDER BY av.city") // Added back
+  @Query(
+      "SELECT DISTINCT av.city FROM AudienceVisit av "
+          + "WHERE av.sessionDate BETWEEN :startDate AND :endDate "
+          + "AND (:country IS NULL OR av.country = :country) "
+          + "AND (:region IS NULL OR av.region = :region) "
+          + "AND (:os IS NULL OR av.operatingSystem = :os) "
+          + "AND (:osVersion IS NULL OR av.osVersion = :osVersion) "
+          + "AND (:source IS NULL OR av.sessionSource = :source)")
   List<String> findDistinctCities(
       @Param("startDate") LocalDate startDate,
       @Param("endDate") LocalDate endDate,
       @Param("country") String country,
       @Param("region") String region,
-      @Param("city") String city,
-      @Param("operatingSystem") String operatingSystem,
+      @Param("os") String os,
       @Param("osVersion") String osVersion,
-      @Param("sessionSource") String sessionSource);
+      @Param("source") String source);
 
-  // 'findDistinctDeviceCategories' method removed
-
-  @Query("SELECT DISTINCT av.operatingSystem " + FILTER_QUERY_BASE + " ORDER BY av.operatingSystem")
+  @Query(
+      "SELECT DISTINCT av.operatingSystem FROM AudienceVisit av "
+          + "WHERE av.sessionDate BETWEEN :startDate AND :endDate "
+          + "AND (:country IS NULL OR av.country = :country) "
+          + "AND (:region IS NULL OR av.region = :region) "
+          + "AND (:city IS NULL OR av.city = :city) "
+          + "AND (:osVersion IS NULL OR av.osVersion = :osVersion) "
+          + "AND (:source IS NULL OR av.sessionSource = :source)")
   List<String> findDistinctOperatingSystems(
       @Param("startDate") LocalDate startDate,
       @Param("endDate") LocalDate endDate,
       @Param("country") String country,
       @Param("region") String region,
       @Param("city") String city,
-      @Param("operatingSystem") String operatingSystem,
       @Param("osVersion") String osVersion,
-      @Param("sessionSource") String sessionSource);
+      @Param("source") String source);
 
-  @Query("SELECT DISTINCT av.osVersion " + FILTER_QUERY_BASE + " ORDER BY av.osVersion")
+  @Query(
+      "SELECT DISTINCT av.osVersion FROM AudienceVisit av "
+          + "WHERE av.sessionDate BETWEEN :startDate AND :endDate "
+          + "AND (:country IS NULL OR av.country = :country) "
+          + "AND (:region IS NULL OR av.region = :region) "
+          + "AND (:city IS NULL OR av.city = :city) "
+          + "AND (:os IS NULL OR av.operatingSystem = :os) "
+          + "AND (:source IS NULL OR av.sessionSource = :source)")
   List<String> findDistinctOsVersions(
       @Param("startDate") LocalDate startDate,
       @Param("endDate") LocalDate endDate,
       @Param("country") String country,
       @Param("region") String region,
       @Param("city") String city,
-      @Param("operatingSystem") String operatingSystem,
-      @Param("osVersion") String osVersion,
-      @Param("sessionSource") String sessionSource);
+      @Param("os") String os,
+      @Param("source") String source);
 
-  @Query("SELECT DISTINCT av.sessionSource " + FILTER_QUERY_BASE + " ORDER BY av.sessionSource")
+  @Query(
+      "SELECT DISTINCT av.sessionSource FROM AudienceVisit av "
+          + "WHERE av.sessionDate BETWEEN :startDate AND :endDate "
+          + "AND (:country IS NULL OR av.country = :country) "
+          + "AND (:region IS NULL OR av.region = :region) "
+          + "AND (:city IS NULL OR av.city = :city) "
+          + "AND (:os IS NULL OR av.operatingSystem = :os) "
+          + "AND (:osVersion IS NULL OR av.osVersion = :osVersion)")
   List<String> findDistinctSessionSources(
       @Param("startDate") LocalDate startDate,
       @Param("endDate") LocalDate endDate,
       @Param("country") String country,
       @Param("region") String region,
       @Param("city") String city,
-      @Param("operatingSystem") String operatingSystem,
+      @Param("os") String os,
+      @Param("osVersion") String osVersion);
+
+  @Query(
+      "SELECT av FROM AudienceVisit av "
+          + "WHERE av.sessionDate BETWEEN :startDate AND :endDate "
+          + "AND (:country IS NULL OR av.country = :country) "
+          + "AND (:region IS NULL OR av.region = :region) "
+          + "AND (:city IS NULL OR av.city = :city) "
+          + "AND (:os IS NULL OR av.operatingSystem = :os) "
+          + "AND (:osVersion IS NULL OR av.osVersion = :osVersion) "
+          + "AND (:source IS NULL OR av.sessionSource = :source) "
+          + "ORDER BY av.sessionDate DESC")
+  List<AudienceVisit> findHistoricalDataWithFilters(
+      @Param("startDate") LocalDate startDate,
+      @Param("endDate") LocalDate endDate,
+      @Param("country") String country,
+      @Param("region") String region,
+      @Param("city") String city,
+      @Param("os") String os,
       @Param("osVersion") String osVersion,
-      @Param("sessionSource") String sessionSource);
+      @Param("source") String source);
 }
