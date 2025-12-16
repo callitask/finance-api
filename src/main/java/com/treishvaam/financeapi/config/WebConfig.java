@@ -22,9 +22,14 @@ public class WebConfig implements WebMvcConfigurer {
   public void addCorsMappings(CorsRegistry registry) {
     registry
         .addMapping("/**")
-        .allowedOriginPatterns("*") // Use patterns to allow credential support
+        // Use patterns to allow credential support (cookies/auth headers)
+        .allowedOriginPatterns(
+            "https://*.treishvaamgroup.com",
+            "http://localhost:3000",
+            "https://treishfin.treishvaamgroup.com")
         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH")
-        .allowedHeaders("*")
+        // Explicitly allow Faro/Grafana headers to prevent Preflight 403 errors
+        .allowedHeaders("*", "x-faro-session-id", "x-faro-session-vol", "x-faro-session-meta")
         .exposedHeaders("*")
         .allowCredentials(true)
         .maxAge(3600);
