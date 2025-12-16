@@ -48,7 +48,6 @@ public class NewsHighlightService {
   private final FileStorageService fileStorageService;
   private final RestTemplate restTemplate;
 
-  // Browser User-Agent to bypass anti-bot protections on images
   private static final String USER_AGENT =
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
@@ -108,7 +107,6 @@ public class NewsHighlightService {
           "https://newsdata.io/api/1/news?apikey="
               + apiKey
               + "&category=business&language=en&country=us,in,gb";
-
       NewsDataResponse response = restTemplate.getForObject(url, NewsDataResponse.class);
 
       if (response == null || !"success".equals(response.getStatus())) {
@@ -142,16 +140,13 @@ public class NewsHighlightService {
         String finalImageUrl = null;
         String sourceUrl = article.getImageUrl();
 
-        // 1. If API didn't provide image, try to scrape it from the article
         if (sourceUrl == null || sourceUrl.isEmpty()) {
           sourceUrl = scrapeImageFromArticle(article.getLink());
         }
 
-        // 2. If we have a URL (from API or Scraper), try to download & host it
         if (sourceUrl != null && !sourceUrl.isEmpty()) {
           String internalUrl = processAndStoreImage(sourceUrl);
-
-          // 3. Fallback: If internal download failed, use the external URL directly
+          // If internal download worked, use it. Otherwise fallback to external.
           finalImageUrl = (internalUrl != null) ? internalUrl : sourceUrl;
         }
 
@@ -217,10 +212,6 @@ public class NewsHighlightService {
     }
   }
 
-  /**
-   * Downloads an image using a Browser User-Agent, resizes it, and saves it. Returns null if
-   * download fails (so we can fallback to external URL).
-   */
   private String processAndStoreImage(String externalUrl) {
     try {
       URL url = new URL(externalUrl);
@@ -231,7 +222,6 @@ public class NewsHighlightService {
       connection.connect();
 
       if (connection.getResponseCode() != 200) {
-        logger.warn("Image Download Failed ({}): {}", connection.getResponseCode(), externalUrl);
         return null;
       }
 
@@ -277,8 +267,11 @@ public class NewsHighlightService {
       writer.dispose();
 
       String filename = "news-" + UUID.randomUUID() + ".jpg";
-      return fileStorageService.storeFile(
+      fileStorageService.storeFile(
           new ByteArrayInputStream(os.toByteArray()), filename, "image/jpeg");
+
+      // CRITICAL FIX: Return the Relative API Path so Cloudflare/Frontend can resolve it
+      return "/api/v1/uploads/" + filename;
 
     } catch (Exception e) {
       logger.warn("Image Processing Error: {}", e.getMessage());
@@ -286,26 +279,15 @@ public class NewsHighlightService {
     }
   }
 
-  /** Scrapes the 'og:image' meta tag from a webpage to find the hero image. */
   private String scrapeImageFromArticle(String articleUrl) {
     try {
       Document doc = Jsoup.connect(articleUrl).userAgent(USER_AGENT).timeout(5000).get();
-
-      // Try OG Image first
       Element ogImage = doc.selectFirst("meta[property=og:image]");
-      if (ogImage != null) {
-        return ogImage.attr("content");
-      }
-
-      // Try Twitter Image second
+      if (ogImage != null) return ogImage.attr("content");
       Element twitterImage = doc.selectFirst("meta[name=twitter:image]");
-      if (twitterImage != null) {
-        return twitterImage.attr("content");
-      }
-
+      if (twitterImage != null) return twitterImage.attr("content");
       return null;
     } catch (Exception e) {
-      logger.debug("Scraping failed for {}: {}", articleUrl, e.getMessage());
       return null;
     }
   }

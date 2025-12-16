@@ -37,7 +37,6 @@ public class SecurityConfig {
     this.internalSecretFilter = internalSecretFilter;
   }
 
-  // --- FIX: Restore PasswordEncoder ---
   @Bean
   public PasswordEncoder passwordEncoder() {
     return new BCryptPasswordEncoder();
@@ -53,15 +52,15 @@ public class SecurityConfig {
         .authorizeHttpRequests(
             auth ->
                 auth
-                    // 1. System & Health
+                    // 1. System, Health & Monitoring (Public)
                     .requestMatchers(
                         "/actuator/**", "/api/v1/health/**", "/api/v1/monitoring/ingest")
                     .permitAll()
 
-                    // 2. Static Assets & SEO
+                    // 2. Static Assets & SEO (Public)
                     .requestMatchers(
                         HttpMethod.GET,
-                        "/api/v1/uploads/**", // Fixes Blog Images
+                        "/api/v1/uploads/**",
                         "/sitemap.xml",
                         "/sitemap-news.xml",
                         "/feed.xml",
@@ -75,18 +74,24 @@ public class SecurityConfig {
                         "/api/v1/posts/**",
                         "/api/v1/categories/**",
                         "/api/v1/market/**",
-                        "/api/v1/news/**", // Fixes News Widget
+                        "/api/v1/news/**",
                         "/api/v1/search/**",
                         "/api/v1/logo")
                     .permitAll()
 
-                    // 4. Auth & Public Write
+                    // 4. CRITICAL FIX: Allow POST for Market Quotes Batch
+                    .requestMatchers(HttpMethod.POST, "/api/v1/market/quotes/batch")
+                    .permitAll()
+
+                    // 5. Auth & Public Write
                     .requestMatchers("/api/v1/auth/**", "/api/v1/contact/**")
                     .permitAll()
 
-                    // 5. Protected Routes
+                    // 6. Dashboard & Admin Routes (Restored from 5-day old config)
                     .requestMatchers("/api/v1/analytics/**")
                     .hasAnyRole("analyst", "admin")
+                    .requestMatchers("/api/v1/posts/admin/**")
+                    .hasAnyRole("editor", "publisher", "admin")
                     .requestMatchers("/api/v1/files/upload")
                     .hasAnyRole("publisher", "admin")
                     .requestMatchers("/api/v1/admin/**")
@@ -105,6 +110,7 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
+    // Gateway-Level CORS support
     configuration.setAllowedOriginPatterns(Arrays.asList("*"));
     configuration.setAllowedMethods(
         Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
