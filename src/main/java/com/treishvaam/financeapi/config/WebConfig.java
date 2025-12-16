@@ -24,10 +24,16 @@ public class WebConfig implements WebMvcConfigurer {
 
   @Override
   public void addResourceHandlers(ResourceHandlerRegistry registry) {
-    // Serve uploaded files
+    // 1. Serve Uploads (Match the API URL structure)
+    // Fixes: /api/v1/uploads/image.webp -> /app/uploads/image.webp
+    registry.addResourceHandler("/api/v1/uploads/**").addResourceLocations("file:/app/uploads/");
+
+    // Fallback for legacy paths
     registry.addResourceHandler("/uploads/**").addResourceLocations("file:/app/uploads/");
 
-    // Serve sitemaps
+    // 2. Serve Sitemaps
+    registry.addResourceHandler("/api/v1/sitemaps/**").addResourceLocations("file:/app/sitemaps/");
+
     registry.addResourceHandler("/sitemaps/**").addResourceLocations("file:/app/sitemaps/");
   }
 }

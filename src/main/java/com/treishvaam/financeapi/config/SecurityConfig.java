@@ -7,11 +7,14 @@ import java.util.Arrays;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
@@ -34,61 +37,70 @@ public class SecurityConfig {
     this.internalSecretFilter = internalSecretFilter;
   }
 
+  // --- FIX 1: Restore PasswordEncoder (Fixes Crash) ---
+  @Bean
+  public PasswordEncoder passwordEncoder() {
+    return new BCryptPasswordEncoder();
+  }
+
   @Bean
   public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-    http
-        // 1. CORS Configuration (Must be first to handle pre-flight checks)
-        .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-
-        // 2. Disable CSRF (Stateless API)
+    http.cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .csrf(csrf -> csrf.disable())
-
-        // 3. Session Management (Stateless)
         .sessionManagement(
             session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-
-        // 4. Security Headers (CRITICAL FIX for Keycloak Silent SSO & Iframes)
-        .headers(
-            headers ->
-                headers.frameOptions(
-                    frame ->
-                        frame.disable()) // Allows browser to iframe the backend for auth checks
-            )
-
-        // 5. URL Authorization Rules
+        .headers(headers -> headers.frameOptions(frame -> frame.disable())) // Keycloak iframe fix
         .authorizeHttpRequests(
             auth ->
                 auth
-                    // Public Endpoints
+                    // 1. System & Health
                     .requestMatchers(
-                        "/api/v1/auth/**",
+                        "/actuator/**", "/api/v1/health/**", "/api/v1/monitoring/ingest")
+                    .permitAll()
+
+                    // 2. Static Assets & SEO (Restored from 5-day old config)
+                    .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/uploads/**", // Fixes Blog Images
+                        "/sitemap.xml",
+                        "/sitemap-news.xml",
+                        "/feed.xml",
+                        "/sitemaps/**",
+                        "/favicon.ico")
+                    .permitAll()
+
+                    // 3. Public API Read Access
+                    .requestMatchers(
+                        HttpMethod.GET,
                         "/api/v1/posts/**",
                         "/api/v1/categories/**",
                         "/api/v1/market/**",
-                        "/api/v1/contact/**",
-                        "/api/v1/files/**",
-                        "/api/v1/health/**",
+                        "/api/v1/news/**", // Fixes News Widget
                         "/api/v1/search/**",
-                        "/actuator/**",
-                        "/api/v1/monitoring/ingest", // Allow Faro RUM
-                        "/sitemap.xml",
-                        "/favicon.ico")
+                        "/api/v1/logo")
                     .permitAll()
+
+                    // 4. Auth & Public Write
+                    .requestMatchers("/api/v1/auth/**", "/api/v1/contact/**")
+                    .permitAll()
+
+                    // 5. Protected Routes (RBAC)
+                    // Fixes Dashboard Data (Analysts/Admins only)
+                    .requestMatchers("/api/v1/analytics/**")
+                    .hasAnyRole("analyst", "admin")
+
+                    // Fixes Upload Security (Only Publishers/Admins can upload)
+                    .requestMatchers("/api/v1/files/upload")
+                    .hasAnyRole("publisher", "admin")
 
                     // Admin Actions
                     .requestMatchers("/api/v1/admin/**")
                     .hasRole("admin")
-
-                    // Secure everything else
                     .anyRequest()
                     .authenticated())
-
-        // 6. OAuth2 Resource Server (Keycloak)
         .oauth2ResourceServer(
             oauth2 ->
                 oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
-
-        // 7. Custom Filters
         .addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class)
         .addFilterBefore(internalSecretFilter, RateLimitingFilter.class);
 
@@ -98,19 +110,11 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-
-    // Explicitly allow Frontend, Localhost, and Backend (Self)
-    configuration.setAllowedOrigins(
-        Arrays.asList(
-            "https://treishfin.treishvaamgroup.com",
-            "http://localhost:3000",
-            "https://backend.treishvaamgroup.com"));
-
+    // Gateway-Level CORS support (Nginx handles rejection, we just allow the flow)
+    configuration.setAllowedOriginPatterns(Arrays.asList("*"));
     configuration.setAllowedMethods(
         Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-    // Allow all headers to prevent "Request header field X is not allowed" errors
     configuration.setAllowedHeaders(Arrays.asList("*"));
-    configuration.setExposedHeaders(Arrays.asList("Authorization", "Content-Disposition"));
     configuration.setAllowCredentials(true);
     configuration.setMaxAge(3600L);
 
