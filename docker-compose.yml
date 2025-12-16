@@ -206,9 +206,9 @@ services:
     environment:
       PARANOIA: 1
     volumes:
-      # FIX: Correct mapping applied here
+      # FIX: Mapped to TEMPLATES to prevent Permission Denied errors
       - ./nginx/conf.d/default.conf:/etc/nginx/templates/conf.d/default.conf.template
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/nginx.conf:/etc/nginx/templates/nginx.conf.template
       - ./nginx/modsecurity/whitelist.conf:/etc/nginx/modsecurity/whitelist.conf
       - ./uploads:/app/uploads
       - ./sitemaps:/app/sitemaps
