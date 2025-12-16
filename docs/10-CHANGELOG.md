@@ -4,10 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.2.0] - Deployment & Security Hardening
-### Phase 3: Resilient Auto-Pilot Deployment
+## [2.3.0] - Phase 4: Security, SEO & Resilience (Current)
+### Critical Security & Stability Fixes
+- **Sec**: Implemented **Gateway-Level CORS** in Nginx (`Access-Control-Allow-Origin`) to prevent browser network errors during backend failures.
+- **Sec**: Configured **ModSecurity WAF Whitelist** for Faro Monitoring (`/api/v1/monitoring/ingest`) and Admin APIs to prevent false positives.
+- **Resilience**: Patched `RateLimitingFilter` to **"Fail Open"**. If Redis encounters disk/permission errors, the site remains online instead of crashing.
+- **Infra**: Secured Cloudflare Tunnel using `TUNNEL_TOKEN` in `.env` (Removed insecure `config.yml` credentials path).
+- **SEO**: Restored public access to Image (`/api/v1/uploads/**`) and News endpoints to fix broken media.
+- **Fix**: Restored missing `PasswordEncoder` bean that caused backend startup crashes.
+
+## [2.2.0] - Phase 3: Automation & Observability
+### Deployment & Monitoring
+- **Obs**: Deployed **LGTM Stack** (Loki, Grafana, Tempo, Prometheus) for full-stack observability.
+- **Ops**: Added dedicated **Backup Service** container for automated daily MySQL dumps to MinIO.
 - **Feat**: Introduced `auto_deploy.sh` for reliable, self-healing deployments via Cron.
-- **Feat**: Implemented **Multi-Stage Docker Builds** to compile Java 21 inside the container, removing host version dependencies.
+- **Feat**: Implemented **Multi-Stage Docker Builds** to compile Java 21 inside the container.
 - **Ops**: Added `init_automation.sh` for one-click server setup.
 
 ### Phase 2: CORS & Proxy Normalization

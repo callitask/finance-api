@@ -6,14 +6,14 @@ Treishvaam Finance is deployed on an Ubuntu Server (VirtualBox) using Docker Com
 ## Infrastructure & Services
 - **Backend**: Spring Boot 3.4 (Java 21) — Port 8080
 - **Database**: MariaDB — Port 3306
-- **Cache**: Redis — Port 6379
+- **Cache**: Redis — Port 6379 (Configured for Resilience/Fail-Open)
 - **Storage**: MinIO (S3 Compatible) — Port 9000
 - **Identity**: Keycloak — Port 8080/auth
 - **Gateway**: Nginx (with ModSecurity WAF) — Ports 80/443
-- **Tunnel**: Cloudflare Tunnel (cloudflared) — Exposes Nginx to `backend.treishvaamgroup.com`
-- **Observability**: Grafana, Prometheus, Loki, Tempo, Alloy
-- **SEO Edge Logic**: Cloudflare Worker handles SEO, robots.txt, sitemaps, and meta/schema injection at the edge for high-availability crawling and rendering.
-- **Messaging**: RabbitMQ with Dead Letter Exchange (DLX) for message reliability and failure handling.
+- **Tunnel**: Cloudflare Tunnel (cloudflared) — Exposes Nginx to `backend.treishvaamgroup.com` securely via Token authentication.
+- **Observability**: Grafana, Prometheus, Loki, Tempo, Alloy (LGTM Stack).
+- **SEO Edge Logic**: Cloudflare Worker handles SEO, robots.txt, sitemaps, and meta/schema injection at the edge.
+- **Messaging**: RabbitMQ with Dead Letter Exchange (DLX) for message reliability.
 - **Backup Service**: Dedicated container for automated encrypted database backups and PITR.
 
 ## Architecture Diagram
@@ -46,41 +46,45 @@ graph TD
 ```
 
 ### Request Flow
-**External Request:** A client request arrives at backend.treishvaamgroup.com and is routed through the Cloudflare Tunnel.
+**External Request:** A client request arrives at `backend.treishvaamgroup.com` and is routed securely through the Cloudflare Tunnel.
 
-**Nginx Gateway:** The request hits Nginx, which acts as a reverse proxy and applies ModSecurity WAF rules for security.
+**Nginx Gateway:** The request hits Nginx, which acts as a reverse proxy, handles CORS negotiation explicitly, and applies ModSecurity WAF rules.
 
 **Routing:**
 - Requests to `/api/` are proxied to the Spring Boot backend.
 - Auth-related requests are routed to Keycloak.
-- Static assets or other endpoints are handled as configured.
+- Static assets (Images/Sitemaps) are proxied directly from storage paths.
 
-**Backend Processing:** The Spring Boot application processes the request, interacting with MariaDB (data), Redis (cache), MinIO (file storage), and RabbitMQ (messaging with DLX for reliability) as needed.
+**Backend Processing:** The Spring Boot application processes the request, interacting with MariaDB (data), Redis (cache), MinIO (files), and RabbitMQ.
 
-**Observability:** All services emit metrics, logs, and traces to the PLG+T stack (Grafana, Prometheus, Loki, Tempo, Alloy).
+**Resilience (Fail-Open):**
+- **Rate Limiting:** The API uses a Redis-backed rate limiter. It is configured to "Fail Open," meaning if Redis encounters disk/permission errors, the site **remains online** and allows traffic instead of crashing.
 
-**Backup:** The Backup Service container performs automated encrypted backups and supports PITR.
+**Observability:** All services emit metrics, logs, and traces to the LGTM stack.
+
+**Backup:** The Backup Service container performs automated encrypted backups to MinIO every 24 hours.
 
 ---
 
-## Nginx as Reverse Proxy
-Nginx serves as the secure entry point for all HTTP(S) traffic. For `/api/` requests:
-- Nginx forwards the request to the Spring Boot backend on port 8080.
-- It enforces security policies via ModSecurity (WAF).
+## Nginx as Reverse Proxy & Gateway
+Nginx serves as the secure entry point for all HTTP(S) traffic.
 
-**CORS Handling:** Nginx acts as a Transparent Proxy for CORS. It does not inject `Access-Control-Allow-Origin` headers itself. Instead, it allows the Spring Boot Security configuration to handle the handshake. This prevents "Double Header" conflicts and ensures complex headers (like `x-faro-session-id`) are correctly validated by the application logic.
+**1. Gateway-Level CORS:**
+Nginx is configured to explicitly handle Cross-Origin Resource Sharing (CORS).
+- It intercepts `OPTIONS` (Pre-flight) requests and responds immediately with `Access-Control-Allow-Origin`.
+- It injects permission headers into all backend responses.
+- **Why?** This ensures that even if the Backend throws a 403 or 500 error (which might strip headers), the Browser still receives the "Permission" to view that error, preventing generic "Network Error" messages in the frontend.
 
-Nginx routes authentication requests to Keycloak and supports `X-Forwarded-*` headers for correct IP resolution.
+**2. Web Application Firewall (ModSecurity):**
+- Enforces OWASP Core Rules to block attacks (SQLi, XSS).
+- **Whitelisting:** Specific endpoints like `/api/v1/monitoring/ingest` (Faro logs) and `/api/v1/posts/admin` are whitelisted to allow complex JSON payloads without triggering false positives.
 
 ---
 
 ## SEO Edge Logic (Cloudflare Worker)
 The Cloudflare Worker acts as an edge layer for SEO and high-availability crawling:
-- Intercepts requests for `/category/`, `/robots.txt`, `/sitemap.xml`, and injects meta/schema tags or serves/proxies critical SEO files.
-- Ensures search engines and social media always receive valid metadata, sitemaps, and robots.txt, even if the backend is down.
+- Intercepts requests for `/category/`, `/robots.txt`, `/sitemap.xml`, and `/feed.xml`.
+- **Bot Detection:** Injects meta/schema tags dynamically if the visitor is a bot (Googlebot, Twitterbot).
+- **High Availability:** Serves a fallback `robots.txt` even if the backend is offline, ensuring crawlers are never blocked by downtime.
 
 See `08-SEO-EDGE.md` for full details.
-
----
-
-This architecture ensures secure, scalable, observable, and SEO-optimized operations for Treishvaam Finance.

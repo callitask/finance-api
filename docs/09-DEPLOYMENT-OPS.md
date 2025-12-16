@@ -1,114 +1,107 @@
 # 09-DEPLOYMENT-OPS.md
 
-## 1. Deployment Pipeline (Auto-Pilot)
-The platform utilizes a **Resilient Auto-Pilot** deployment strategy (`scripts/auto_deploy.sh`) combined with **Multi-Stage Docker Builds**. This ensures the server automatically syncs with Git, compiles code in a controlled environment, and redeploys without manual intervention.
+## 1. Deployment Pipeline (Smart Auto-Pilot)
+The platform utilizes a **Smart Auto-Pilot** deployment strategy (`scripts/auto_deploy.sh`). Unlike traditional scripts that blindly rebuild everything, this intelligent system detects exactly *which* files changed and only restarts the necessary services.
 
-### The "Auto-Pilot" Mechanism
+### The "Smart" Mechanism
 - **Trigger**: A Cron job runs `scripts/auto_deploy.sh` every minute.
-- **Detection**: Checks `git rev-parse HEAD` against `origin/main`. If they differ, deployment starts.
-- **Build Strategy**: **Multi-Stage Dockerfile**.
-    - **Stage 1 (Builder)**: Uses `maven:3.9-eclipse-temurin-21` to compile the JAR/WAR. This guarantees the correct Java version regardless of the host OS.
-    - **Stage 2 (Runtime)**: Copies the compiled artifact to a lightweight `eclipse-temurin:21-jdk-jammy` image.
-- **Zero-Touch**: No manual SSH is required. Pushing to `main` triggers the update within 60 seconds.
+- **Detection**: Checks `git diff` between Local (`HEAD`) and Remote (`origin/main`).
+- **Intelligent Action**:
+    - **Backend Code (`src/`, `pom.xml`)**: Rebuilds the Java container (`docker-compose up -d --build backend`).
+    - **Nginx Config (`nginx/`)**: Reloads the Proxy/WAF (`docker restart treishvaam-nginx`).
+    - **Monitoring Config (`config/prometheus.yml`)**: Restarts Prometheus only.
+    - **Backup Scripts (`backup/`)**: Rebuilds the Backup Service.
 
-### Pipeline Lifecycle
-1.  **Fetch**: Server pulls latest commits.
-2.  **Build**: Docker builds the backend image (Maven Compilation happens *inside* Docker).
-3.  **Deploy**: `docker-compose up -d --build backend` replaces the container.
-4.  **Config Reload**: `docker restart treishvaam-nginx` ensures Nginx loads new configs.
+### Manual Trigger
+If you need to force an update immediately without waiting for the cron job:
+```bash
+cd /opt/treishvaam
+./scripts/auto_deploy.sh
+```
 
 ---
 
 ## 2. Environment Variables & Secrets
-Secrets are strictly categorized by their lifecycle stage. **Never commit `.env` files to version control.**
-
-### Build-Time Secrets (GitHub Secrets)
-| Secret Name | Purpose |
-|-------------|---------|
-| `NVD_API_KEY` | Required for OWASP Dependency-Check to download vulnerability data. |
-| `GHCR_TOKEN` | (Optional) If pushing images to GitHub Container Registry. |
+Secrets are strictly categorized. **Never commit `.env` files to version control.**
 
 ### Runtime Secrets (Production `.env`)
 | Category | Variable | Description |
 |----------|----------|-------------|
 | **Database** | `DB_HOST`, `DB_NAME` | Connection details. |
-| | `DB_USER`, `DB_PASS` | **Critical**: Root/User credentials. |
+| | `DB_USER`, `PROD_DB_PASSWORD` | **Critical**: Root/User credentials. |
 | **Messaging** | `RABBITMQ_HOST`, `RABBITMQ_PASS` | Broker credentials. |
 | **Storage** | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | S3 Admin keys. |
 | **IAM (Keycloak)** | `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD` | Super-admin credentials. |
-| | `OAUTH2_ISSUER_URI` | `https://backend.treishvaamgroup.com/auth/realms/treishvaam` |
-| | `OAUTH2_JWK_SET_URI` | `/protocol/openid-connect/certs` |
-| | `OAUTH2_CLIENT_ID`, `OAUTH2_CLIENT_SECRET` | Backend Service Client credentials. |
+| **Infrastructure** | `CLOUDFLARE_TUNNEL_TOKEN` | **Critical**: Auth token for Zero Trust Tunnel (Replaces legacy json file). |
 
 ---
 
-## 3. Startup Order, Healthchecks & Deadlock Prevention
-To prevent "White Screen of Death" and deployment loops, the stack uses a specific startup strategy.
+## 3. Startup Order & Healthchecks
+To prevent "White Screen of Death" and deployment loops:
 
-### Deadlock Prevention Strategy
-1.  **Backend Dependency**: The backend depends on `keycloak` using **`condition: service_started`**, NOT `service_healthy`.
-2.  **Keycloak Health**: Configured to check `/auth/health`.
-3.  **Nginx "Crash-Proofing"**:
-    - **Issue**: Nginx normally crashes if the `backend` host is unreachable.
-    - **Fix**: Dynamic DNS Resolution in `nginx.conf` (`resolver 127.0.0.11`).
-    - **Result**: Nginx starts successfully even if the backend is down.
+1.  **Backend Dependency**: The backend depends on `keycloak` using **`condition: service_started`**.
+2.  **Nginx Resilience**: Uses Dynamic DNS Resolution (`resolver 127.0.0.11`) to prevent Nginx from crashing if the backend container is momentarily down during a restart.
 
 ---
 
 ## 4. Observability & Debugging (Mission Control)
-The platform uses a "Zero-CLI" debugging model.
+The platform uses a "Zero-CLI" debugging model via the **LGTM Stack**.
 
 ### Accessing the Dashboard
 - **URL**: `http://<YOUR_UBUNTU_SERVER_IP>:3001`
 - **User**: `admin`
-- **Password**: *(Refer to `GRAFANA_PASSWORD` in your `docker-compose.yml`)*
+- **Password**: `%getrichsoon1954`
 
 ### The "Mission Control" View
 Located under **Dashboards > Treishvaam Mission Control**.
 1.  **Traffic**: Real-time Requests Per Second (RPS).
 2.  **Latency**: Request duration (Target: < 200ms).
-3.  **Application Logs**: Live feed highlighting `ERROR` or `WARN` in red.
+3.  **Application Logs**: Live feed. Errors (stack traces) appear in **RED**.
 
-### Advanced Debugging (Loki & Tempo)
-- **Loki**: Use `{job="varlogs"} |= "ERROR"` to find stack traces.
-- **Tempo**: Paste `traceId` (from logs) to visualize the request waterfall.
+### Advanced Debugging (Loki)
+1.  Go to **Explore** (Compass Icon).
+2.  Select **Loki**.
+3.  **Find Errors:** `{job="varlogs"} |= "ERROR"`
+4.  **Find Firewall Blocks:** `{job="varlogs"} |= "403"` (Useful for ModSecurity debugging).
 
 ---
 
-## 5. Disaster Recovery (DR) & PITR
-The system guarantees **Zero Data Loss** (RPO ≈ 0).
+## 5. Disaster Recovery (DR)
+The system guarantees data safety via an isolated Backup Service.
 
-### Backup Architecture
 - **Frequency**: Every 24 hours (Automated Alpine container).
-- **Retention**: Rolling 7-day window.
-- **Binlogs**: Enabled at `/opt/treishvaam/data/mariadb`.
-
-### Point-in-Time Recovery (PITR)
-1.  **Daily Backup**: Contains Master Data coordinates (`--master-data=2`).
-2.  **Recovery**: Restore `.sql.gz` + Replay `mysqlbinlog` to the exact crash timestamp.
+- **Storage**: MinIO Bucket `treishvaam-backups`.
+- **Method**: `mysqldump` with `--master-data=2` (Enables Point-in-Time Recovery).
+- **Restore Command**:
+  ```bash
+  docker exec -it treishvaam-backup ./restore.sh <backup_file.sql.gz>
+  ```
 
 ---
 
-## 6. Gateway, WAF & Edge Responsibilities
-Responsibility is strictly divided between the Origin (Nginx) and the Edge (Cloudflare).
+## 6. Gateway, WAF & Security
+Responsibility is divided between the Origin (Nginx) and the Edge (Cloudflare).
 
 ### Nginx (Origin Gateway)
 - **Role**: Load Balancer, Reverse Proxy, and WAF.
-- **WAF**: **OWASP ModSecurity CRS** (Iron Dome).
-- **Transparent CORS**: Nginx **does not** set `Access-Control-Allow-Origin`. It passes all headers to Spring Boot, preventing "Double Header" errors.
-- **Bot Whitelisting**: Permits known good bots (Googlebot) to bypass WAF.
+- **Gateway-Level CORS**:
+    - **Update:** Nginx **explicitly handles** CORS (`Access-Control-Allow-Origin`).
+    - **Why:** This ensures that even if the Backend crashes (500 Error) or ModSecurity blocks a request (403), the browser still receives the permission headers to display the error correctly, preventing generic "Network Errors".
+- **WAF (ModSecurity)**:
+    - Enforces OWASP Core Rules.
+    - **Whitelisting:** Explicitly allows complex JSON payloads for:
+        - `/api/v1/monitoring/ingest` (Faro Logs)
+        - `/api/v1/posts/admin` (Blog Content)
 
-### Cloudflare Worker (Edge)
-- **Role**: High-Availability SEO.
-- **Robots.txt**: Served directly from Edge.
-- **Schema Injection**: Intercepts `/category/` requests to inject JSON-LD.
+### Cloudflare Tunnel
+- **Security:** Uses `TUNNEL_TOKEN` from `.env`. No certificate files are stored on disk.
+- **Access:** Acts as the *only* entry point into the server. No open ports (80/443) are exposed to the internet.
 
 ---
 
-## 7. Failure Modes & Expected Behavior
-| Failure Scenario | Expected Behavior |
-|------------------|-------------------|
-| **Backend Down** | Nginx serves 502 Bad Gateway. |
-| **Keycloak Down**| Users redirected to login see 502/Error. |
-| **DB Down** | Backend throws JDBC Exceptions. Circuit Breakers open. |
-| **Entire Cluster Down** | Cloudflare Worker serves `robots.txt` and cached shells. |
+## 7. Resilience Strategies
+| Scenario | Behavior |
+|----------|----------|
+| **Redis Failure** | **Fail-Open:** The API Rate Limiter detects the failure and allows traffic to pass instead of crashing the site. |
+| **Backend Down** | **Worker Failover:** Cloudflare Worker serves `robots.txt` and cached HTML shells to keep SEO alive. |
+| **Database Down** | Backend Circuit Breakers open; User sees a friendly 503 error page. |

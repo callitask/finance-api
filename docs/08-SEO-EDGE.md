@@ -1,34 +1,50 @@
 # 08-SEO-EDGE.md
 
 ## 1. Edge Rendering Strategy
-The Cloudflare Worker intercepts requests to `/category/` URLs and injects SEO-critical Schema.org and meta tags directly into the HTML before the React app loads. This Edge-Side Rendering ensures that search engines and social media crawlers receive rich metadata and structured data, improving SEO and link previews even if the backend is slow or down.
+The Cloudflare Worker intercepts requests to `/category/` URLs and injects SEO-critical Schema.org and meta tags directly into the HTML before the React app loads. This Edge-Side Rendering (ESR) ensures that search engines and social media crawlers receive rich metadata and structured data instantly, improving SEO and link previews even if the backend is slow or down.
 
 ### Flow Overview
-1. Requests to `/category/` are intercepted at the edge.
-2. The Worker fetches blog post data from the backend API.
-3. It generates and injects JSON-LD schemas (`NewsArticle` or `BlogPosting`, plus `BreadcrumbList` and `VideoObject` if needed) and updates meta tags in the HTML response.
-4. The modified HTML is returned to the client or crawler before the React app loads.
+1.  **Interception:** Requests to `/category/` are caught by the Cloudflare Worker.
+2.  **Data Fetch:** The Worker fetches blog post data from the Backend API (`/api/v1/posts/url/...`).
+3.  **Injection:** It generates and injects JSON-LD schemas (`NewsArticle` or `BlogPosting`, `BreadcrumbList`, `VideoObject`) and updates `<title>` and `<meta>` tags in the HTML response.
+4.  **Delivery:** The modified HTML is returned to the client or crawler before the heavy React app loads.
 
-## 2. High Availability Robots.txt (Edge-Served)
-Requests to `/robots.txt` are handled entirely at the edge. The Worker serves a static, always-available robots.txt that:
-- Allows Googlebot and other crawlers to access public API endpoints for content rendering.
-- Disallows indexing of sensitive paths (auth, admin, dashboard, internal search).
-- Always includes a valid Sitemap reference.
-- **Note:** The static robots.txt file was deleted from the backend; it is now hardcoded and served directly from the Cloudflare Worker for high availability.
-This ensures that even if the backend is unavailable, search engines can still crawl and index the site correctly.
+## 2. High Availability Robots.txt
+We use a **Dual-Layer** strategy for `robots.txt` to ensure maximum availability:
+
+1.  **Source of Truth:** The primary file is located at `public/robots.txt` in the Frontend codebase. This is deployed to Cloudflare Pages.
+2.  **Worker Fallback:** The Cloudflare Worker has a hardcoded copy of the rules. If the static asset fetch fails (e.g., Pages outage), the Worker serves the fallback immediately.
+
+**Critical Rules:**
+- `Allow: /api/posts`: Essential for Googlebot to fetch content for rendering.
+- `Allow: /api/news` & `/api/categories`: Allows indexing of dynamic content.
+- `Disallow: /api/admin/`: Protects backend administrative routes.
+- `Disallow: /dashboard/`: Prevents indexing of user-specific pages.
 
 ## 3. Sitemap Proxying
-Requests to `/sitemap.xml`, `/sitemap-news.xml`, `/feed.xml`, and `/sitemaps/*` are proxied by the Worker to the backend (`backend.treishvaamgroup.com`). This guarantees that Google and other crawlers always receive the freshest sitemap and feed XML, even if the backend is behind a tunnel or protected by Cloudflare. If the backend is down, the Worker returns a 503 Service Unavailable.
+Requests to `/sitemap.xml`, `/sitemap-news.xml`, `/feed.xml`, and `/sitemaps/*` are proxied by the Worker directly to the Backend (`backend.treishvaamgroup.com`).
+- **Function:** This ensures Google receives the freshest XML files generated daily by the Spring Boot backend.
+- **Failover:** If the backend is down, the Worker returns a generic 503 error for these specific paths to prevent search engines from de-indexing valid pages due to bad data.
 
 ## 4. Structured Data Injection
-The Worker injects JSON-LD schemas for:
-- **Homepage**: `WebSite` schema with search action for enhanced sitelinks.
-- **Static Pages**: `WebPage` schema for About, Vision, and Contact pages.
-- **Blog Posts**: For `/category/` URLs, the Worker fetches post data from the backend and injects either a `NewsArticle` or `BlogPosting` schema (based on category), plus a `BreadcrumbList` and (if present) a `VideoObject` schema for embedded YouTube videos. All schemas are injected as `<script type="application/ld+json">` in the `<head>`.
+The Worker dynamically injects JSON-LD schemas based on the URL type:
+- **Homepage:** `WebSite` schema with a `SearchAction` for enhanced Sitelinks.
+- **Static Pages:** `WebPage` schema for About, Vision, and Contact pages.
+- **Blog Posts:**
+    - Fetches live data from the API.
+    - Selects `NewsArticle` (for News/Market categories) or `BlogPosting` (for others).
+    - Adds `VideoObject` if a YouTube video is detected in the content.
 
-## 5. Failover Handling
-- If the backend is down, the Worker serves a 503 for sitemaps and feeds, and falls back to a static robots.txt for crawlers.
-- For HTML requests, if the backend is unavailable, the Worker attempts to serve a cached HTML shell from Cloudflare's edge cache, ensuring the site remains available to users and bots.
+## 5. Image Handling Strategy
+- **Storage:** Images are uploaded to MinIO/Local Storage (`/app/uploads`).
+- **Access:** They are accessed via the standardized path: `/api/v1/uploads/filename.ext`.
+- **Optimization:**
+    - **Nginx:** Proxies these requests directly to the file system, bypassing Java logic for speed.
+    - **Cloudflare:** Caches these images at the edge, reducing server load.
+    - **Worker:** The Worker explicitly allows `/api` requests to pass through untouched so images load instantly.
 
----
-This document describes the Cloudflare Worker logic for SEO, edge rendering, and high-availability crawling for Treishvaam Finance, with a detailed flow of how requests are handled and SEO is injected at the edge.
+## 6. Failover Handling
+- **Backend Down?**
+    - Sitemaps/Feeds return 503 (protecting SEO ranking).
+    - `robots.txt` is served from the Worker (keeping crawlers active).
+    - HTML pages attempt to serve a "Stale-While-Revalidate" cached version if available.
