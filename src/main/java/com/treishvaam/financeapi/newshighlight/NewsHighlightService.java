@@ -26,7 +26,7 @@ import javax.imageio.stream.ImageOutputStream;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements; // ADDED: Required for iterating image lists
+import org.jsoup.select.Elements;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,7 +51,8 @@ public class NewsHighlightService {
 
   // Browser User-Agent to bypass anti-bot protections on images
   private static final String USER_AGENT =
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
+          + " Chrome/120.0.0.0 Safari/537.36";
 
   private static final Set<String> TRUSTED_SOURCE_IDS =
       Set.of(
@@ -180,16 +181,22 @@ public class NewsHighlightService {
   }
 
   private boolean isValidSource(NewsDataArticle article) {
-    if (article.getSourceId() == null) return false;
+    if (article.getSourceId() == null) {
+      return false;
+    }
     String sourceId = article.getSourceId().toLowerCase();
     for (String trusted : TRUSTED_SOURCE_IDS) {
-      if (sourceId.contains(trusted)) return true;
+      if (sourceId.contains(trusted)) {
+        return true;
+      }
     }
     return false;
   }
 
   private String cleanTitle(String title) {
-    if (title == null) return "Market Update";
+    if (title == null) {
+      return "Market Update";
+    }
     return title.split(" - ")[0];
   }
 
@@ -209,7 +216,9 @@ public class NewsHighlightService {
   }
 
   private LocalDateTime parseDate(String dateStr) {
-    if (dateStr == null || dateStr.isEmpty()) return LocalDateTime.now();
+    if (dateStr == null || dateStr.isEmpty()) {
+      return LocalDateTime.now();
+    }
     try {
       DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
       return LocalDateTime.parse(dateStr, formatter);
@@ -241,7 +250,9 @@ public class NewsHighlightService {
         originalImage = ImageIO.read(inputStream);
       }
 
-      if (originalImage == null) return null;
+      if (originalImage == null) {
+        return null;
+      }
 
       int targetWidth = 800;
       int originalWidth = originalImage.getWidth();
@@ -264,7 +275,9 @@ public class NewsHighlightService {
 
       ByteArrayOutputStream os = new ByteArrayOutputStream();
       Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpg");
-      if (!writers.hasNext()) return null;
+      if (!writers.hasNext()) {
+        return null;
+      }
 
       ImageWriter writer = writers.next();
       ImageWriteParam param = writer.getDefaultWriteParam();
@@ -287,9 +300,9 @@ public class NewsHighlightService {
     }
   }
 
-  /** * ADVANCED SCRAPER: 
-   * Scrapes the article to find the 'hero' image.
-   * Checks OG tags first, then scans the body content for valid images.
+  /**
+   * ADVANCED SCRAPER: Scrapes the article to find the 'hero' image. Checks OG tags first, then
+   * scans the body content for valid images.
    */
   private String scrapeImageFromArticle(String articleUrl) {
     try {
@@ -309,34 +322,48 @@ public class NewsHighlightService {
 
       // 3. Fallback: Body Scraping (The "Hero" Search)
       // Look for images in likely content containers first to avoid sidebar ads
-      Elements images = doc.select("article img, main img, .content img, .post-body img, #story-body img, img");
+      Elements images =
+          doc.select("article img, main img, .content img, .post-body img, #story-body img, img");
 
       for (Element img : images) {
-          String src = img.attr("abs:src"); // Get absolute URL
-          if (src == null || src.isEmpty()) continue;
+        String src = img.attr("abs:src"); // Get absolute URL
+        if (src == null || src.isEmpty()) {
+          continue;
+        }
 
-          // Filter A: Skip SVGs or Data URIs (usually icons)
-          if (src.contains("data:image") || src.endsWith(".svg")) continue;
+        // Filter A: Skip SVGs or Data URIs (usually icons)
+        if (src.contains("data:image") || src.endsWith(".svg")) {
+          continue;
+        }
 
-          // Filter B: Skip common ad/tracking patterns
-          String lowerSrc = src.toLowerCase();
-          if (lowerSrc.contains("doubleclick") || lowerSrc.contains("pixel") || 
-              lowerSrc.contains("facebook") || lowerSrc.contains("ads") || 
-              lowerSrc.contains("tracker") || lowerSrc.contains("icon")) continue;
+        // Filter B: Skip common ad/tracking patterns
+        String lowerSrc = src.toLowerCase();
+        if (lowerSrc.contains("doubleclick")
+            || lowerSrc.contains("pixel")
+            || lowerSrc.contains("facebook")
+            || lowerSrc.contains("ads")
+            || lowerSrc.contains("tracker")
+            || lowerSrc.contains("icon")) {
+          continue;
+        }
 
-          // Filter C: Size Heuristics (Skip small icons/logos)
-          // We check if width/height attributes exist and are too small (< 200px)
-          String widthAttr = img.attr("width");
-          String heightAttr = img.attr("height");
-          
-          if (isTooSmall(widthAttr) || isTooSmall(heightAttr)) continue;
+        // Filter C: Size Heuristics (Skip small icons/logos)
+        // We check if width/height attributes exist and are too small (< 200px)
+        String widthAttr = img.attr("width");
+        String heightAttr = img.attr("height");
 
-          // Filter D: Skip "Logo" in alt text
-          String alt = img.attr("alt").toLowerCase();
-          if (alt.contains("logo")) continue;
+        if (isTooSmall(widthAttr) || isTooSmall(heightAttr)) {
+          continue;
+        }
 
-          // If we survived all filters, this is likely the content image
-          return src;
+        // Filter D: Skip "Logo" in alt text
+        String alt = img.attr("alt").toLowerCase();
+        if (alt.contains("logo")) {
+          continue;
+        }
+
+        // If we survived all filters, this is likely the content image
+        return src;
       }
 
       return null;
@@ -347,14 +374,18 @@ public class NewsHighlightService {
   }
 
   private boolean isTooSmall(String dimension) {
-      if (dimension == null || dimension.isEmpty()) return false;
-      // Extract numbers only
-      String numeric = dimension.replaceAll("[^0-9]", "");
-      if (numeric.isEmpty()) return false;
-      try {
-          return Integer.parseInt(numeric) < 200;
-      } catch (NumberFormatException e) {
-          return false;
-      }
+    if (dimension == null || dimension.isEmpty()) {
+      return false;
+    }
+    // Extract numbers only
+    String numeric = dimension.replaceAll("[^0-9]", "");
+    if (numeric.isEmpty()) {
+      return false;
+    }
+    try {
+      return Integer.parseInt(numeric) < 200;
+    } catch (NumberFormatException e) {
+      return false;
+    }
   }
 }
