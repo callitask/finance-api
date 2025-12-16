@@ -3,16 +3,16 @@ package com.treishvaam.financeapi.config;
 import com.treishvaam.financeapi.security.InternalSecretFilter;
 import com.treishvaam.financeapi.security.KeycloakRealmRoleConverter;
 import com.treishvaam.financeapi.security.RateLimitingFilter;
-import java.util.List;
+import java.util.Arrays;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
+import org.springframework.core.convert.converter.Converter;
+import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -25,129 +25,103 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @EnableMethodSecurity
 public class SecurityConfig {
 
-  private final InternalSecretFilter internalSecretFilter;
   private final RateLimitingFilter rateLimitingFilter;
+  private final InternalSecretFilter internalSecretFilter;
 
   public SecurityConfig(
-      InternalSecretFilter internalSecretFilter, RateLimitingFilter rateLimitingFilter) {
-    this.internalSecretFilter = internalSecretFilter;
+      RateLimitingFilter rateLimitingFilter, InternalSecretFilter internalSecretFilter) {
     this.rateLimitingFilter = rateLimitingFilter;
-  }
-
-  @Bean
-  public PasswordEncoder passwordEncoder() {
-    return new BCryptPasswordEncoder();
+    this.internalSecretFilter = internalSecretFilter;
   }
 
   @Bean
   public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-    http.csrf(csrf -> csrf.disable())
+    http
+        // 1. CORS Configuration (Must be first to handle pre-flight checks)
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+
+        // 2. Disable CSRF (Stateless API)
+        .csrf(csrf -> csrf.disable())
+
+        // 3. Session Management (Stateless)
         .sessionManagement(
             session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
+        // 4. Security Headers (CRITICAL FIX for Keycloak Silent SSO & Iframes)
+        .headers(
+            headers ->
+                headers.frameOptions(
+                    frame ->
+                        frame.disable()) // Allows browser to iframe the backend for auth checks
+            )
+
+        // 5. URL Authorization Rules
         .authorizeHttpRequests(
-            authz ->
-                authz
-                    .requestMatchers("/actuator/**", "/health")
-                    .permitAll()
-                    .requestMatchers(HttpMethod.OPTIONS, "/**")
-                    .permitAll()
-                    .requestMatchers(
-                        HttpMethod.GET,
-                        "/api/v1/posts",
-                        "/api/v1/posts/public/**",
-                        "/api/v1/posts/url/**",
-                        "/api/v1/categories",
-                        "/api/v1/uploads/**",
-                        "/api/v1/market/**",
-                        "/api/v1/news/**",
-                        "/api/v1/search/**",
-                        "/sitemap.xml",
-                        "/sitemap-news.xml",
-                        "/feed.xml",
-                        "/sitemaps/**",
-                        "/favicon.ico")
-                    .permitAll()
+            auth ->
+                auth
+                    // Public Endpoints
                     .requestMatchers(
                         "/api/v1/auth/**",
+                        "/api/v1/posts/**",
+                        "/api/v1/categories/**",
+                        "/api/v1/market/**",
                         "/api/v1/contact/**",
-                        "/api/v1/market/quotes/batch",
-                        "/api/v1/market/widget",
-                        "/api/v1/monitoring/**", // CRITICAL: Allows Faro traffic
-                        "/swagger-ui/**",
-                        "/v3/api-docs/**",
-                        "/error")
+                        "/api/v1/files/**",
+                        "/api/v1/health/**",
+                        "/api/v1/search/**",
+                        "/actuator/**",
+                        "/api/v1/monitoring/ingest", // Allow Faro RUM
+                        "/sitemap.xml",
+                        "/favicon.ico")
                     .permitAll()
-                    .requestMatchers("/api/v1/analytics/**")
-                    .hasAnyRole("ANALYST", "ADMIN")
-                    .requestMatchers(
-                        "/api/v1/posts/admin/publish/**",
-                        "/api/v1/posts/admin/delete/**",
-                        "/api/v1/market/admin/**",
-                        "/api/v1/status/**",
-                        "/api/v1/admin/actions/**",
-                        "/api/v1/files/upload")
-                    .hasAnyRole("PUBLISHER", "ADMIN")
-                    .requestMatchers(
-                        "/api/v1/posts/draft", "/api/v1/posts/draft/**", "/api/v1/posts/admin/**")
-                    .hasAnyRole("EDITOR", "PUBLISHER", "ADMIN")
+
+                    // Admin Actions
+                    .requestMatchers("/api/v1/admin/**")
+                    .hasRole("admin")
+
+                    // Secure everything else
                     .anyRequest()
                     .authenticated())
+
+        // 6. OAuth2 Resource Server (Keycloak)
         .oauth2ResourceServer(
             oauth2 ->
-                oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
+                oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
 
-    http.addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class);
-    http.addFilterBefore(internalSecretFilter, UsernamePasswordAuthenticationFilter.class);
+        // 7. Custom Filters
+        .addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class)
+        .addFilterBefore(internalSecretFilter, RateLimitingFilter.class);
 
     return http.build();
   }
 
   @Bean
-  public JwtAuthenticationConverter jwtAuthenticationConverter() {
-    JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
-    converter.setJwtGrantedAuthoritiesConverter(new KeycloakRealmRoleConverter());
-    return converter;
-  }
-
-  @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-    // 1. Allowed Origins
-    configuration.setAllowedOriginPatterns(
-        List.of(
+
+    // Explicitly allow Frontend, Localhost, and Backend (Self)
+    configuration.setAllowedOrigins(
+        Arrays.asList(
             "https://treishfin.treishvaamgroup.com",
             "http://localhost:3000",
-            "https://*.treishvaamgroup.com"));
+            "https://backend.treishvaamgroup.com"));
 
-    // 2. Allowed Methods
     configuration.setAllowedMethods(
-        List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"));
-
-    // 3. CRITICAL FIX: Explicitly allow Grafana Faro headers
-    configuration.setAllowedHeaders(
-        List.of(
-            "Authorization",
-            "Cache-Control",
-            "Content-Type",
-            "Accept",
-            "X-Requested-With",
-            "Access-Control-Allow-Origin",
-            "Access-Control-Allow-Headers",
-            "Origin",
-            "x-faro-session-id", // Faro Session
-            "x-faro-user-id", // Faro User
-            "x-faro-trace-id", // Faro Trace
-            "traceparent" // OpenTelemetry
-            ));
-
-    // 4. Expose Headers so frontend can read them
-    configuration.setExposedHeaders(List.of("Authorization", "x-faro-session-id"));
+        Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+    // Allow all headers to prevent "Request header field X is not allowed" errors
+    configuration.setAllowedHeaders(Arrays.asList("*"));
+    configuration.setExposedHeaders(Arrays.asList("Authorization", "Content-Disposition"));
     configuration.setAllowCredentials(true);
     configuration.setMaxAge(3600L);
 
     UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
     source.registerCorsConfiguration("/**", configuration);
     return source;
+  }
+
+  private Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter() {
+    JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();
+    jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(new KeycloakRealmRoleConverter());
+    return jwtAuthenticationConverter;
   }
 }
