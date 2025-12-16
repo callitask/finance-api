@@ -37,7 +37,7 @@ public class SecurityConfig {
     this.internalSecretFilter = internalSecretFilter;
   }
 
-  // --- FIX 1: Restore PasswordEncoder (Fixes Crash) ---
+  // --- FIX: Restore PasswordEncoder ---
   @Bean
   public PasswordEncoder passwordEncoder() {
     return new BCryptPasswordEncoder();
@@ -49,7 +49,7 @@ public class SecurityConfig {
         .csrf(csrf -> csrf.disable())
         .sessionManagement(
             session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-        .headers(headers -> headers.frameOptions(frame -> frame.disable())) // Keycloak iframe fix
+        .headers(headers -> headers.frameOptions(frame -> frame.disable()))
         .authorizeHttpRequests(
             auth ->
                 auth
@@ -58,7 +58,7 @@ public class SecurityConfig {
                         "/actuator/**", "/api/v1/health/**", "/api/v1/monitoring/ingest")
                     .permitAll()
 
-                    // 2. Static Assets & SEO (Restored from 5-day old config)
+                    // 2. Static Assets & SEO
                     .requestMatchers(
                         HttpMethod.GET,
                         "/api/v1/uploads/**", // Fixes Blog Images
@@ -84,16 +84,11 @@ public class SecurityConfig {
                     .requestMatchers("/api/v1/auth/**", "/api/v1/contact/**")
                     .permitAll()
 
-                    // 5. Protected Routes (RBAC)
-                    // Fixes Dashboard Data (Analysts/Admins only)
+                    // 5. Protected Routes
                     .requestMatchers("/api/v1/analytics/**")
                     .hasAnyRole("analyst", "admin")
-
-                    // Fixes Upload Security (Only Publishers/Admins can upload)
                     .requestMatchers("/api/v1/files/upload")
                     .hasAnyRole("publisher", "admin")
-
-                    // Admin Actions
                     .requestMatchers("/api/v1/admin/**")
                     .hasRole("admin")
                     .anyRequest()
@@ -110,7 +105,6 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-    // Gateway-Level CORS support (Nginx handles rejection, we just allow the flow)
     configuration.setAllowedOriginPatterns(Arrays.asList("*"));
     configuration.setAllowedMethods(
         Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));

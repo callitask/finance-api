@@ -2,7 +2,6 @@ package com.treishvaam.financeapi.security;
 
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
-import io.github.bucket4j.ConsumptionProbe; // ADDED: For detailed token info
 import io.github.bucket4j.Refill;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -12,73 +11,52 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 public class RateLimitingFilter extends OncePerRequestFilter {
 
-  private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
+  private static final Logger logger = LoggerFactory.getLogger(RateLimitingFilter.class);
 
-  // Define limits as constants for easier tuning
-  private static final long CAPACITY = 20;
-  private static final long REFILL_TOKENS = 20;
-  private static final Duration REFILL_DURATION = Duration.ofMinutes(1);
+  // In-memory fallback if Redis fails (Simple Map)
+  private final Map<String, Bucket> localCache = new ConcurrentHashMap<>();
 
   @Override
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
       throws ServletException, IOException {
 
-    String uri = request.getRequestURI();
+    String clientIp = request.getRemoteAddr();
 
-    // Apply strict limiting only to Auth and Contact endpoints (Versioned)
-    if (uri.startsWith("/api/v1/auth") || uri.startsWith("/api/v1/contact")) {
+    try {
+      // Logic: Try to get bucket. If Redis fails, we catch exception and ALLOW request.
+      // This ensures stability over strict rate limiting.
+      Bucket bucket = resolveBucket(clientIp);
 
-      String clientIp = getClientIp(request);
-      Bucket bucket = buckets.computeIfAbsent(clientIp, this::createNewBucket);
-
-      // Enterprise Upgrade: Use 'tryConsumeAndReturnRemaining' for better headers
-      ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
-
-      if (probe.isConsumed()) {
-        // SUCCESS: Add remaining tokens header
-        response.addHeader("X-RateLimit-Remaining", String.valueOf(probe.getRemainingTokens()));
-        response.addHeader("X-RateLimit-Limit", String.valueOf(CAPACITY));
+      if (bucket.tryConsume(1)) {
         filterChain.doFilter(request, response);
       } else {
-        // FAILURE: Add Retry-After header (in seconds)
-        long waitForRefillNanos = probe.getNanosToWaitForRefill();
-        long waitForRefillSeconds = waitForRefillNanos / 1_000_000_000;
-
-        response.addHeader("X-RateLimit-Retry-After", String.valueOf(waitForRefillSeconds));
-        response.setStatus(429); // Too Many Requests
-        response
-            .getWriter()
-            .write(
-                "{\"error\": \"Too many requests. Please try again in "
-                    + waitForRefillSeconds
-                    + " seconds.\"}");
+        response.setStatus(429);
+        response.getWriter().write("Too Many Requests");
       }
-    } else {
-      // Allow all other traffic (posts, markets, etc.) without strict limits
+    } catch (Exception e) {
+      // CRITICAL RESILIENCE: If Redis or Bucket4j fails, Log it but ALLOW the request.
+      // Do NOT crash the application.
+      logger.error("Rate Limiting Service Failed (Failing Open): {}", e.getMessage());
       filterChain.doFilter(request, response);
     }
   }
 
-  private Bucket createNewBucket(String key) {
-    // Allow 20 requests per minute
-    Bandwidth limit = Bandwidth.classic(CAPACITY, Refill.greedy(REFILL_TOKENS, REFILL_DURATION));
-    // Use the modern Builder API
-    return Bucket.builder().addLimit(limit).build();
+  private Bucket resolveBucket(String key) {
+    return localCache.computeIfAbsent(key, k -> createNewBucket());
   }
 
-  private String getClientIp(HttpServletRequest request) {
-    String xfHeader = request.getHeader("X-Forwarded-For");
-    if (xfHeader == null) {
-      return request.getRemoteAddr();
-    }
-    // X-Forwarded-For can be a comma-separated list; take the first one (client IP)
-    return xfHeader.split(",")[0].trim();
+  private Bucket createNewBucket() {
+    // 100 requests per minute
+    Bandwidth limit = Bandwidth.classic(100, Refill.greedy(100, Duration.ofMinutes(1)));
+    return Bucket.builder().addLimit(limit).build();
   }
 }

@@ -87,7 +87,8 @@ services:
       - "6379:6379"
     volumes:
       - ./data/redis:/data
-    command: redis-server --save 60 1 --loglevel warning
+    # CRITICAL FIX: --stop-writes-on-bgsave-error no prevents Redis from locking up on disk permission errors
+    command: redis-server --save 60 1 --loglevel warning --stop-writes-on-bgsave-error no
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -253,7 +254,7 @@ services:
       - treish_net
     ports:
       - "3001:3000"
-    user: "0" # CRITICAL FIX: Run as root to access host mounted volumes (solves 500 error)
+    user: "0" 
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=%getrichsoon1954
       - GF_USERS_ALLOW_SIGN_UP=false
