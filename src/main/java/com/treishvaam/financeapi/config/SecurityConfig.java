@@ -114,11 +114,29 @@ public class SecurityConfig {
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
     configuration.setAllowedOriginPatterns(
-        List.of("https://treishfin.treishvaamgroup.com", "http://localhost:3000"));
+        List.of(
+            "https://treishfin.treishvaamgroup.com",
+            "http://localhost:3000",
+            "https://*.treishvaamgroup.com"));
     configuration.setAllowedMethods(
         List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"));
-    configuration.setAllowedHeaders(List.of("*"));
-    configuration.setExposedHeaders(List.of("*"));
+    
+    // CRITICAL FIX: Explicitly allow Grafana Faro headers and Standard headers
+    // Using "*" for headers can fail in strict modes with AllowCredentials=true
+    configuration.setAllowedHeaders(List.of(
+        "Authorization",
+        "Cache-Control",
+        "Content-Type",
+        "Accept",
+        "X-Requested-With",
+        "Access-Control-Allow-Origin",
+        "Access-Control-Allow-Headers",
+        "Origin",
+        "x-faro-session-id",
+        "x-faro-user-id"
+    ));
+    
+    configuration.setExposedHeaders(List.of("Authorization", "x-faro-session-id"));
     configuration.setAllowCredentials(true);
     configuration.setMaxAge(3600L);
 
