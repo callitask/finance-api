@@ -1,18 +1,35 @@
-# TARGET: Backend Docker Image
-# PURPOSE: Java 21 Runtime + Python 3 Environment for Market Data Scripts
-# GOAL: Single container that runs Spring Boot AND the Python Data Pipeline
+# ------------------------------------------------------------------------------
+# STAGE 1: Build the Application
+# ------------------------------------------------------------------------------
+# We use a Docker image that HAS Maven and Java 21 to build the app.
+# This solves the "Permission Denied" and "Java Version" errors on your Host.
+FROM maven:3.9.6-eclipse-temurin-21 AS builder
 
-# 1. Use Java 21 Base Image (Matching your compilation target)
+WORKDIR /build
+
+# 1. Copy configuration
+COPY pom.xml .
+
+# 2. Download dependencies (Cached if pom.xml doesn't change)
+RUN mvn dependency:go-offline
+
+# 3. Copy source code and build
+COPY src ./src
+RUN mvn clean package -DskipTests
+
+# ------------------------------------------------------------------------------
+# STAGE 2: Run the Application
+# ------------------------------------------------------------------------------
+# We use a lightweight Java 21 image for running the app.
 FROM eclipse-temurin:21-jdk-jammy
 
-# 2. Install Python 3, Pip, and build dependencies
-# We use Debian-based 'jammy' so 'apt-get' is the correct package manager
+WORKDIR /app
+
+# 1. Install Python 3 and Dependencies (For Market Data Scripts)
 RUN apt-get update && \
     apt-get install -y python3 python3-pip python-is-python3 && \
     rm -rf /var/lib/apt/lists/*
 
-# 3. Install Python Libraries (YFinance, SQLAlchemy, etc.)
-# FIX: Removed --break-system-packages as it is not supported/needed in this base image
 RUN pip3 install --no-cache-dir \
     pandas \
     requests \
@@ -21,18 +38,15 @@ RUN pip3 install --no-cache-dir \
     mysql-connector-python \
     wikipedia-api
 
-# 4. Set working directory
-WORKDIR /app
-
-# 5. Create necessary directories for file storage and logs
+# 2. Create necessary directories
 RUN mkdir -p /app/uploads /app/sitemaps /app/logs /app/scripts
 
-# 6. Copy the compiled WAR file
-# Ensure the source matches what Maven generates (check target/ folder name)
-COPY target/finance-api.war app.war
+# 3. Copy the compiled WAR file from the 'builder' stage
+# We take it from /build/target/ and put it in /app/
+COPY --from=builder /build/target/finance-api.war app.war
 
-# 7. Expose the application port
+# 4. Expose Port
 EXPOSE 8080
 
-# 8. Run the application
+# 5. Start the App
 ENTRYPOINT ["java", "-jar", "app.war"]
