@@ -1,3 +1,4 @@
+PROJECT CODE/BACKEND CODE FILES/docs/09-DEPLOYMENT-OPS.md
 # 09-DEPLOYMENT-OPS.md
 
 ## 1. CI/CD Execution Model
@@ -61,7 +62,45 @@ To prevent "White Screen of Death" and deployment loops (Phase 17 Patch), the st
 
 ---
 
-## 4. Disaster Recovery (DR) & PITR
+## 4. Observability & Debugging (Mission Control)
+The platform uses a "Zero-CLI" debugging model. SSH access is rarely needed for daily troubleshooting, as all critical metrics and logs are visualized centrally.
+
+### Accessing the Dashboard
+- **URL**: `http://<YOUR_UBUNTU_SERVER_IP>:3001`
+- **User**: `admin`
+- **Password**: *(Refer to `GRAFANA_PASSWORD` in your `docker-compose.yml`)*
+
+### The "Mission Control" View
+Located under **Dashboards > Treishvaam Mission Control**. This is the primary health monitor:
+1.  **Traffic (Green Line)**: Shows real-time Requests Per Second (RPS).
+    - *Flatline at 0*: Server is running but idle.
+    - *Sudden Drop*: Nginx or Network issue.
+2.  **Latency (Yellow/Red)**: Shows request duration.
+    - *Normal*: < 200ms.
+    - *Spike*: Database slowness or application logic hanging.
+3.  **Application Logs**: A live, scrolling feed of backend logs.
+    - **Auto-Filter**: Automatically highlights `ERROR` or `WARN` levels in red.
+
+### Advanced Debugging (Loki & Tempo)
+If a specific user issue arises, use the **Explore** tab (Compass Icon) instead of `docker logs`:
+
+#### 1. Search Logs (Loki)
+To find specific error details:
+1.  Select Source: **Loki**.
+2.  Click **Label filters** -> Select `job` -> `varlogs`.
+3.  Query Input: `{job="varlogs"} |= "ERROR"`
+4.  Result: Displays only failed requests with stack traces.
+
+#### 2. Trace Requests (Tempo)
+To understand *why* a request was slow:
+1.  Copy the `traceId` from a log entry (e.g., `654b...`).
+2.  Select Source: **Tempo**.
+3.  Paste the ID.
+4.  Result: A waterfall view showing exactly how long the database, internal logic, or external APIs took to respond.
+
+---
+
+## 5. Disaster Recovery (DR) & PITR
 The system guarantees **Zero Data Loss** (RPO ≈ 0) using a multi-layer strategy. **Do not rely solely on daily backups.**
 
 ### Backup Architecture
@@ -79,7 +118,7 @@ The system guarantees **Zero Data Loss** (RPO ≈ 0) using a multi-layer strateg
 
 ---
 
-## 5. Gateway, WAF & Edge Responsibilities
+## 6. Gateway, WAF & Edge Responsibilities
 Responsibility is strictly divided between the Origin (Nginx) and the Edge (Cloudflare).
 
 ### Nginx (Origin Gateway)
@@ -97,7 +136,7 @@ Responsibility is strictly divided between the Origin (Nginx) and the Edge (Clou
 
 ---
 
-## 6. Failure Modes & Expected Behavior
+## 7. Failure Modes & Expected Behavior
 | Failure Scenario | Expected Behavior |
 |------------------|-------------------|
 | **Backend Down** | Nginx serves 502 Bad Gateway (or custom error page). Frontend RUM logs error. |
