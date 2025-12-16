@@ -144,5 +144,11 @@
 - Public endpoints do not require authentication.
 - The security configuration enforces RBAC for sensitive operations.
 
+## Rate Limiting Headers
+Public endpoints protected by rate limiting (specifically **Auth** and **Contact**) return the following headers:
+- `X-RateLimit-Limit`: The total number of requests allowed in the current time window.
+- `X-RateLimit-Remaining`: The number of requests remaining in the current window.
+- `X-RateLimit-Retry-After`: (On `429 Too Many Requests`) The number of seconds to wait before retrying.
+
 ---
 This API reference covers the main endpoints and access rules for blog post and authentication operations, now including all implied endpoints.

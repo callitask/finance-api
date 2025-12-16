@@ -20,6 +20,9 @@ The application now uses **Keycloak (OIDC/OAuth2)** for authentication and autho
 
 ### 3. Rate Limiting (Bucket4j)
 - **Bucket4j** is used to enforce API rate limits per IP and/or user, protecting against brute-force and abuse.
+- **Client Feedback**: The API now includes standard RFC-compliant headers to help clients manage backpressure:
+  - `X-RateLimit-Remaining`: The number of tokens left in the current bucket.
+  - `X-RateLimit-Retry-After`: The number of seconds to wait before retrying (provided when a 429 is returned).
 - Rate limits are configured in application properties and can be adjusted per endpoint or user role.
 
 ### 4. Circuit Breakers (Resilience4j)
@@ -49,6 +52,11 @@ This file overrides the default `application.properties` for production deployme
 ### 7. Caching
 - The application uses `@EnableCaching` (in both the main application and a dedicated `CachingConfig` class).
 - **Redis** is configured as the cache provider, with custom serializers and TTLs for different cache groups (e.g., blog posts, market widgets, batch quotes).
+
+### 8. Audit Logging
+- **Asynchronous Execution**: Critical administrative actions (e.g., flushing cache, manual data refresh) are tracked via the `@LogAudit` annotation.
+- **Performance**: The logging mechanism runs asynchronously (`CompletableFuture`) to ensure that writing to the `audit_logs` database table never impacts the latency of the user's request.
+- **Scope**: Captures Actor, Action, Target Entity, IP Address, and Status.
 
 ---
 This configuration ensures secure, scalable, observable, and resilient backend operations in production, with modern IAM, rate limiting, and circuit breaking.

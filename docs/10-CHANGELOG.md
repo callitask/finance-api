@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - Phase 1 Optimization
+### Resilience & Observability
+- **Feat**: Enhanced Rate Limiter to return `X-RateLimit-Remaining` and `X-RateLimit-Retry-After` headers for better client-side handling.
+- **Perf**: Offloaded Audit Logging to asynchronous execution (`CompletableFuture`) to ensure zero latency impact on main request threads.
+
 ## [2.1.0] - Analytics & Telemetry Resilience
 ### Phase 18: Real User Monitoring (RUM) & Analytics
 - **Feat**: Added `/faro-collector/collect` endpoint to ingest Grafana Faro telemetry directly.
