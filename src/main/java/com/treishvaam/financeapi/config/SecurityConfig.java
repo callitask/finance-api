@@ -120,22 +120,22 @@ public class SecurityConfig {
             "https://*.treishvaamgroup.com"));
     configuration.setAllowedMethods(
         List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"));
-    
+
     // CRITICAL FIX: Explicitly allow Grafana Faro headers and Standard headers
     // Using "*" for headers can fail in strict modes with AllowCredentials=true
-    configuration.setAllowedHeaders(List.of(
-        "Authorization",
-        "Cache-Control",
-        "Content-Type",
-        "Accept",
-        "X-Requested-With",
-        "Access-Control-Allow-Origin",
-        "Access-Control-Allow-Headers",
-        "Origin",
-        "x-faro-session-id",
-        "x-faro-user-id"
-    ));
-    
+    configuration.setAllowedHeaders(
+        List.of(
+            "Authorization",
+            "Cache-Control",
+            "Content-Type",
+            "Accept",
+            "X-Requested-With",
+            "Access-Control-Allow-Origin",
+            "Access-Control-Allow-Headers",
+            "Origin",
+            "x-faro-session-id",
+            "x-faro-user-id"));
+
     configuration.setExposedHeaders(List.of("Authorization", "x-faro-session-id"));
     configuration.setAllowCredentials(true);
     configuration.setMaxAge(3600L);
