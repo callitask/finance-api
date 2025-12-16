@@ -73,7 +73,7 @@ public class SecurityConfig {
                         "/api/v1/contact/**",
                         "/api/v1/market/quotes/batch",
                         "/api/v1/market/widget",
-                        "/api/v1/monitoring/**", // CRITICAL: Allows Faro traffic (Camouflaged)
+                        "/api/v1/monitoring/**", // CRITICAL: Allows Faro traffic
                         "/swagger-ui/**",
                         "/v3/api-docs/**",
                         "/error")
@@ -113,16 +113,18 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
+    // 1. Allowed Origins
     configuration.setAllowedOriginPatterns(
         List.of(
             "https://treishfin.treishvaamgroup.com",
             "http://localhost:3000",
             "https://*.treishvaamgroup.com"));
+
+    // 2. Allowed Methods
     configuration.setAllowedMethods(
         List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"));
 
-    // CRITICAL FIX: Explicitly allow Grafana Faro headers and Standard headers
-    // Using "*" for headers can fail in strict modes with AllowCredentials=true
+    // 3. CRITICAL FIX: Explicitly allow Grafana Faro headers
     configuration.setAllowedHeaders(
         List.of(
             "Authorization",
@@ -133,9 +135,13 @@ public class SecurityConfig {
             "Access-Control-Allow-Origin",
             "Access-Control-Allow-Headers",
             "Origin",
-            "x-faro-session-id",
-            "x-faro-user-id"));
+            "x-faro-session-id", // Faro Session
+            "x-faro-user-id", // Faro User
+            "x-faro-trace-id", // Faro Trace
+            "traceparent" // OpenTelemetry
+            ));
 
+    // 4. Expose Headers so frontend can read them
     configuration.setExposedHeaders(List.of("Authorization", "x-faro-session-id"));
     configuration.setAllowCredentials(true);
     configuration.setMaxAge(3600L);
