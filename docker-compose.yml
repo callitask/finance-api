@@ -5,7 +5,7 @@ networks:
     driver: bridge
 
 services:
-  # --- CORE DATABASE ---
+  # ... (Other services like DB, Keycloak remain unchanged) ...
   treishvaam-db:
     image: mariadb:10.6
     container_name: treishvaam-db
@@ -26,7 +26,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # --- IDENTITY DATABASE ---
   keycloak-db:
     image: mariadb:10.6
     container_name: treishvaam-keycloak-db
@@ -46,7 +45,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # --- IDENTITY PROVIDER ---
   keycloak:
     image: quay.io/keycloak/keycloak:23.0.0
     container_name: treishvaam-keycloak
@@ -206,9 +204,8 @@ services:
     environment:
       PARANOIA: 1
     volumes:
-      # FIX: Mapped to TEMPLATES to prevent Permission Denied errors
+      # FIX: Only map the server config + whitelist. DO NOT map nginx.conf.
       - ./nginx/conf.d/default.conf:/etc/nginx/templates/conf.d/default.conf.template
-      - ./nginx/nginx.conf:/etc/nginx/templates/nginx.conf.template
       - ./nginx/modsecurity/whitelist.conf:/etc/nginx/modsecurity/whitelist.conf
       - ./uploads:/app/uploads
       - ./sitemaps:/app/sitemaps
