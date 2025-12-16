@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - Deployment & Security Hardening
+### Phase 3: Resilient Auto-Pilot Deployment
+- **Feat**: Introduced `auto_deploy.sh` for reliable, self-healing deployments via Cron.
+- **Feat**: Implemented **Multi-Stage Docker Builds** to compile Java 21 inside the container, removing host version dependencies.
+- **Ops**: Added `init_automation.sh` for one-click server setup.
+
+### Phase 2: CORS & Proxy Normalization
+- **Fix**: Resolved "Double Header" CORS error by converting Nginx to a Transparent Proxy.
+- **Sec**: Updated `SecurityConfig.java` to whitelist Grafana Faro headers (`x-faro-session-id`, `x-faro-trace-id`).
+- **Sec**: Normalized `Access-Control-Allow-Credentials` handling between Nginx and Spring Boot.
+
 ## [2.1.1] - Phase 1 Optimization
 ### Resilience & Observability
 - **Feat**: Enhanced Rate Limiter to return `X-RateLimit-Remaining` and `X-RateLimit-Retry-After` headers for better client-side handling.

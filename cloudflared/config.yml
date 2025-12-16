@@ -1,0 +1,7 @@
+tunnel: 849d7408-9082-459b-97cd-9a9c3f020715
+credentials-file: /etc/cloudflared/849d7408-9082-459b-97cd-9a9c3f020715.json
+protocol: http2
+ingress:
+  - hostname: backend.treishvaamgroup.com
+    service: http://treishvaam-nginx:80
+  - service: http_status:404

@@ -1,0 +1,52 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: Treishvaam Critical Alerts
+    folder: Critical
+    interval: 1m
+    rules:
+      - uid: high_error_rate
+        title: High API Error Rate
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: Prometheus
+            model:
+              expr: rate(http_server_requests_seconds_count{status=~"5.."}[1m])
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: []
+                  reducer:
+                    params: []
+                    type: sum
+                  type: query
+            datasource:
+              type: __expr__
+              uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "API Error Rate is High"
+          description: "The backend is returning 500 errors."
+        labels:
+          severity: critical

@@ -1,22 +1,21 @@
-PROJECT CODE/BACKEND CODE FILES/docs/09-DEPLOYMENT-OPS.md
 # 09-DEPLOYMENT-OPS.md
 
-## 1. CI/CD Execution Model
-The platform utilizes a **Zero-Touch Deployment** pipeline running on a **self-hosted GitHub Actions runner**.
+## 1. Deployment Pipeline (Auto-Pilot)
+The platform utilizes a **Resilient Auto-Pilot** deployment strategy (`scripts/auto_deploy.sh`) combined with **Multi-Stage Docker Builds**. This ensures the server automatically syncs with Git, compiles code in a controlled environment, and redeploys without manual intervention.
 
-### Why Self-Hosted?
-- **Security**: Keeps build artifacts and database credentials within the private network firewall; no secrets leave the server.
-- **Speed**: Persists the local Maven cache (`~/.m2`), reducing build times from ~10 mins to ~40s by avoiding redundant downloads.
-- **Cache Persistence**: Uses a **Weekly Rolling Cache Key** (Year–Week) for NVD data to optimize dependency scanning.
+### The "Auto-Pilot" Mechanism
+- **Trigger**: A Cron job runs `scripts/auto_deploy.sh` every minute.
+- **Detection**: Checks `git rev-parse HEAD` against `origin/main`. If they differ, deployment starts.
+- **Build Strategy**: **Multi-Stage Dockerfile**.
+    - **Stage 1 (Builder)**: Uses `maven:3.9-eclipse-temurin-21` to compile the JAR/WAR. This guarantees the correct Java version regardless of the host OS.
+    - **Stage 2 (Runtime)**: Copies the compiled artifact to a lightweight `eclipse-temurin:21-jdk-jammy` image.
+- **Zero-Touch**: No manual SSH is required. Pushing to `main` triggers the update within 60 seconds.
 
-### Pipeline Lifecycle (`deploy.yml`)
-The pipeline strictly enforces the following Maven lifecycle phases:
-1.  **Validate**: Runs `mvn spotless:check` (Google Java Style) and `checkstyle:check`. Builds fail immediately on style violations.
-2.  **Verify**: Runs `mvn verify`. **`-DskipTests` is FORBIDDEN.**
-    - Uses **Testcontainers** to spawn ephemeral Docker instances (MariaDB, Redis, RabbitMQ) for real integration testing.
-3.  **Security Scan**: Runs **OWASP Dependency-Check**.
-    - **NVD_API_KEY**: Injected via GitHub Secrets to bypass rate limits.
-    - **OSS Index**: Explicitly **DISABLED** to prevent build failures caused by 429 Rate Limit errors from the commercial API.
+### Pipeline Lifecycle
+1.  **Fetch**: Server pulls latest commits.
+2.  **Build**: Docker builds the backend image (Maven Compilation happens *inside* Docker).
+3.  **Deploy**: `docker-compose up -d --build backend` replaces the container.
+4.  **Config Reload**: `docker restart treishvaam-nginx` ensures Nginx loads new configs.
 
 ---
 
@@ -44,26 +43,20 @@ Secrets are strictly categorized by their lifecycle stage. **Never commit `.env`
 ---
 
 ## 3. Startup Order, Healthchecks & Deadlock Prevention
-To prevent "White Screen of Death" and deployment loops (Phase 17 Patch), the stack uses a specific startup strategy.
+To prevent "White Screen of Death" and deployment loops, the stack uses a specific startup strategy.
 
 ### Deadlock Prevention Strategy
 1.  **Backend Dependency**: The backend depends on `keycloak` using **`condition: service_started`**, NOT `service_healthy`.
-    - **Reason**: Keycloak can take minutes to become "Healthy". If we wait for "Healthy", the backend build might time out. The backend is designed to retry connections until Keycloak is ready.
 2.  **Keycloak Health**: Configured to check `/auth/health`.
 3.  **Nginx "Crash-Proofing"**:
-    - **Issue**: Nginx normally crashes if the `backend` host is unreachable during startup.
-    - **Fix**: We use **Dynamic DNS Resolution** in `nginx.conf`:
-      ```nginx
-      resolver 127.0.0.11 valid=30s;
-      set $backend_cluster http://backend:8080;
-      proxy_pass $backend_cluster;
-      ```
-    - **Result**: Nginx starts successfully even if the backend is down, allowing it to serve "Maintenance" or static error pages.
+    - **Issue**: Nginx normally crashes if the `backend` host is unreachable.
+    - **Fix**: Dynamic DNS Resolution in `nginx.conf` (`resolver 127.0.0.11`).
+    - **Result**: Nginx starts successfully even if the backend is down.
 
 ---
 
 ## 4. Observability & Debugging (Mission Control)
-The platform uses a "Zero-CLI" debugging model. SSH access is rarely needed for daily troubleshooting, as all critical metrics and logs are visualized centrally.
+The platform uses a "Zero-CLI" debugging model.
 
 ### Accessing the Dashboard
 - **URL**: `http://<YOUR_UBUNTU_SERVER_IP>:3001`
@@ -71,50 +64,28 @@ The platform uses a "Zero-CLI" debugging model. SSH access is rarely needed for 
 - **Password**: *(Refer to `GRAFANA_PASSWORD` in your `docker-compose.yml`)*
 
 ### The "Mission Control" View
-Located under **Dashboards > Treishvaam Mission Control**. This is the primary health monitor:
-1.  **Traffic (Green Line)**: Shows real-time Requests Per Second (RPS).
-    - *Flatline at 0*: Server is running but idle.
-    - *Sudden Drop*: Nginx or Network issue.
-2.  **Latency (Yellow/Red)**: Shows request duration.
-    - *Normal*: < 200ms.
-    - *Spike*: Database slowness or application logic hanging.
-3.  **Application Logs**: A live, scrolling feed of backend logs.
-    - **Auto-Filter**: Automatically highlights `ERROR` or `WARN` levels in red.
+Located under **Dashboards > Treishvaam Mission Control**.
+1.  **Traffic**: Real-time Requests Per Second (RPS).
+2.  **Latency**: Request duration (Target: < 200ms).
+3.  **Application Logs**: Live feed highlighting `ERROR` or `WARN` in red.
 
 ### Advanced Debugging (Loki & Tempo)
-If a specific user issue arises, use the **Explore** tab (Compass Icon) instead of `docker logs`:
-
-#### 1. Search Logs (Loki)
-To find specific error details:
-1.  Select Source: **Loki**.
-2.  Click **Label filters** -> Select `job` -> `varlogs`.
-3.  Query Input: `{job="varlogs"} |= "ERROR"`
-4.  Result: Displays only failed requests with stack traces.
-
-#### 2. Trace Requests (Tempo)
-To understand *why* a request was slow:
-1.  Copy the `traceId` from a log entry (e.g., `654b...`).
-2.  Select Source: **Tempo**.
-3.  Paste the ID.
-4.  Result: A waterfall view showing exactly how long the database, internal logic, or external APIs took to respond.
+- **Loki**: Use `{job="varlogs"} |= "ERROR"` to find stack traces.
+- **Tempo**: Paste `traceId` (from logs) to visualize the request waterfall.
 
 ---
 
 ## 5. Disaster Recovery (DR) & PITR
-The system guarantees **Zero Data Loss** (RPO ≈ 0) using a multi-layer strategy. **Do not rely solely on daily backups.**
+The system guarantees **Zero Data Loss** (RPO ≈ 0).
 
 ### Backup Architecture
 - **Frequency**: Every 24 hours (Automated Alpine container).
-- **Retention**: Rolling 7-day window; older files auto-deleted.
-- **Binlogs**: MariaDB configured with `log_bin` enabled at `/opt/treishvaam/data/mariadb`.
+- **Retention**: Rolling 7-day window.
+- **Binlogs**: Enabled at `/opt/treishvaam/data/mariadb`.
 
 ### Point-in-Time Recovery (PITR)
-1.  **Daily Backup**: The `backup.sh` script uses **`--master-data=2`**.
-    - **Purpose**: This flag writes the exact **Binary Log Filename** and **Position** (coordinate) into the backup header. This tells us exactly where to start replaying logs.
-2.  **Recovery Workflow**:
-    - **Step 1**: Restore the last successful `.sql.gz` backup.
-    - **Step 2**: Use `mysqlbinlog` to replay transactions from the coordinate found in Step 1 up to the exact timestamp of the crash.
-    - **Command**: `mysqlbinlog --start-position=12345 mysql-bin.000001 | mysql -u root -p`
+1.  **Daily Backup**: Contains Master Data coordinates (`--master-data=2`).
+2.  **Recovery**: Restore `.sql.gz` + Replay `mysqlbinlog` to the exact crash timestamp.
 
 ---
 
@@ -122,24 +93,22 @@ The system guarantees **Zero Data Loss** (RPO ≈ 0) using a multi-layer strateg
 Responsibility is strictly divided between the Origin (Nginx) and the Edge (Cloudflare).
 
 ### Nginx (Origin Gateway)
-- **Role**: Load Balancer, Reverse Proxy, and Application Firewall.
-- **WAF**: **OWASP ModSecurity CRS** (Iron Dome) runs here.
-    - Blocks SQL Injection, XSS, and Malformed Payloads (Layer 7).
-- **Bot Whitelisting**: Explicitly permits known good bots (Googlebot, Bingbot) to bypass WAF rules to prevent SEO indexing penalties.
-- **CORS**: Enforces `Access-Control-Allow-Origin` for the frontend.
+- **Role**: Load Balancer, Reverse Proxy, and WAF.
+- **WAF**: **OWASP ModSecurity CRS** (Iron Dome).
+- **Transparent CORS**: Nginx **does not** set `Access-Control-Allow-Origin`. It passes all headers to Spring Boot, preventing "Double Header" errors.
+- **Bot Whitelisting**: Permits known good bots (Googlebot) to bypass WAF.
 
 ### Cloudflare Worker (Edge)
-- **Role**: High-Availability SEO & Static Assets.
-- **Robots.txt**: **Owned by Edge**. Served directly from the Worker (`worker.js`).
-    - **Reason**: Ensures search engines can *always* find crawling instructions, even if the backend/Nginx is completely offline.
-- **Schema Injection**: Intercepts `/category/` requests to inject JSON-LD (NewsArticle, VideoObject) before the HTML reaches the browser.
+- **Role**: High-Availability SEO.
+- **Robots.txt**: Served directly from Edge.
+- **Schema Injection**: Intercepts `/category/` requests to inject JSON-LD.
 
 ---
 
 ## 7. Failure Modes & Expected Behavior
 | Failure Scenario | Expected Behavior |
 |------------------|-------------------|
-| **Backend Down** | Nginx serves 502 Bad Gateway (or custom error page). Frontend RUM logs error. |
-| **Keycloak Down**| Users redirected to login see 502/Error. Active sessions may persist briefly (JWT). |
-| **DB Down** | Backend throws JDBC Connection Exceptions. Circuit Breakers open. |
-| **Entire Cluster Down** | **Edge Logic Persists**: Cloudflare Worker still serves `robots.txt` and cached HTML shells. |
+| **Backend Down** | Nginx serves 502 Bad Gateway. |
+| **Keycloak Down**| Users redirected to login see 502/Error. |
+| **DB Down** | Backend throws JDBC Exceptions. Circuit Breakers open. |
+| **Entire Cluster Down** | Cloudflare Worker serves `robots.txt` and cached shells. |

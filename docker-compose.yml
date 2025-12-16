@@ -5,7 +5,6 @@ networks:
     driver: bridge
 
 services:
-  # ... (Other services like DB, Keycloak remain unchanged) ...
   treishvaam-db:
     image: mariadb:10.6
     container_name: treishvaam-db
@@ -143,7 +142,7 @@ services:
       - treish_net
     command: tunnel run
     environment:
-      - TUNNEL_TOKEN=eyJhIjoiOGM3YTgyMzUxOTcyYzQ1ZGFjYTBiMmM2ZTYyNGMxNGQiLCJ0IjoiODQ5ZDc0MDgtOTA4Mi00NTliLTk3Y2QtOWE5YzNmMDIwNzE1IiwicyI6Im5MSWZsL1lpMkNDNUtveXhrcVB2NzNlemdrYzkwRkpXTUNyZHh4MVNQVWM9In0=
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
 
   backend:
     image: ghcr.io/callitask/finance-api:latest
@@ -161,7 +160,7 @@ services:
       MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://tempo:9411/api/v2/spans
       SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: https://backend.treishvaamgroup.com/auth/realms/treishvaam
       SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/auth/realms/treishvaam/protocol/openid-connect/certs
-      LOGGING_FILE_NAME: /app/logs/application-$${HOSTNAME}.log
+      LOGGING_FILE_NAME: /app/logs/application-${HOSTNAME}.log
     volumes:
       - ./backend-app.war:/app/app.war
       - ./ga4-credentials.json:/app/ga4-credentials.json
@@ -204,7 +203,6 @@ services:
     environment:
       PARANOIA: 1
     volumes:
-      # FIX: Only map the server config + whitelist. DO NOT map nginx.conf.
       - ./nginx/conf.d/default.conf:/etc/nginx/templates/conf.d/default.conf.template
       - ./nginx/modsecurity/whitelist.conf:/etc/nginx/modsecurity/whitelist.conf
       - ./uploads:/app/uploads
@@ -255,8 +253,10 @@ services:
       - treish_net
     ports:
       - "3001:3000"
+    user: "0" # CRITICAL FIX: Run as root to access host mounted volumes (solves 500 error)
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=%getrichsoon1954
+      - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - ./data/grafana:/var/lib/grafana
       - ./config/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
@@ -283,21 +283,6 @@ services:
       - "4317:4317"
       - "4318:4318"
       - "9411:9411"
-
-  alloy:
-    image: grafana/alloy:latest
-    container_name: treishvaam-alloy
-    restart: always
-    networks:
-      - treish_net
-    volumes:
-      - ./config/alloy.river:/etc/alloy/config.river
-    command: run --server.http.listen-addr=0.0.0.0:12345 /etc/alloy/config.river
-    ports:
-      - "12345:12345"
-    depends_on:
-      - loki
-      - tempo
 
   rabbitmq:
     image: rabbitmq:3.12-management
