@@ -9,8 +9,8 @@ import io.minio.http.Method;
 import jakarta.annotation.PostConstruct;
 import java.io.InputStream;
 import java.util.concurrent.TimeUnit;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.slf4j.Logger; // Import Logger
+import org.slf4j.LoggerFactory; // Import LoggerFactory
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -18,7 +18,8 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class FileStorageService {
 
-  private static final Logger logger = LoggerFactory.getLogger(FileStorageService.class);
+  private static final Logger logger =
+      LoggerFactory.getLogger(FileStorageService.class); // Init Logger
   private final MinioClient minioClient;
 
   @Value("${minio.bucket-name}")
@@ -31,10 +32,7 @@ public class FileStorageService {
     this.minioClient = minioClient;
   }
 
-  /**
-   * SELF-HEALING: Run on startup to ensure the bucket exists. If the bucket is missing (fresh
-   * deploy), it creates it automatically.
-   */
+  // --- SELF-HEALING: Auto-create bucket on startup ---
   @PostConstruct
   public void init() {
     try {
@@ -43,14 +41,11 @@ public class FileStorageService {
       if (!found) {
         logger.info("🪣 Bucket '{}' not found. Creating it now...", bucketName);
         minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
-        logger.info("✅ Bucket created successfully.");
       } else {
         logger.info("✅ Connected to MinIO bucket: {}", bucketName);
       }
     } catch (Exception e) {
-      logger.error("❌ Critical Storage Error: Could not connect to MinIO. Check configuration.", e);
-      // We don't throw exception here to allow the app to start,
-      // but uploads will fail until MinIO is ready.
+      logger.error("❌ Critical Storage Error: Could not connect to MinIO. Check config.", e);
     }
   }
 
@@ -61,33 +56,28 @@ public class FileStorageService {
       InputStream inputStream = file.getInputStream();
       return storeFile(inputStream, fileName, file.getContentType());
     } catch (Exception e) {
-      throw new RuntimeException(
-          "Could not store file " + file.getOriginalFilename() + ". Please try again!", e);
+      throw new RuntimeException("Could not store file " + file.getOriginalFilename(), e);
     }
   }
 
   // NEW OVERLOADED METHOD: Accepts raw InputStream (For Internal Image Pipeline)
   public String storeFile(InputStream inputStream, String fileName, String contentType) {
     try {
-      // 1. Upload to MinIO
       minioClient.putObject(
           PutObjectArgs.builder().bucket(bucketName).object(fileName).stream(
-                  inputStream, -1, 10485760) // -1 size (unknown), 10MB part size
+                  inputStream, -1, 10485760) // -1 size, 10MB part size
               .contentType(contentType)
               .build());
 
-      // 2. CRITICAL FIX: Return the correct Nginx proxy path
-      // Old: /uploads/ (Resulted in 404 because Nginx didn't know this path)
-      // New: /api/uploads/ (Nginx routes this to MinIO)
+      // --- CRITICAL FIX: Return path with /api/ prefix for Nginx ---
       return "/api/uploads/" + fileName;
 
     } catch (Exception e) {
-      logger.error("Failed to upload file: {}", fileName, e);
       throw new RuntimeException("Failed to store file: " + fileName, e);
     }
   }
 
-  // Helper to get presigned URL if needed (for private buckets)
+  // Helper to get presigned URL if needed
   public String getPresignedUrl(String objectName) {
     try {
       return minioClient.getPresignedObjectUrl(
@@ -98,7 +88,6 @@ public class FileStorageService {
               .expiry(7, TimeUnit.DAYS)
               .build());
     } catch (Exception e) {
-      logger.error("Could not generate presigned URL for {}", objectName, e);
       return null;
     }
   }
