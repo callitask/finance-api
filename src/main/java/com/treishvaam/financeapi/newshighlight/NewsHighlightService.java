@@ -25,6 +25,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -78,13 +80,18 @@ public class NewsHighlightService {
   public void init() {
     if (repository.count() == 0) {
       logger.info("📰 News DB Empty. Triggering initial fetch...");
-      fetchNews();
+      fetchAndStoreNews();
     }
+  }
+
+  /** Public accessor for Controller */
+  public Page<NewsHighlight> getHighlights(Pageable pageable) {
+    return repository.findByIsArchivedFalseOrderByPublishedAtDesc(pageable);
   }
 
   /** Schedule: Every 15 minutes (900,000 ms). 96 requests/day. Safe within 200/day limit. */
   @Scheduled(fixedRate = 900000)
-  public void fetchNews() {
+  public void fetchAndStoreNews() {
     logger.info("🌍 Starting Global News Intelligence Cycle...");
 
     try {
@@ -127,16 +134,18 @@ public class NewsHighlightService {
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public boolean saveArticleSafe(NewsDataArticle apiArticle) {
     try {
-      // Check existence by URL or Title
-      if (repository.existsByUrl(apiArticle.getLink())) {
+      // FIX: Use existsByLink instead of existsByUrl
+      if (repository.existsByLink(apiArticle.getLink())) {
         return false; // Skip duplicate
       }
 
       NewsHighlight news = new NewsHighlight();
       news.setTitle(apiArticle.getTitle());
-      news.setUrl(apiArticle.getLink());
+      // FIX: Use setLink instead of setUrl
+      news.setLink(apiArticle.getLink());
       news.setSource(formatSourceName(apiArticle.getSourceId()));
-      news.setSummary(apiArticle.getDescription());
+      // FIX: Use setDescription instead of setSummary
+      news.setDescription(apiArticle.getDescription());
 
       // Handle Date
       if (apiArticle.getPubDate() != null) {
@@ -179,7 +188,6 @@ public class NewsHighlightService {
 
     // Step B: If we found a URL (either from API or Scraper), try to download/cache it
     if (candidateUrl != null && !candidateUrl.isEmpty()) {
-      // FIX: Removed space in method name
       String localFilename = downloadAndOptimizeImage(candidateUrl);
       if (localFilename != null) {
         return localFilename; // Return "news-xyz.webp"
@@ -266,6 +274,7 @@ public class NewsHighlightService {
 
   private void archiveOldStories() {
     // Keep strictly the top 50 freshest stories active
+    // FIX: Now uses the new List method in Repository
     List<NewsHighlight> activeNews = repository.findByIsArchivedFalseOrderByPublishedAtDesc();
     if (activeNews.size() > 50) {
       List<NewsHighlight> toArchive = activeNews.subList(50, activeNews.size());
