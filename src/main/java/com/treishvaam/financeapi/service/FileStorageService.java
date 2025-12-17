@@ -66,7 +66,7 @@ public class FileStorageService {
               .contentType(contentType)
               .build());
 
-      // Standardize path for Nginx
+      // STANDARD: Return clean relative path. Frontend will prepend domain.
       return "/api/uploads/" + fileName;
 
     } catch (Exception e) {
@@ -74,20 +74,20 @@ public class FileStorageService {
     }
   }
 
-  // --- UPDATED: Robust File Size Check ---
+  // Robust File Size Check
   public long getFileSize(String path) {
     try {
-      // Clean all possible prefixes to get the raw object name in MinIO
+      // Remove prefixes to find object in MinIO
       String objectName =
-          path.replace("/api/v1/uploads/", "") // Legacy
-              .replace("/api/uploads/", "") // Standard
-              .replace("/uploads/", ""); // Broken
+          path.replace("https://backend.treishvaamgroup.com", "")
+              .replace("/api/v1/uploads/", "")
+              .replace("/api/uploads/", "")
+              .replace("/uploads/", "");
 
       return minioClient
           .statObject(StatObjectArgs.builder().bucket(bucketName).object(objectName).build())
           .size();
     } catch (Exception e) {
-      // Return -1 if file doesn't exist or error (triggers re-download)
       return -1;
     }
   }

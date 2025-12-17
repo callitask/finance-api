@@ -78,7 +78,6 @@ public class NewsHighlightService {
   @EventListener(ApplicationReadyEvent.class)
   public void init() {
     if (repository.count() == 0) {
-      logger.info("📰 News DB Empty. Triggering initial fetch...");
       fetchAndStoreNews();
     } else {
       healLegacyImages();
@@ -91,7 +90,7 @@ public class NewsHighlightService {
 
   @Scheduled(fixedRate = 3600000)
   public void healLegacyImages() {
-    logger.info("🚑 Starting News Image Healer V3 (Fast Repair)...");
+    logger.info("🚑 Starting News Image Healer V5 (Standardization)...");
     Pageable limit = PageRequest.of(0, 100, Sort.by(Sort.Direction.DESC, "publishedAt"));
     List<NewsHighlight> recentNews =
         repository.findByIsArchivedFalseOrderByPublishedAtDesc(limit).getContent();
@@ -99,41 +98,39 @@ public class NewsHighlightService {
     int fixedCount = 0;
     for (NewsHighlight news : recentNews) {
       String currentUrl = news.getImageUrl();
-      boolean dbUpdated = false;
+      if (currentUrl == null || currentUrl.isEmpty()) {
+        repairSingleNewsItem(news);
+        fixedCount++;
+        continue;
+      }
 
-      // FAST REPAIR: If URL has old prefix but file exists, just rename URL
-      if (currentUrl != null && currentUrl.startsWith("/uploads/")) {
+      // NORMALIZE: Ensure path starts with /api/uploads/ if it's a local file
+      if (currentUrl.startsWith("/uploads/") || currentUrl.startsWith("/api/v1/")) {
+        String cleanPath =
+            currentUrl
+                .replace("/api/v1/uploads/", "/api/uploads/")
+                .replace("/uploads/", "/api/uploads/");
+        news.setImageUrl(cleanPath);
+        repository.save(news);
+        fixedCount++;
+      }
+
+      // CHECK CORRUPTION
+      if (currentUrl.startsWith("/")) {
         long size = fileStorageService.getFileSize(currentUrl);
-        if (size > 0) {
-          // File exists! Just fix the path prefix
-          String newUrl = currentUrl.replace("/uploads/", "/api/uploads/");
-          news.setImageUrl(newUrl);
-          repository.save(news);
-          logger.info("⚡ Fast Repair: Fixed path for '{}' ({} bytes)", news.getTitle(), size);
-          dbUpdated = true;
-          fixedCount++;
-        } else {
-          // File is missing/0-byte, needs full repair
+        if (size <= 0) {
+          logger.warn("⚠️ Found 0-byte file. Repairing: {}", news.getTitle());
           repairSingleNewsItem(news);
-          if (!news.getImageUrl().equals(currentUrl)) fixedCount++;
+          fixedCount++;
         }
       }
-      // Handle 0-byte valid paths or nulls
-      else if (currentUrl == null
-          || (currentUrl.startsWith("/api/uploads/")
-              && fileStorageService.getFileSize(currentUrl) <= 0)) {
-        repairSingleNewsItem(news);
-        if (currentUrl == null || !currentUrl.equals(news.getImageUrl())) fixedCount++;
-      }
     }
-    if (fixedCount > 0) logger.info("✅ Healer V3 processed {} items.", fixedCount);
+    if (fixedCount > 0) logger.info("✅ Healer V5 processed {} items.", fixedCount);
   }
 
   private void repairSingleNewsItem(NewsHighlight news) {
     try {
-      logger.info("🔧 Full Repair (Scrape & Download) for: {}", news.getTitle());
       String scrapedImageUrl = scrapeImageFromUrl(news.getLink());
-
       if (scrapedImageUrl != null && !scrapedImageUrl.isEmpty()) {
         String newLocalPath = downloadAndOptimizeImage(scrapedImageUrl);
         news.setImageUrl(newLocalPath != null ? newLocalPath : scrapedImageUrl);
@@ -152,12 +149,10 @@ public class NewsHighlightService {
           "https://newsdata.io/api/1/news?apikey=" + apiKey + "&category=business&language=en";
       ResponseEntity<NewsDataResponse> response =
           restTemplate.getForEntity(url, NewsDataResponse.class);
-
       if (response.getBody() == null || response.getBody().getResults() == null) return;
 
       List<NewsDataArticle> articles = response.getBody().getResults();
       int newCount = 0;
-
       for (NewsDataArticle article : articles) {
         if (!isAllowedSource(article.getSourceId())) continue;
         if (saveArticleSafe(article)) newCount++;
@@ -173,13 +168,11 @@ public class NewsHighlightService {
   public boolean saveArticleSafe(NewsDataArticle apiArticle) {
     try {
       if (repository.existsByLink(apiArticle.getLink())) return false;
-
       NewsHighlight news = new NewsHighlight();
       news.setTitle(apiArticle.getTitle());
       news.setLink(apiArticle.getLink());
       news.setSource(formatSourceName(apiArticle.getSourceId()));
       news.setDescription(apiArticle.getDescription());
-
       if (apiArticle.getPubDate() != null) {
         try {
           DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -190,27 +183,22 @@ public class NewsHighlightService {
       } else {
         news.setPublishedAt(LocalDateTime.now());
       }
-
       String bestImageUrl = resolveBestImage(apiArticle);
       news.setImageUrl(bestImageUrl);
       news.setArchived(false);
-
       repository.save(news);
       return true;
     } catch (DataIntegrityViolationException e) {
       return false;
     } catch (Exception e) {
-      logger.error("⚠️ Error saving article '{}': {}", apiArticle.getTitle(), e.getMessage());
       return false;
     }
   }
 
   private String resolveBestImage(NewsDataArticle article) {
     String candidateUrl = article.getImageUrl();
-    if (candidateUrl == null || candidateUrl.isEmpty()) {
+    if (candidateUrl == null || candidateUrl.isEmpty())
       candidateUrl = scrapeImageFromUrl(article.getLink());
-    }
-
     if (candidateUrl != null && !candidateUrl.isEmpty()) {
       String localFilename = downloadAndOptimizeImage(candidateUrl);
       return (localFilename != null) ? localFilename : candidateUrl;
@@ -243,23 +231,18 @@ public class NewsHighlightService {
       conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
       conn.setConnectTimeout(5000);
       conn.setReadTimeout(5000);
-
       try (InputStream in = conn.getInputStream()) {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         byte[] data = new byte[1024];
         int nRead;
-        while ((nRead = in.read(data, 0, data.length)) != -1) {
-          buffer.write(data, 0, nRead);
-        }
+        while ((nRead = in.read(data, 0, data.length)) != -1) buffer.write(data, 0, nRead);
         buffer.flush();
         byte[] imageBytes = buffer.toByteArray();
-
         if (imageBytes.length == 0) return null;
 
         ByteArrayOutputStream os = new ByteArrayOutputStream();
         String extension = "webp";
         String contentType = "image/webp";
-
         try {
           Thumbnails.of(new ByteArrayInputStream(imageBytes))
               .size(800, 600)
@@ -267,7 +250,7 @@ public class NewsHighlightService {
               .outputQuality(0.85)
               .toOutputStream(os);
         } catch (Exception e) {
-          logger.warn("⚠️ WebP conversion failed, falling back to JPG for: {}", imageUrl);
+          logger.warn("⚠️ WebP conversion failed, falling back to JPG");
           os.reset();
           extension = "jpg";
           contentType = "image/jpeg";
@@ -277,16 +260,13 @@ public class NewsHighlightService {
               .outputQuality(0.85)
               .toOutputStream(os);
         }
-
         byte[] finalBytes = os.toByteArray();
         if (finalBytes.length == 0) return null;
-
         String filename = "news-" + UUID.randomUUID() + "." + extension;
         return fileStorageService.storeFile(
             new ByteArrayInputStream(finalBytes), filename, contentType);
       }
     } catch (Exception e) {
-      logger.warn("⚠️ Image download failed for {}: {}", imageUrl, e.getMessage());
       return null;
     }
   }
@@ -311,7 +291,6 @@ public class NewsHighlightService {
       List<NewsHighlight> toArchive = activeNews.subList(50, activeNews.size());
       for (NewsHighlight news : toArchive) news.setArchived(true);
       repository.saveAll(toArchive);
-      logger.info("🗄️ Auto-Archived {} old stories.", toArchive.size());
     }
   }
 }
