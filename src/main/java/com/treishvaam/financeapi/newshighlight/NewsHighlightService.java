@@ -326,7 +326,15 @@ public class NewsHighlightService {
           doc.select("article img, main img, .content img, .post-body img, #story-body img, img");
 
       for (Element img : images) {
-        String src = img.attr("abs:src"); // Get absolute URL
+        // LAZY LOADING SUPPORT: Check data-src first
+        String src = img.attr("abs:data-src");
+        if (src.isEmpty()) {
+          src = img.attr("abs:data-original");
+        }
+        if (src.isEmpty()) {
+          src = img.attr("abs:src"); // Fallback to standard src
+        }
+
         if (src == null || src.isEmpty()) {
           continue;
         }
