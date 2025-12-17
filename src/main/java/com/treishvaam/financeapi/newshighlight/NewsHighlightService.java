@@ -49,12 +49,27 @@ public class NewsHighlightService {
 
   private static final List<String> ALLOWED_SOURCES =
       Arrays.asList(
-          "bloomberg", "reuters", "cnbc", "wsj", "financial times", "economist",
-          "marketwatch", "investopedia", "business insider", "forbes", "bbc business",
-          "cnn business", "yahoo finance", "techcrunch", "moneycontrol", "livemint",
-          "economic times", "business standard");
+          "bloomberg",
+          "reuters",
+          "cnbc",
+          "wsj",
+          "financial times",
+          "economist",
+          "marketwatch",
+          "investopedia",
+          "business insider",
+          "forbes",
+          "bbc business",
+          "cnn business",
+          "yahoo finance",
+          "techcrunch",
+          "moneycontrol",
+          "livemint",
+          "economic times",
+          "business standard");
 
-  public NewsHighlightService(NewsHighlightRepository repository, FileStorageService fileStorageService) {
+  public NewsHighlightService(
+      NewsHighlightRepository repository, FileStorageService fileStorageService) {
     this.repository = repository;
     this.fileStorageService = fileStorageService;
     this.restTemplate = new RestTemplate();
@@ -66,7 +81,7 @@ public class NewsHighlightService {
       logger.info("📰 News DB Empty. Triggering initial fetch...");
       fetchAndStoreNews();
     } else {
-        healLegacyImages();
+      healLegacyImages();
     }
   }
 
@@ -76,62 +91,67 @@ public class NewsHighlightService {
 
   @Scheduled(fixedRate = 3600000)
   public void healLegacyImages() {
-      logger.info("🚑 Starting News Image Healer V3 (Fast Repair)...");
-      Pageable limit = PageRequest.of(0, 100, Sort.by(Sort.Direction.DESC, "publishedAt"));
-      List<NewsHighlight> recentNews = repository.findByIsArchivedFalseOrderByPublishedAtDesc(limit).getContent();
+    logger.info("🚑 Starting News Image Healer V3 (Fast Repair)...");
+    Pageable limit = PageRequest.of(0, 100, Sort.by(Sort.Direction.DESC, "publishedAt"));
+    List<NewsHighlight> recentNews =
+        repository.findByIsArchivedFalseOrderByPublishedAtDesc(limit).getContent();
 
-      int fixedCount = 0;
-      for (NewsHighlight news : recentNews) {
-          String currentUrl = news.getImageUrl();
-          boolean dbUpdated = false;
+    int fixedCount = 0;
+    for (NewsHighlight news : recentNews) {
+      String currentUrl = news.getImageUrl();
+      boolean dbUpdated = false;
 
-          // FAST REPAIR: If URL has old prefix but file exists, just rename URL
-          if (currentUrl != null && currentUrl.startsWith("/uploads/")) {
-              long size = fileStorageService.getFileSize(currentUrl);
-              if (size > 0) {
-                  // File exists! Just fix the path prefix
-                  String newUrl = currentUrl.replace("/uploads/", "/api/uploads/");
-                  news.setImageUrl(newUrl);
-                  repository.save(news);
-                  logger.info("⚡ Fast Repair: Fixed path for '{}' ({} bytes)", news.getTitle(), size);
-                  dbUpdated = true;
-                  fixedCount++;
-              } else {
-                  // File is missing/0-byte, needs full repair
-                  repairSingleNewsItem(news);
-                  if(!news.getImageUrl().equals(currentUrl)) fixedCount++;
-              }
-          }
-          // Handle 0-byte valid paths or nulls
-          else if (currentUrl == null || (currentUrl.startsWith("/api/uploads/") && fileStorageService.getFileSize(currentUrl) <= 0)) {
-              repairSingleNewsItem(news);
-              if(currentUrl == null || !currentUrl.equals(news.getImageUrl())) fixedCount++;
-          }
+      // FAST REPAIR: If URL has old prefix but file exists, just rename URL
+      if (currentUrl != null && currentUrl.startsWith("/uploads/")) {
+        long size = fileStorageService.getFileSize(currentUrl);
+        if (size > 0) {
+          // File exists! Just fix the path prefix
+          String newUrl = currentUrl.replace("/uploads/", "/api/uploads/");
+          news.setImageUrl(newUrl);
+          repository.save(news);
+          logger.info("⚡ Fast Repair: Fixed path for '{}' ({} bytes)", news.getTitle(), size);
+          dbUpdated = true;
+          fixedCount++;
+        } else {
+          // File is missing/0-byte, needs full repair
+          repairSingleNewsItem(news);
+          if (!news.getImageUrl().equals(currentUrl)) fixedCount++;
+        }
       }
-      if (fixedCount > 0) logger.info("✅ Healer V3 processed {} items.", fixedCount);
+      // Handle 0-byte valid paths or nulls
+      else if (currentUrl == null
+          || (currentUrl.startsWith("/api/uploads/")
+              && fileStorageService.getFileSize(currentUrl) <= 0)) {
+        repairSingleNewsItem(news);
+        if (currentUrl == null || !currentUrl.equals(news.getImageUrl())) fixedCount++;
+      }
+    }
+    if (fixedCount > 0) logger.info("✅ Healer V3 processed {} items.", fixedCount);
   }
 
   private void repairSingleNewsItem(NewsHighlight news) {
-      try {
-          logger.info("🔧 Full Repair (Scrape & Download) for: {}", news.getTitle());
-          String scrapedImageUrl = scrapeImageFromUrl(news.getLink());
-          
-          if (scrapedImageUrl != null && !scrapedImageUrl.isEmpty()) {
-              String newLocalPath = downloadAndOptimizeImage(scrapedImageUrl);
-              news.setImageUrl(newLocalPath != null ? newLocalPath : scrapedImageUrl);
-              repository.save(news);
-          }
-      } catch (Exception e) {
-          logger.error("❌ Failed to repair news item: {}", news.getId());
+    try {
+      logger.info("🔧 Full Repair (Scrape & Download) for: {}", news.getTitle());
+      String scrapedImageUrl = scrapeImageFromUrl(news.getLink());
+
+      if (scrapedImageUrl != null && !scrapedImageUrl.isEmpty()) {
+        String newLocalPath = downloadAndOptimizeImage(scrapedImageUrl);
+        news.setImageUrl(newLocalPath != null ? newLocalPath : scrapedImageUrl);
+        repository.save(news);
       }
+    } catch (Exception e) {
+      logger.error("❌ Failed to repair news item: {}", news.getId());
+    }
   }
 
   @Scheduled(fixedRate = 900000)
   public void fetchAndStoreNews() {
     logger.info("🌍 Starting Global News Intelligence Cycle...");
     try {
-      String url = "https://newsdata.io/api/1/news?apikey=" + apiKey + "&category=business&language=en";
-      ResponseEntity<NewsDataResponse> response = restTemplate.getForEntity(url, NewsDataResponse.class);
+      String url =
+          "https://newsdata.io/api/1/news?apikey=" + apiKey + "&category=business&language=en";
+      ResponseEntity<NewsDataResponse> response =
+          restTemplate.getForEntity(url, NewsDataResponse.class);
 
       if (response.getBody() == null || response.getBody().getResults() == null) return;
 
@@ -164,7 +184,9 @@ public class NewsHighlightService {
         try {
           DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
           news.setPublishedAt(LocalDateTime.parse(apiArticle.getPubDate(), formatter));
-        } catch (Exception e) { news.setPublishedAt(LocalDateTime.now()); }
+        } catch (Exception e) {
+          news.setPublishedAt(LocalDateTime.now());
+        }
       } else {
         news.setPublishedAt(LocalDateTime.now());
       }
@@ -198,14 +220,19 @@ public class NewsHighlightService {
 
   private String scrapeImageFromUrl(String articleUrl) {
     try {
-      Document doc = Jsoup.connect(articleUrl)
-          .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-          .timeout(5000).get();
+      Document doc =
+          Jsoup.connect(articleUrl)
+              .userAgent(
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+              .timeout(5000)
+              .get();
       Element metaOg = doc.selectFirst("meta[property='og:image']");
       if (metaOg != null) return metaOg.attr("content");
       Element metaTwitter = doc.selectFirst("meta[name='twitter:image']");
       if (metaTwitter != null) return metaTwitter.attr("content");
-    } catch (Exception e) { /* Ignore */ }
+    } catch (Exception e) {
+      /* Ignore */
+    }
     return null;
   }
 
@@ -234,28 +261,29 @@ public class NewsHighlightService {
         String contentType = "image/webp";
 
         try {
-            Thumbnails.of(new ByteArrayInputStream(imageBytes))
-                .size(800, 600)
-                .outputFormat("webp")
-                .outputQuality(0.85)
-                .toOutputStream(os);
+          Thumbnails.of(new ByteArrayInputStream(imageBytes))
+              .size(800, 600)
+              .outputFormat("webp")
+              .outputQuality(0.85)
+              .toOutputStream(os);
         } catch (Exception e) {
-            logger.warn("⚠️ WebP conversion failed, falling back to JPG for: {}", imageUrl);
-            os.reset();
-            extension = "jpg";
-            contentType = "image/jpeg";
-            Thumbnails.of(new ByteArrayInputStream(imageBytes))
-                .size(800, 600)
-                .outputFormat("jpg")
-                .outputQuality(0.85)
-                .toOutputStream(os);
+          logger.warn("⚠️ WebP conversion failed, falling back to JPG for: {}", imageUrl);
+          os.reset();
+          extension = "jpg";
+          contentType = "image/jpeg";
+          Thumbnails.of(new ByteArrayInputStream(imageBytes))
+              .size(800, 600)
+              .outputFormat("jpg")
+              .outputQuality(0.85)
+              .toOutputStream(os);
         }
 
         byte[] finalBytes = os.toByteArray();
         if (finalBytes.length == 0) return null;
 
         String filename = "news-" + UUID.randomUUID() + "." + extension;
-        return fileStorageService.storeFile(new ByteArrayInputStream(finalBytes), filename, contentType);
+        return fileStorageService.storeFile(
+            new ByteArrayInputStream(finalBytes), filename, contentType);
       }
     } catch (Exception e) {
       logger.warn("⚠️ Image download failed for {}: {}", imageUrl, e.getMessage());
