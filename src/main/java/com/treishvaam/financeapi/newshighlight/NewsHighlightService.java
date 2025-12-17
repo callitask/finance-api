@@ -14,7 +14,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import net.coobird.thumbnailator.Thumbnails; // Use Thumbnailator
+import net.coobird.thumbnailator.Thumbnails;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -196,20 +196,29 @@ public class NewsHighlightService {
         ByteArrayOutputStream os = new ByteArrayOutputStream();
 
         // --- OPTIMIZATION ---
+        // Force output to WebP and ensure we have data
         Thumbnails.of(in)
             .size(800, 600)
             .outputFormat("webp")
             .outputQuality(0.85)
             .toOutputStream(os);
 
+        byte[] imageBytes = os.toByteArray();
+
+        // FIX: Prevent 0-byte files (Broken Images)
+        if (imageBytes.length == 0) {
+          logger.warn("⚠️ Image optimization resulted in 0 bytes for: {}", imageUrl);
+          return null; // Fallback to remote URL
+        }
+
         String filename = "news-" + UUID.randomUUID() + ".webp";
         // Returns "/api/uploads/news-....webp"
         return fileStorageService.storeFile(
-            new ByteArrayInputStream(os.toByteArray()), filename, "image/webp");
+            new ByteArrayInputStream(imageBytes), filename, "image/webp");
       }
     } catch (Exception e) {
-      logger.warn("⚠️ Image download failed for {}: {}", imageUrl, e.getMessage());
-      return null;
+      logger.warn("⚠️ Image download/optimization failed for {}: {}", imageUrl, e.getMessage());
+      return null; // Fallback to remote URL
     }
   }
 
