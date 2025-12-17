@@ -3,7 +3,6 @@ package com.treishvaam.financeapi.newshighlight;
 import com.treishvaam.financeapi.newshighlight.dto.NewsDataArticle;
 import com.treishvaam.financeapi.newshighlight.dto.NewsDataResponse;
 import com.treishvaam.financeapi.service.FileStorageService;
-import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -15,7 +14,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import javax.imageio.ImageIO;
+import net.coobird.thumbnailator.Thumbnails;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -134,23 +133,19 @@ public class NewsHighlightService {
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public boolean saveArticleSafe(NewsDataArticle apiArticle) {
     try {
-      // FIX: Use existsByLink instead of existsByUrl
       if (repository.existsByLink(apiArticle.getLink())) {
         return false; // Skip duplicate
       }
 
       NewsHighlight news = new NewsHighlight();
       news.setTitle(apiArticle.getTitle());
-      // FIX: Use setLink instead of setUrl
       news.setLink(apiArticle.getLink());
       news.setSource(formatSourceName(apiArticle.getSourceId()));
-      // FIX: Use setDescription instead of setSummary
       news.setDescription(apiArticle.getDescription());
 
       // Handle Date
       if (apiArticle.getPubDate() != null) {
         try {
-          // NewsData sends "2024-12-16 14:30:00"
           DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
           news.setPublishedAt(LocalDateTime.parse(apiArticle.getPubDate(), formatter));
         } catch (Exception e) {
@@ -160,7 +155,7 @@ public class NewsHighlightService {
         news.setPublishedAt(LocalDateTime.now());
       }
 
-      // 5. Image Intelligence (Scrape -> Download -> Fallback)
+      // 5. Image Intelligence (Scrape -> Download -> Optimize)
       String bestImageUrl = resolveBestImage(apiArticle);
       news.setImageUrl(bestImageUrl);
 
@@ -170,7 +165,6 @@ public class NewsHighlightService {
       return true;
 
     } catch (DataIntegrityViolationException e) {
-      // Swallow duplicate entry errors to keep logs clean
       return false;
     } catch (Exception e) {
       logger.error("⚠️ Error saving article '{}': {}", apiArticle.getTitle(), e.getMessage());
@@ -186,16 +180,16 @@ public class NewsHighlightService {
       candidateUrl = scrapeImageFromUrl(article.getLink());
     }
 
-    // Step B: If we found a URL (either from API or Scraper), try to download/cache it
+    // Step B: If we found a URL, try to download/optimize it
     if (candidateUrl != null && !candidateUrl.isEmpty()) {
       String localFilename = downloadAndOptimizeImage(candidateUrl);
       if (localFilename != null) {
-        return localFilename; // Return "news-xyz.webp"
+        return localFilename; // Return "/api/uploads/news-xyz.webp"
       }
-      return candidateUrl; // Fallback: Return remote URL "https://..."
+      return candidateUrl; // Fallback to remote URL
     }
 
-    return null; // No image found anywhere
+    return null;
   }
 
   private String scrapeImageFromUrl(String articleUrl) {
@@ -204,15 +198,15 @@ public class NewsHighlightService {
           Jsoup.connect(articleUrl)
               .userAgent(
                   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-              .timeout(3000)
+              .timeout(5000) // Increased timeout
               .get();
 
-      // Try og:image
-      Element metaOgImage = doc.selectFirst("meta[property=og:image]");
+      // Try OpenGraph image
+      Element metaOgImage = doc.selectFirst("meta[property='og:image']");
       if (metaOgImage != null) return metaOgImage.attr("content");
 
-      // Try twitter:image
-      Element metaTwitterImage = doc.selectFirst("meta[name=twitter:image]");
+      // Try Twitter image
+      Element metaTwitterImage = doc.selectFirst("meta[name='twitter:image']");
       if (metaTwitterImage != null) return metaTwitterImage.attr("content");
 
     } catch (Exception e) {
@@ -227,30 +221,29 @@ public class NewsHighlightService {
       URL url = new URL(imageUrl);
       HttpURLConnection connection = (HttpURLConnection) url.openConnection();
       connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
-      connection.setConnectTimeout(3000);
-      connection.setReadTimeout(3000);
+      connection.setConnectTimeout(5000);
+      connection.setReadTimeout(5000);
 
       try (InputStream in = connection.getInputStream()) {
-        BufferedImage image = ImageIO.read(in);
-        if (image == null) return null;
-
-        // Resize to 800px width (optimize storage)
-        int targetWidth = 800;
-        int targetHeight = (int) (image.getHeight() * ((double) targetWidth / image.getWidth()));
-        BufferedImage resized =
-            new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB);
-        resized.createGraphics().drawImage(image, 0, 0, targetWidth, targetHeight, null);
-
-        // Convert to WebP
         ByteArrayOutputStream os = new ByteArrayOutputStream();
-        ImageIO.write(resized, "webp", os);
+
+        // --- ENTERPRISE OPTIMIZATION ---
+        // Use Thumbnailator for efficient WebP conversion
+        Thumbnails.of(in)
+            .size(800, 600) // Standardize News Card dimensions
+            .outputFormat("webp")
+            .outputQuality(0.85) // High quality, low size
+            .toOutputStream(os);
 
         String filename = "news-" + UUID.randomUUID() + ".webp";
+
+        // This will now return "/api/uploads/news-....webp"
         return fileStorageService.storeFile(
             new ByteArrayInputStream(os.toByteArray()), filename, "image/webp");
       }
     } catch (Exception e) {
-      // If download fails, return null so we can fallback to the remote URL
+      // If optimization fails (e.g. unknown format), fallback to original remote URL
+      logger.warn("Failed to optimize image: {}. Error: {}", imageUrl, e.getMessage());
       return null;
     }
   }
@@ -266,15 +259,12 @@ public class NewsHighlightService {
 
   private String formatSourceName(String sourceId) {
     if (sourceId == null) return "Global News";
-    // Capitalize words: "bloomberg" -> "Bloomberg"
     return Arrays.stream(sourceId.split(" "))
         .map(word -> Character.toUpperCase(word.charAt(0)) + word.substring(1).toLowerCase())
         .collect(Collectors.joining(" "));
   }
 
   private void archiveOldStories() {
-    // Keep strictly the top 50 freshest stories active
-    // FIX: Now uses the new List method in Repository
     List<NewsHighlight> activeNews = repository.findByIsArchivedFalseOrderByPublishedAtDesc();
     if (activeNews.size() > 50) {
       List<NewsHighlight> toArchive = activeNews.subList(50, activeNews.size());
