@@ -25,9 +25,9 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest; // Added Import
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort; // Added Import
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -81,7 +81,6 @@ public class NewsHighlightService {
       logger.info("📰 News DB Empty. Triggering initial fetch...");
       fetchAndStoreNews();
     } else {
-      // Trigger Self-Healing on Startup
       healLegacyImages();
     }
   }
@@ -90,14 +89,10 @@ public class NewsHighlightService {
     return repository.findByIsArchivedFalseOrderByPublishedAtDesc(pageable);
   }
 
-  /**
-   * SELF-HEALING: Run on startup (and every hour) to fix broken images. Checks for: 0-byte files,
-   * missing files, or old "/uploads/" paths.
-   */
-  @Scheduled(fixedRate = 3600000) // Run every hour
+  @Scheduled(fixedRate = 3600000)
   public void healLegacyImages() {
-    logger.info("🚑 Starting News Image Healer...");
-    // Check last 100 items (most relevant)
+    logger.info("🚑 Starting News Image Healer V2...");
+    // Check last 100 items
     Pageable limit = PageRequest.of(0, 100, Sort.by(Sort.Direction.DESC, "publishedAt"));
     List<NewsHighlight> recentNews =
         repository.findByIsArchivedFalseOrderByPublishedAtDesc(limit).getContent();
@@ -107,22 +102,34 @@ public class NewsHighlightService {
       boolean needsRepair = false;
       String currentUrl = news.getImageUrl();
 
-      // Criteria 1: Old broken path prefix
-      if (currentUrl != null && currentUrl.startsWith("/uploads/")) {
+      // 1. Check for legacy paths or known bad prefixes
+      if (currentUrl != null
+          && (currentUrl.startsWith("/uploads/") || currentUrl.startsWith("/api/v1/"))) {
+        // Even if path is weird, check if file exists and is valid
+        long size = fileStorageService.getFileSize(currentUrl);
+        if (size <= 0) {
+          logger.warn(
+              "⚠️ Found 0-byte/missing image for news: {}. Marking for repair.", news.getTitle());
+          needsRepair = true;
+        } else if (!currentUrl.startsWith("/api/uploads/")) {
+          // File exists but path is legacy format -> Update path in DB only, skip download
+          // (Optional optimization: Just fix path string if file is good)
+          // For now, we re-verify full flow to be safe.
+          needsRepair = true;
+        }
+      }
+      // 2. Check for null
+      else if (currentUrl == null || currentUrl.isEmpty()) {
         needsRepair = true;
       }
-      // Criteria 2: Local file but 0 bytes (Corrupt)
-      else if (currentUrl != null && currentUrl.contains("/uploads/")) {
+      // 3. Check for standard path but 0-byte file (failed previous upload)
+      else if (currentUrl != null && currentUrl.startsWith("/api/uploads/")) {
         long size = fileStorageService.getFileSize(currentUrl);
         if (size <= 0) {
           logger.warn(
               "⚠️ Found 0-byte/missing image for news: {}. Marking for repair.", news.getTitle());
           needsRepair = true;
         }
-      }
-      // Criteria 3: No image
-      else if (currentUrl == null || currentUrl.isEmpty()) {
-        needsRepair = true;
       }
 
       if (needsRepair) {
@@ -136,18 +143,11 @@ public class NewsHighlightService {
   private void repairSingleNewsItem(NewsHighlight news) {
     try {
       logger.info("🔧 Repairing image for: {}", news.getTitle());
-
-      // 1. Scrape original article for image
       String scrapedImageUrl = scrapeImageFromUrl(news.getLink());
 
       if (scrapedImageUrl != null && !scrapedImageUrl.isEmpty()) {
-        // 2. Download and Optimize
         String newLocalPath = downloadAndOptimizeImage(scrapedImageUrl);
-
-        // 3. Update DB (Fallback to remote URL if download fails)
         news.setImageUrl(newLocalPath != null ? newLocalPath : scrapedImageUrl);
-
-        // 4. Save WITHOUT changing publishedAt (Use existing value)
         repository.save(news);
       }
     } catch (Exception e) {
@@ -224,8 +224,7 @@ public class NewsHighlightService {
 
     if (candidateUrl != null && !candidateUrl.isEmpty()) {
       String localFilename = downloadAndOptimizeImage(candidateUrl);
-      if (localFilename != null) return localFilename;
-      return candidateUrl;
+      return (localFilename != null) ? localFilename : candidateUrl;
     }
     return null;
   }
@@ -257,24 +256,48 @@ public class NewsHighlightService {
       conn.setReadTimeout(5000);
 
       try (InputStream in = conn.getInputStream()) {
+        // Read into memory buffer to allow multiple attempts
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] data = new byte[1024];
+        int nRead;
+        while ((nRead = in.read(data, 0, data.length)) != -1) {
+          buffer.write(data, 0, nRead);
+        }
+        buffer.flush();
+        byte[] imageBytes = buffer.toByteArray();
+
+        if (imageBytes.length == 0) return null;
+
         ByteArrayOutputStream os = new ByteArrayOutputStream();
+        String extension = "webp";
+        String contentType = "image/webp";
 
-        Thumbnails.of(in)
-            .size(800, 600)
-            .outputFormat("webp")
-            .outputQuality(0.85)
-            .toOutputStream(os);
-
-        byte[] imageBytes = os.toByteArray();
-
-        if (imageBytes.length == 0) {
-          logger.warn("⚠️ Image optimization resulted in 0 bytes for: {}", imageUrl);
-          return null;
+        // ATTEMPT 1: Try WebP
+        try {
+          Thumbnails.of(new ByteArrayInputStream(imageBytes))
+              .size(800, 600)
+              .outputFormat("webp")
+              .outputQuality(0.85)
+              .toOutputStream(os);
+        } catch (Exception e) {
+          // ATTEMPT 2: Fallback to JPG
+          logger.warn("⚠️ WebP conversion failed, falling back to JPG for: {}", imageUrl);
+          os.reset();
+          extension = "jpg";
+          contentType = "image/jpeg";
+          Thumbnails.of(new ByteArrayInputStream(imageBytes))
+              .size(800, 600)
+              .outputFormat("jpg")
+              .outputQuality(0.85)
+              .toOutputStream(os);
         }
 
-        String filename = "news-" + UUID.randomUUID() + ".webp";
+        byte[] finalBytes = os.toByteArray();
+        if (finalBytes.length == 0) return null;
+
+        String filename = "news-" + UUID.randomUUID() + "." + extension;
         return fileStorageService.storeFile(
-            new ByteArrayInputStream(imageBytes), filename, "image/webp");
+            new ByteArrayInputStream(finalBytes), filename, contentType);
       }
     } catch (Exception e) {
       logger.warn("⚠️ Image download failed for {}: {}", imageUrl, e.getMessage());

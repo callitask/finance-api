@@ -5,7 +5,7 @@ import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
-import io.minio.StatObjectArgs; // Import StatObject
+import io.minio.StatObjectArgs;
 import io.minio.http.Method;
 import jakarta.annotation.PostConstruct;
 import java.io.InputStream;
@@ -66,7 +66,7 @@ public class FileStorageService {
               .contentType(contentType)
               .build());
 
-      // Correct Nginx Path
+      // Standardize path for Nginx
       return "/api/uploads/" + fileName;
 
     } catch (Exception e) {
@@ -74,16 +74,20 @@ public class FileStorageService {
     }
   }
 
-  // --- NEW FEATURE: Check file size to detect corruption (0-byte files) ---
+  // --- UPDATED: Robust File Size Check ---
   public long getFileSize(String path) {
     try {
-      // Extract object name from URL path (remove prefixes)
-      String objectName = path.replace("/api/uploads/", "").replace("/uploads/", "");
+      // Clean all possible prefixes to get the raw object name in MinIO
+      String objectName =
+          path.replace("/api/v1/uploads/", "") // Legacy
+              .replace("/api/uploads/", "") // Standard
+              .replace("/uploads/", ""); // Broken
+
       return minioClient
           .statObject(StatObjectArgs.builder().bucket(bucketName).object(objectName).build())
           .size();
     } catch (Exception e) {
-      // If file not found or error, return -1
+      // Return -1 if file doesn't exist or error (triggers re-download)
       return -1;
     }
   }
