@@ -78,6 +78,7 @@ public class NewsHighlightService {
   @EventListener(ApplicationReadyEvent.class)
   public void init() {
     if (repository.count() == 0) {
+      logger.info("📰 News DB Empty. Triggering initial fetch...");
       fetchAndStoreNews();
     } else {
       healLegacyImages();
@@ -90,7 +91,7 @@ public class NewsHighlightService {
 
   @Scheduled(fixedRate = 3600000)
   public void healLegacyImages() {
-    logger.info("🚑 Starting News Image Healer V5 (Standardization)...");
+    logger.info("🚑 Starting News Image Healer V6 (Aggressive Repair)...");
     Pageable limit = PageRequest.of(0, 100, Sort.by(Sort.Direction.DESC, "publishedAt"));
     List<NewsHighlight> recentNews =
         repository.findByIsArchivedFalseOrderByPublishedAtDesc(limit).getContent();
@@ -98,43 +99,44 @@ public class NewsHighlightService {
     int fixedCount = 0;
     for (NewsHighlight news : recentNews) {
       String currentUrl = news.getImageUrl();
+      boolean needsRepair = false;
+
+      // 1. Check for null or empty
       if (currentUrl == null || currentUrl.isEmpty()) {
-        repairSingleNewsItem(news);
-        fixedCount++;
-        continue;
+        needsRepair = true;
       }
-
-      // NORMALIZE: Ensure path starts with /api/uploads/ if it's a local file
-      if (currentUrl.startsWith("/uploads/") || currentUrl.startsWith("/api/v1/")) {
-        String cleanPath =
-            currentUrl
-                .replace("/api/v1/uploads/", "/api/uploads/")
-                .replace("/uploads/", "/api/uploads/");
-        news.setImageUrl(cleanPath);
-        repository.save(news);
-        fixedCount++;
-      }
-
-      // CHECK CORRUPTION
-      if (currentUrl.startsWith("/")) {
+      // 2. Check for local paths that might be corrupt (0 bytes or missing)
+      else if (currentUrl.startsWith("/api/uploads/") || currentUrl.startsWith("/uploads/")) {
         long size = fileStorageService.getFileSize(currentUrl);
         if (size <= 0) {
-          logger.warn("⚠️ Found 0-byte file. Repairing: {}", news.getTitle());
-          repairSingleNewsItem(news);
-          fixedCount++;
+          logger.warn("⚠️ Found 0-byte/missing file for: {}. Marking for repair.", news.getTitle());
+          needsRepair = true;
         }
       }
+
+      if (needsRepair) {
+        repairSingleNewsItem(news);
+        fixedCount++;
+      }
     }
-    if (fixedCount > 0) logger.info("✅ Healer V5 processed {} items.", fixedCount);
+    if (fixedCount > 0) logger.info("✅ Healer V6 processed {} items.", fixedCount);
   }
 
   private void repairSingleNewsItem(NewsHighlight news) {
     try {
+      // Re-scrape the original link to find the image again
       String scrapedImageUrl = scrapeImageFromUrl(news.getLink());
+
       if (scrapedImageUrl != null && !scrapedImageUrl.isEmpty()) {
+        // Try to download/optimize it again
         String newLocalPath = downloadAndOptimizeImage(scrapedImageUrl);
-        news.setImageUrl(newLocalPath != null ? newLocalPath : scrapedImageUrl);
+
+        // If download works, use local path. If not, use the remote URL as fallback.
+        String finalUrl = (newLocalPath != null) ? newLocalPath : scrapedImageUrl;
+
+        news.setImageUrl(finalUrl);
         repository.save(news);
+        logger.info("🔧 Repaired image for: {}", news.getTitle());
       }
     } catch (Exception e) {
       logger.error("❌ Failed to repair news item: {}", news.getId());
@@ -149,10 +151,12 @@ public class NewsHighlightService {
           "https://newsdata.io/api/1/news?apikey=" + apiKey + "&category=business&language=en";
       ResponseEntity<NewsDataResponse> response =
           restTemplate.getForEntity(url, NewsDataResponse.class);
+
       if (response.getBody() == null || response.getBody().getResults() == null) return;
 
       List<NewsDataArticle> articles = response.getBody().getResults();
       int newCount = 0;
+
       for (NewsDataArticle article : articles) {
         if (!isAllowedSource(article.getSourceId())) continue;
         if (saveArticleSafe(article)) newCount++;
@@ -168,11 +172,13 @@ public class NewsHighlightService {
   public boolean saveArticleSafe(NewsDataArticle apiArticle) {
     try {
       if (repository.existsByLink(apiArticle.getLink())) return false;
+
       NewsHighlight news = new NewsHighlight();
       news.setTitle(apiArticle.getTitle());
       news.setLink(apiArticle.getLink());
       news.setSource(formatSourceName(apiArticle.getSourceId()));
       news.setDescription(apiArticle.getDescription());
+
       if (apiArticle.getPubDate() != null) {
         try {
           DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -183,9 +189,11 @@ public class NewsHighlightService {
       } else {
         news.setPublishedAt(LocalDateTime.now());
       }
+
       String bestImageUrl = resolveBestImage(apiArticle);
       news.setImageUrl(bestImageUrl);
       news.setArchived(false);
+
       repository.save(news);
       return true;
     } catch (DataIntegrityViolationException e) {
@@ -197,8 +205,10 @@ public class NewsHighlightService {
 
   private String resolveBestImage(NewsDataArticle article) {
     String candidateUrl = article.getImageUrl();
-    if (candidateUrl == null || candidateUrl.isEmpty())
+    if (candidateUrl == null || candidateUrl.isEmpty()) {
       candidateUrl = scrapeImageFromUrl(article.getLink());
+    }
+
     if (candidateUrl != null && !candidateUrl.isEmpty()) {
       String localFilename = downloadAndOptimizeImage(candidateUrl);
       return (localFilename != null) ? localFilename : candidateUrl;
@@ -231,18 +241,24 @@ public class NewsHighlightService {
       conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
       conn.setConnectTimeout(5000);
       conn.setReadTimeout(5000);
+
       try (InputStream in = conn.getInputStream()) {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         byte[] data = new byte[1024];
         int nRead;
-        while ((nRead = in.read(data, 0, data.length)) != -1) buffer.write(data, 0, nRead);
+        while ((nRead = in.read(data, 0, data.length)) != -1) {
+          buffer.write(data, 0, nRead);
+        }
         buffer.flush();
         byte[] imageBytes = buffer.toByteArray();
+
         if (imageBytes.length == 0) return null;
 
         ByteArrayOutputStream os = new ByteArrayOutputStream();
         String extension = "webp";
         String contentType = "image/webp";
+
+        // Try WebP first
         try {
           Thumbnails.of(new ByteArrayInputStream(imageBytes))
               .size(800, 600)
@@ -250,7 +266,8 @@ public class NewsHighlightService {
               .outputQuality(0.85)
               .toOutputStream(os);
         } catch (Exception e) {
-          logger.warn("⚠️ WebP conversion failed, falling back to JPG");
+          // Fallback to JPG if WebP fails
+          logger.warn("⚠️ WebP conversion failed, falling back to JPG for: {}", imageUrl);
           os.reset();
           extension = "jpg";
           contentType = "image/jpeg";
@@ -260,13 +277,16 @@ public class NewsHighlightService {
               .outputQuality(0.85)
               .toOutputStream(os);
         }
+
         byte[] finalBytes = os.toByteArray();
         if (finalBytes.length == 0) return null;
+
         String filename = "news-" + UUID.randomUUID() + "." + extension;
         return fileStorageService.storeFile(
             new ByteArrayInputStream(finalBytes), filename, contentType);
       }
     } catch (Exception e) {
+      logger.warn("⚠️ Image download failed for {}: {}", imageUrl, e.getMessage());
       return null;
     }
   }
