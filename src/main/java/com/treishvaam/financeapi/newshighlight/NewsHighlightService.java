@@ -25,7 +25,9 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest; // Added Import
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort; // Added Import
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -78,11 +80,79 @@ public class NewsHighlightService {
     if (repository.count() == 0) {
       logger.info("📰 News DB Empty. Triggering initial fetch...");
       fetchAndStoreNews();
+    } else {
+      // Trigger Self-Healing on Startup
+      healLegacyImages();
     }
   }
 
   public Page<NewsHighlight> getHighlights(Pageable pageable) {
     return repository.findByIsArchivedFalseOrderByPublishedAtDesc(pageable);
+  }
+
+  /**
+   * SELF-HEALING: Run on startup (and every hour) to fix broken images. Checks for: 0-byte files,
+   * missing files, or old "/uploads/" paths.
+   */
+  @Scheduled(fixedRate = 3600000) // Run every hour
+  public void healLegacyImages() {
+    logger.info("🚑 Starting News Image Healer...");
+    // Check last 100 items (most relevant)
+    Pageable limit = PageRequest.of(0, 100, Sort.by(Sort.Direction.DESC, "publishedAt"));
+    List<NewsHighlight> recentNews =
+        repository.findByIsArchivedFalseOrderByPublishedAtDesc(limit).getContent();
+
+    int fixedCount = 0;
+    for (NewsHighlight news : recentNews) {
+      boolean needsRepair = false;
+      String currentUrl = news.getImageUrl();
+
+      // Criteria 1: Old broken path prefix
+      if (currentUrl != null && currentUrl.startsWith("/uploads/")) {
+        needsRepair = true;
+      }
+      // Criteria 2: Local file but 0 bytes (Corrupt)
+      else if (currentUrl != null && currentUrl.contains("/uploads/")) {
+        long size = fileStorageService.getFileSize(currentUrl);
+        if (size <= 0) {
+          logger.warn(
+              "⚠️ Found 0-byte/missing image for news: {}. Marking for repair.", news.getTitle());
+          needsRepair = true;
+        }
+      }
+      // Criteria 3: No image
+      else if (currentUrl == null || currentUrl.isEmpty()) {
+        needsRepair = true;
+      }
+
+      if (needsRepair) {
+        repairSingleNewsItem(news);
+        fixedCount++;
+      }
+    }
+    if (fixedCount > 0) logger.info("✅ Healer repaired {} news images.", fixedCount);
+  }
+
+  private void repairSingleNewsItem(NewsHighlight news) {
+    try {
+      logger.info("🔧 Repairing image for: {}", news.getTitle());
+
+      // 1. Scrape original article for image
+      String scrapedImageUrl = scrapeImageFromUrl(news.getLink());
+
+      if (scrapedImageUrl != null && !scrapedImageUrl.isEmpty()) {
+        // 2. Download and Optimize
+        String newLocalPath = downloadAndOptimizeImage(scrapedImageUrl);
+
+        // 3. Update DB (Fallback to remote URL if download fails)
+        news.setImageUrl(newLocalPath != null ? newLocalPath : scrapedImageUrl);
+
+        // 4. Save WITHOUT changing publishedAt (Use existing value)
+        repository.save(news);
+      }
+    } catch (Exception e) {
+      logger.error("❌ Failed to repair news item: {}", news.getId());
+    }
   }
 
   @Scheduled(fixedRate = 900000)
@@ -94,10 +164,7 @@ public class NewsHighlightService {
       ResponseEntity<NewsDataResponse> response =
           restTemplate.getForEntity(url, NewsDataResponse.class);
 
-      if (response.getBody() == null || response.getBody().getResults() == null) {
-        logger.warn("⚠️ News API returned empty response.");
-        return;
-      }
+      if (response.getBody() == null || response.getBody().getResults() == null) return;
 
       List<NewsDataArticle> articles = response.getBody().getResults();
       int newCount = 0;
@@ -135,7 +202,6 @@ public class NewsHighlightService {
         news.setPublishedAt(LocalDateTime.now());
       }
 
-      // --- IMAGE INTELLIGENCE ---
       String bestImageUrl = resolveBestImage(apiArticle);
       news.setImageUrl(bestImageUrl);
       news.setArchived(false);
@@ -157,11 +223,9 @@ public class NewsHighlightService {
     }
 
     if (candidateUrl != null && !candidateUrl.isEmpty()) {
-      // Try to download and cache locally
       String localFilename = downloadAndOptimizeImage(candidateUrl);
-      if (localFilename != null) return localFilename; // Returns "/api/uploads/..."
-
-      return candidateUrl; // Fallback to remote URL
+      if (localFilename != null) return localFilename;
+      return candidateUrl;
     }
     return null;
   }
@@ -195,8 +259,6 @@ public class NewsHighlightService {
       try (InputStream in = conn.getInputStream()) {
         ByteArrayOutputStream os = new ByteArrayOutputStream();
 
-        // --- OPTIMIZATION ---
-        // Force output to WebP and ensure we have data
         Thumbnails.of(in)
             .size(800, 600)
             .outputFormat("webp")
@@ -205,20 +267,18 @@ public class NewsHighlightService {
 
         byte[] imageBytes = os.toByteArray();
 
-        // FIX: Prevent 0-byte files (Broken Images)
         if (imageBytes.length == 0) {
           logger.warn("⚠️ Image optimization resulted in 0 bytes for: {}", imageUrl);
-          return null; // Fallback to remote URL
+          return null;
         }
 
         String filename = "news-" + UUID.randomUUID() + ".webp";
-        // Returns "/api/uploads/news-....webp"
         return fileStorageService.storeFile(
             new ByteArrayInputStream(imageBytes), filename, "image/webp");
       }
     } catch (Exception e) {
-      logger.warn("⚠️ Image download/optimization failed for {}: {}", imageUrl, e.getMessage());
-      return null; // Fallback to remote URL
+      logger.warn("⚠️ Image download failed for {}: {}", imageUrl, e.getMessage());
+      return null;
     }
   }
 
