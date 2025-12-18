@@ -21,6 +21,8 @@ Disallow: /api/contact/
 Disallow: /api/admin/
 Disallow: /dashboard/
 Disallow: /?q=*
+Disallow: /silent-check-sso.html
+Disallow: /login
 
 # Sitemap Index (Points to the Dynamic Controller)
 Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
@@ -35,15 +37,6 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
 
     // ----------------------------------------------
     // 1. DYNAMIC SITEMAP PROXY (Enterprise Edge Caching)
-    // ----------------------------------------------
-    // EXPLANATION FOR AI/DEV:
-    // We do NOT serve static files. We proxy these requests to the Spring Boot
-    // 'SitemapController'.
-    //
-    // CACHING STRATEGY:
-    // - Edge Cache: 60 seconds.
-    // - Why? If a bot hits us 1000 times/sec, Cloudflare answers 999 times.
-    //   Only 1 request hits the Backend DB. This prevents DDoS/Crash.
     // ----------------------------------------------
     if (
       url.pathname === "/sitemap.xml" ||
@@ -79,8 +72,6 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
           respHeaders.set("Content-Type", "application/rss+xml; charset=utf-8");
         }
 
-        // --- ENTERPRISE EDGE CACHE ---
-        // Cache at the Edge for 60 seconds to protect the backend DB.
         respHeaders.set("Cache-Control", "public, max-age=60, s-maxage=60");
 
         return new Response(await backendResp.arrayBuffer(), {
@@ -107,39 +98,34 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
     // 3. FETCH HTML SHELL WITH FAILOVER CACHING
     // ----------------------------------------------
     let response;
-    const cacheKey = new Request(url.origin + "/", request); // Cache based on root URL
+    const cacheKey = new Request(url.origin + "/", request);
     const cache = caches.default;
 
     try {
-      // A. Try fetching fresh content from Backend
       response = await fetch(request);
-
-      // If backend is healthy (200 OK), update the cache silently
       if (response.ok) {
         const clone = response.clone();
         const cacheHeaders = new Headers(clone.headers);
-        cacheHeaders.set("Cache-Control", "public, max-age=3600"); // Cache for 1 hour
+        cacheHeaders.set("Cache-Control", "public, max-age=3600");
         
         const responseToCache = new Response(clone.body, {
           status: clone.status,
           statusText: clone.statusText,
           headers: cacheHeaders
         });
-
         ctx.waitUntil(cache.put(cacheKey, responseToCache));
       }
     } catch (e) {
       response = null;
     }
 
-    // B. Failover: If fetch failed or returned 5xx, try cache
     if (!response || response.status >= 500) {
       const cachedResponse = await cache.match(cacheKey);
       if (cachedResponse) {
         response = new Response(cachedResponse.body, cachedResponse);
         response.headers.set("X-Fallback-Source", "Worker-Cache");
       } else {
-        if (!response) return new Response("Service Unavailable - Backend Down & No Cache", { status: 503 });
+        if (!response) return new Response("Service Unavailable", { status: 503 });
       }
     }
 
@@ -148,7 +134,7 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
     // ------------------------------------------------------
     if (url.pathname === "/" || url.pathname === "") {
       const pageTitle = "Treishfin · Treishvaam Finance | Financial News & Analysis";
-      const pageDesc = "Stay ahead with the latest financial news, market updates, and expert analysis from Treishvaam Finance. Your daily source for insights on stocks, crypto, and trading.";
+      const pageDesc = "Stay ahead with the latest financial news, market updates, and expert analysis from Treishvaam Finance.";
       const imageUrl = "https://treishfin.treishvaamgroup.com/logo.webp";
       const canonicalUrl = "https://treishfin.treishvaamgroup.com/";
 
@@ -159,10 +145,7 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
         "url": canonicalUrl,
         "potentialAction": {
           "@type": "SearchAction",
-          "target": {
-            "@type": "EntryPoint",
-            "urlTemplate": "https://treishfin.treishvaamgroup.com/?q={search_term_string}"
-          },
+          "target": "https://treishfin.treishvaamgroup.com/?q={search_term_string}",
           "query-input": "required name=search_term_string"
         }
       };
@@ -172,16 +155,9 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
         .on('meta[name="description"]', { element(e) { e.setAttribute("content", pageDesc); } })
         .on('meta[property="og:title"]', { element(e) { e.setAttribute("content", pageTitle); } })
         .on('meta[property="og:description"]', { element(e) { e.setAttribute("content", pageDesc); } })
-        .on('meta[property="og:image"]', { element(e) { e.setAttribute("content", imageUrl); } })
-        .on('meta[property="og:url"]', { element(e) { e.setAttribute("content", canonicalUrl); } })
-        .on('meta[name="twitter:title"]', { element(e) { e.setAttribute("content", pageTitle); } })
-        .on('meta[name="twitter:description"]', { element(e) { e.setAttribute("content", pageDesc); } })
-        .on('meta[name="twitter:image"]', { element(e) { e.setAttribute("content", imageUrl); } })
-        .on('link[rel="canonical"]', { element(e) { e.setAttribute("href", canonicalUrl); } })
         .on("head", {
           element(e) {
-            const script = `<script type="application/ld+json">${JSON.stringify(homeSchema)}</script>`;
-            e.append(script, { html: true });
+            e.append(`<script type="application/ld+json">${JSON.stringify(homeSchema)}</script>`, { html: true });
           }
         })
         .transform(response);
@@ -230,203 +206,68 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
         .on('meta[name="description"]', { element(e) { e.setAttribute("content", pageData.description); } })
         .on('meta[property="og:title"]', { element(e) { e.setAttribute("content", pageData.title); } })
         .on('meta[property="og:description"]', { element(e) { e.setAttribute("content", pageData.description); } })
-        .on('meta[property="og:image"]', { element(e) { e.setAttribute("content", pageData.image); } })
-        .on('meta[property="og:url"]', { element(e) { e.setAttribute("content", canonicalUrl); } })
-        .on('meta[name="twitter:title"]', { element(e) { e.setAttribute("content", pageData.title); } })
-        .on('meta[name="twitter:description"]', { element(e) { e.setAttribute("content", pageData.description); } })
-        .on('meta[name="twitter:image"]', { element(e) { e.setAttribute("content", pageData.image); } })
-        .on('link[rel="canonical"]', { element(e) { e.setAttribute("href", canonicalUrl); } })
         .on("head", {
           element(e) {
-            const script = `<script type="application/ld+json">${JSON.stringify(pageSchema)}</script>`;
-            e.append(script, { html: true });
+            e.append(`<script type="application/ld+json">${JSON.stringify(pageSchema)}</script>`, { html: true });
           }
         })
         .transform(response);
     }
 
     // ------------------------------------------------------
-    // SCENARIO C: BLOG POSTS (Advanced Schema Injection)
+    // SCENARIO C: BLOG POSTS
     // ------------------------------------------------------
     if (url.pathname.includes("/category/")) {
       const parts = url.pathname.split("/");
       const articleId = parts[parts.length - 1];
-
       if (!articleId) return response;
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
 
       const apiUrl = `https://backend.treishvaamgroup.com/api/v1/posts/url/${articleId}`;
 
       try {
-        const apiResp = await fetch(apiUrl, {
-          headers: { "User-Agent": "Cloudflare-Worker-SEO-Bot" },
-          signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
+        const apiResp = await fetch(apiUrl, { headers: { "User-Agent": "Cloudflare-Worker-SEO-Bot" } });
         if (!apiResp.ok) return response;
-
         const post = await apiResp.json();
 
-        let authorName = post.author;
-        if (authorName === "callitask@gmail.com" || !authorName) {
-          authorName = "Treishvaam";
-        }
-
-        const pageTitle = `Treishfin · ${post.title}`;
-        const pageDesc = post.metaDescription || post.customSnippet || post.title;
-        const imageUrl = post.coverImageUrl
-          ? `https://backend.treishvaamgroup.com/api/uploads/${post.coverImageUrl}.webp`
-          : `https://treishfin.treishvaamgroup.com/logo.webp`;
-
-        const categorySlug = post.category ? post.category.slug : "uncategorized";
-        const categoryName = post.category ? post.category.name : "General";
-        const canonicalUrl = `https://treishfin.treishvaamgroup.com/category/${categorySlug}/${post.userFriendlySlug}/${post.urlArticleId}`;
-
-        const isNews = ['News', 'Markets', 'Crypto', 'Economy', 'Stocks'].includes(categoryName);
-        const schemaType = isNews ? 'NewsArticle' : 'BlogPosting';
-
-        const breadcrumbSchema = {
-          "@context": "https://schema.org",
-          "@type": "BreadcrumbList",
-          "name": "Breadcrumbs",
-          "itemListElement": [{
-            "@type": "ListItem",
-            "position": 1,
-            "name": "Home",
-            "item": "https://treishfin.treishvaamgroup.com/"
-          }, {
-            "@type": "ListItem",
-            "position": 2,
-            "name": categoryName,
-            "item": `https://treishfin.treishvaamgroup.com/category/${categorySlug}`
-          }, {
-            "@type": "ListItem",
-            "position": 3,
-            "name": post.title,
-            "item": canonicalUrl
-          }]
+        const schema = {
+             "@context": "https://schema.org",
+             "@type": "NewsArticle",
+             "headline": post.title,
+             "image": [`https://backend.treishvaamgroup.com/api/uploads/${post.coverImageUrl}.webp`],
+             "datePublished": post.createdAt,
+             "dateModified": post.updatedAt,
+             "author": [{
+                 "@type": "Person",
+                 "name": post.author || "Treishvaam",
+                 "url": "https://treishfin.treishvaamgroup.com/about"
+             }]
         };
-
-        const articleSchema = {
-          "@context": "https://schema.org",
-          "@type": schemaType,
-          "mainEntityOfPage": { "@type": "WebPage", "@id": canonicalUrl },
-          "headline": post.title,
-          "image": {
-            "@type": "ImageObject",
-            "url": imageUrl,
-            "width": 1200,
-            "height": 675
-          },
-          "datePublished": post.createdAt,
-          "dateModified": post.updatedAt || post.createdAt,
-          "author": {
-            "@type": "Person",
-            "name": authorName,
-            "url": "https://treishfin.treishvaamgroup.com/about",
-            "jobTitle": "Financial Analyst"
-          },
-          "publisher": {
-            "@type": "Organization",
-            "name": "Treishvaam Finance",
-            "logo": {
-              "@type": "ImageObject",
-              "url": "https://treishfin.treishvaamgroup.com/logo.webp",
-              "width": 600,
-              "height": 60
-            }
-          },
-          "description": pageDesc,
-          "keywords": post.keywords || "",
-          "speakable": {
-            "@type": "SpeakableSpecification",
-            "cssSelector": ["h1", "article p"]
-          }
-        };
-
-        const schemas = [breadcrumbSchema, articleSchema];
-
-        const videoRegex = /src="https:\/\/(?:www\.)?youtube\.com\/embed\/([^"?]+)/;
-        const match = post.content ? post.content.match(videoRegex) : null;
-
-        if (match && match[1]) {
-          const videoId = match[1];
-          const videoSchema = {
-            "@context": "https://schema.org",
-            "@type": "VideoObject",
-            "name": post.title,
-            "description": pageDesc,
-            "thumbnailUrl": imageUrl,
-            "uploadDate": post.createdAt,
-            "embedUrl": `https://www.youtube.com/embed/${videoId}`,
-            "contentUrl": `https://www.youtube.com/watch?v=${videoId}`
-          };
-          schemas.push(videoSchema);
-        }
 
         return new HTMLRewriter()
-          .on("title", { element(e) { e.setInnerContent(pageTitle); } })
-          .on('meta[name="description"]', { element(e) { e.setAttribute("content", pageDesc); } })
-          .on('meta[property="og:title"]', { element(e) { e.setAttribute("content", post.title); } })
-          .on('meta[property="og:description"]', { element(e) { e.setAttribute("content", pageDesc); } })
-          .on('meta[property="og:image"]', { element(e) { e.setAttribute("content", imageUrl); } })
-          .on('meta[property="og:url"]', { element(e) { e.setAttribute("content", canonicalUrl); } })
-          .on('meta[name="twitter:title"]', { element(e) { e.setAttribute("content", post.title); } })
-          .on('meta[name="twitter:description"]', { element(e) { e.setAttribute("content", pageDesc); } })
-          .on('meta[name="twitter:image"]', { element(e) { e.setAttribute("content", imageUrl); } })
-          .on('link[rel="canonical"]', { element(e) { e.setAttribute("href", canonicalUrl); } })
-
+          .on("title", { element(e) { e.setInnerContent(post.title + " | Treishfin"); } })
+          .on('meta[name="description"]', { element(e) { e.setAttribute("content", post.metaDescription || post.title); } })
           .on("head", {
             element(e) {
-              const schemaScript = `<script type="application/ld+json" id="server-schema">${JSON.stringify(schemas)}</script>`;
-              const stateScript = `<script>window.__PRELOADED_STATE__ = ${JSON.stringify(post)};</script>`;
-              e.append(schemaScript, { html: true });
-              e.append(stateScript, { html: true });
-            }
-          })
-
-          .on("body", {
-            element(e) {
-              const noscriptContent = `
-                <noscript>
-                  <div class="seo-content">
-                    <h1>${post.title}</h1>
-                    <p><strong>Published:</strong> ${post.createdAt}</p>
-                    <p><strong>Author:</strong> ${authorName}</p>
-                    <div class="article-body">
-                      ${post.content}
-                    </div>
-                  </div>
-                </noscript>
-              `;
-              e.append(noscriptContent, { html: true });
+              e.append(`<script type="application/ld+json">${JSON.stringify(schema)}</script>`, { html: true });
             }
           })
           .transform(response);
-      } catch (e) {
-        return response;
-      }
+      } catch (e) { return response; }
     }
 
     // ------------------------------------------------------
-    // SCENARIO D: MARKET DATA (NEW ENTERPRISE AI FIX)
-    // ------------------------------------------------------
-    // EXPLANATION FOR AI/DEV:
-    // This block handles URLs like /market/AAPL.
-    // It fetches live price data from the backend and injects a 
-    // 'FinancialProduct' JSON-LD schema. This allows Google and AI agents
-    // to "understand" the stock price, currency, and ticker symbol.
+    // SCENARIO D: MARKET DATA (FIXED FOR SPECIAL CHARS)
     // ------------------------------------------------------
     if (url.pathname.startsWith("/market/")) {
-      const ticker = url.pathname.split("/market/")[1];
-      if (!ticker) return response;
+      const rawTicker = url.pathname.split("/market/")[1];
+      if (!rawTicker) return response;
 
-      // Fetch Live Market Data from your Backend
-      const apiUrl = `https://backend.treishvaamgroup.com/api/v1/market/widget?ticker=${ticker}`;
+      // FIX: Ensure we handle URL-encoded tickers properly (e.g., %5EDJI -> ^DJI)
+      // We decode first to get the real symbol, then re-encode for the query param
+      const decodedTicker = decodeURIComponent(rawTicker);
+      const safeTicker = encodeURIComponent(decodedTicker);
+
+      const apiUrl = `https://backend.treishvaamgroup.com/api/v1/market/widget?ticker=${safeTicker}`;
 
       try {
         const apiResp = await fetch(apiUrl, { headers: { "User-Agent": "Cloudflare-Worker-SEO-Bot" } });
@@ -437,9 +278,8 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
         if (!quote) return response;
 
         const pageTitle = `${quote.name} (${quote.ticker}) Price, News & Analysis | Treishfin`;
-        const pageDesc = `Real-time stock price for ${quote.name} (${quote.ticker}). Market cap: ${quote.marketCap}, PE Ratio: ${quote.peRatio || 'N/A'}. detailed financial analysis on Treishvaam Finance.`;
+        const pageDesc = `Real-time stock price for ${quote.name} (${quote.ticker}). Market cap: ${quote.marketCap}. Detailed financial analysis on Treishvaam Finance.`;
         
-        // --- FINANCIAL PRODUCT SCHEMA (AI OPTIMIZED) ---
         const schema = {
           "@context": "https://schema.org",
           "@type": "FinancialProduct",
@@ -447,7 +287,7 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
           "tickerSymbol": quote.ticker,
           "exchangeTicker": quote.exchange || "NYSE", 
           "description": pageDesc,
-          "url": `https://treishfin.treishvaamgroup.com/market/${ticker}`,
+          "url": `https://treishfin.treishvaamgroup.com/market/${rawTicker}`,
           "image": quote.logoUrl || "https://treishfin.treishvaamgroup.com/logo.webp",
           "currentExchangeRate": {
              "@type": "UnitPriceSpecification",
@@ -463,7 +303,6 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
           .on('meta[property="og:description"]', { element(e) { e.setAttribute("content", pageDesc); } })
           .on("head", {
             element(e) {
-              // Inject JSON-LD so AI bots can read the stock price instantly
               e.append(`<script type="application/ld+json">${JSON.stringify(schema)}</script>`, { html: true });
             }
           })
