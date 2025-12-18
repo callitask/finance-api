@@ -81,6 +81,7 @@ public class NewsHighlightService {
       logger.info("📰 News DB Empty. Triggering initial fetch...");
       fetchAndStoreNews();
     } else {
+      // Run a gentle heal on startup
       healLegacyImages();
     }
   }
@@ -89,20 +90,20 @@ public class NewsHighlightService {
     return repository.findByIsArchivedFalseOrderByPublishedAtDesc(pageable);
   }
 
-  // --- CHANGED: Synchronized with Fetch Cycle (15 Minutes) ---
+  // --- Image Healer (Runs every 15 mins) ---
   @Scheduled(fixedRate = 900000)
   public void healLegacyImages() {
-    logger.info("🚑 Starting News Image Healer V7 (Real-Time Sync)...");
+    logger.debug("🚑 Starting News Image Healer (Routine Check)...");
 
-    // Safety Limit: Only check the most recent 100 articles to prevent over-scanning
-    Pageable limit = PageRequest.of(0, 100, Sort.by(Sort.Direction.DESC, "publishedAt"));
+    // Safety Limit: Only check the most recent 50 articles
+    Pageable limit = PageRequest.of(0, 50, Sort.by(Sort.Direction.DESC, "publishedAt"));
     List<NewsHighlight> recentNews =
         repository.findByIsArchivedFalseOrderByPublishedAtDesc(limit).getContent();
 
     int fixedCount = 0;
     for (NewsHighlight news : recentNews) {
-      String currentUrl = news.getImageUrl();
       boolean needsRepair = false;
+      String currentUrl = news.getImageUrl();
 
       // 1. Check for null or empty
       if (currentUrl == null || currentUrl.isEmpty()) {
@@ -112,7 +113,6 @@ public class NewsHighlightService {
       else if (currentUrl.startsWith("/api/uploads/") || currentUrl.startsWith("/uploads/")) {
         long size = fileStorageService.getFileSize(currentUrl);
         if (size <= 0) {
-          logger.warn("⚠️ Found 0-byte/missing file for: {}. Marking for repair.", news.getTitle());
           needsRepair = true;
         }
       }
@@ -122,35 +122,29 @@ public class NewsHighlightService {
         fixedCount++;
       }
     }
-    if (fixedCount > 0) logger.info("✅ Healer V7 processed {} items.", fixedCount);
+    if (fixedCount > 0) logger.info("✅ Healer processed {} items.", fixedCount);
   }
 
   private void repairSingleNewsItem(NewsHighlight news) {
     try {
-      // Re-scrape the original link to find the image again
       String scrapedImageUrl = scrapeImageFromUrl(news.getLink());
-
       if (scrapedImageUrl != null && !scrapedImageUrl.isEmpty()) {
-        // Try to download/optimize it again
         String newLocalPath = downloadAndOptimizeImage(scrapedImageUrl);
-
-        // If download works, use local path. If not, use the remote URL as fallback.
         String finalUrl = (newLocalPath != null) ? newLocalPath : scrapedImageUrl;
-
         news.setImageUrl(finalUrl);
         repository.save(news);
-        logger.info("🔧 Repaired image for: {}", news.getTitle());
       }
     } catch (Exception e) {
-      logger.error("❌ Failed to repair news item: {}", news.getId());
+      // Silent fail is fine here
     }
   }
 
-  // Fetch Cycle: Every 15 Minutes (900000 ms)
+  // --- Main Fetch Cycle: Every 15 Minutes ---
   @Scheduled(fixedRate = 900000)
   public void fetchAndStoreNews() {
-    logger.info("🌍 Starting Global News Intelligence Cycle...");
+    logger.info("🌍 Starting News Fetch Cycle...");
     try {
+      // API call to NewsData.io
       String url =
           "https://newsdata.io/api/1/news?apikey=" + apiKey + "&category=business&language=en";
       ResponseEntity<NewsDataResponse> response =
@@ -160,26 +154,58 @@ public class NewsHighlightService {
 
       List<NewsDataArticle> articles = response.getBody().getResults();
       int newCount = 0;
+      int duplicateCount = 0;
 
       for (NewsDataArticle article : articles) {
         if (!isAllowedSource(article.getSourceId())) continue;
-        if (saveArticleSafe(article)) newCount++;
+
+        // Attempt to save
+        boolean saved = saveArticleSafe(article);
+        if (saved) {
+          newCount++;
+        } else {
+          duplicateCount++;
+        }
       }
-      logger.info("✅ Cycle Complete. Fetched: {}, Saved: {}", articles.size(), newCount);
+      logger.info(
+          "✅ Cycle Complete. Fetched: {}, New: {}, Skipped/Dup: {}",
+          articles.size(),
+          newCount,
+          duplicateCount);
+
       archiveOldStories();
     } catch (Exception e) {
-      logger.error("❌ News Fetch Failed: {}", e.getMessage());
+      logger.error("❌ News Fetch Cycle Error: {}", e.getMessage());
     }
   }
 
+  /**
+   * Safe save method that handles duplicates gracefully without exploding logs. Uses a new
+   * transaction to ensure isolation.
+   */
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public boolean saveArticleSafe(NewsDataArticle apiArticle) {
     try {
-      if (repository.existsByLink(apiArticle.getLink())) return false;
+      String rawLink = apiArticle.getLink();
+      if (rawLink == null) return false;
+
+      // Normalize link
+      String normalizedLink = rawLink.trim();
+
+      // 1. Check if Link exists (Primary Constraint)
+      if (repository.existsByLink(normalizedLink)) {
+        return false;
+      }
+
+      // 2. Check if Title exists (Secondary Duplicate Check)
+      // This helps avoid same story from same source with slightly different URL params
+      if (apiArticle.getTitle() != null && repository.existsByTitle(apiArticle.getTitle())) {
+        return false;
+      }
 
       NewsHighlight news = new NewsHighlight();
       news.setTitle(apiArticle.getTitle());
-      news.setLink(apiArticle.getLink());
+      news.setLink(normalizedLink); // Save the normalized link
       news.setSource(formatSourceName(apiArticle.getSourceId()));
       news.setDescription(apiArticle.getDescription());
 
@@ -200,9 +226,14 @@ public class NewsHighlightService {
 
       repository.save(news);
       return true;
+
     } catch (DataIntegrityViolationException e) {
+      // This catches the database constraint violation if the race condition occurs
+      // We return false to indicate it wasn't saved, but we DO NOT log an error.
+      // This silences the "Duplicate entry" log noise in the application logs.
       return false;
     } catch (Exception e) {
+      logger.error("⚠️ Failed to save article: {}", e.getMessage());
       return false;
     }
   }
@@ -270,8 +301,6 @@ public class NewsHighlightService {
               .outputQuality(0.85)
               .toOutputStream(os);
         } catch (Exception e) {
-          // Fallback to JPG if WebP fails
-          logger.warn("⚠️ WebP conversion failed, falling back to JPG for: {}", imageUrl);
           os.reset();
           extension = "jpg";
           contentType = "image/jpeg";
@@ -290,7 +319,6 @@ public class NewsHighlightService {
             new ByteArrayInputStream(finalBytes), filename, contentType);
       }
     } catch (Exception e) {
-      logger.warn("⚠️ Image download failed for {}: {}", imageUrl, e.getMessage());
       return null;
     }
   }

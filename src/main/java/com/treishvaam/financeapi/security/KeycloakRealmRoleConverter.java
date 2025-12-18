@@ -13,8 +13,8 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 
 /**
- * Robust Converter for Keycloak Roles. Checks 'realm_access' and 'resource_access' and Logs found
- * roles for debugging. // Spotless check fix
+ * Robust Converter for Keycloak Roles. Checks 'realm_access' and 'resource_access'. Maps them to
+ * Spring Security Authorities with 'ROLE_' prefix.
  */
 public class KeycloakRealmRoleConverter implements Converter<Jwt, Collection<GrantedAuthority>> {
 
@@ -25,7 +25,8 @@ public class KeycloakRealmRoleConverter implements Converter<Jwt, Collection<Gra
   public Collection<GrantedAuthority> convert(Jwt jwt) {
     List<String> combinedRoles = new ArrayList<>();
 
-    // 1. Check Realm Access (Standard)
+    // 1. Check Realm Access (Standard Keycloak location)
+    // Structure: "realm_access": { "roles": ["admin", "user"] }
     Map<String, Object> realmAccess = (Map<String, Object>) jwt.getClaims().get("realm_access");
     if (realmAccess != null && !realmAccess.isEmpty()) {
       Collection<String> realmRoles = (Collection<String>) realmAccess.get("roles");
@@ -34,11 +35,11 @@ public class KeycloakRealmRoleConverter implements Converter<Jwt, Collection<Gra
       }
     }
 
-    // 2. Check Resource Access (Client Roles - Fallback)
+    // 2. Check Resource Access (Client Roles)
+    // Structure: "resource_access": { "my-client": { "roles": ["editor"] } }
     Map<String, Object> resourceAccess =
         (Map<String, Object>) jwt.getClaims().get("resource_access");
     if (resourceAccess != null && !resourceAccess.isEmpty()) {
-      // Iterate through all clients and grab their roles
       resourceAccess
           .values()
           .forEach(
@@ -53,17 +54,29 @@ public class KeycloakRealmRoleConverter implements Converter<Jwt, Collection<Gra
               });
     }
 
-    // 3. Debug Logging (Visible in Loki/Console)
+    // 3. Debug Logging (Crucial for diagnosis)
     if (combinedRoles.isEmpty()) {
-      logger.warn("Security Warning: No roles found in JWT for user: {}", jwt.getSubject());
-      logger.debug("JWT Claims: {}", jwt.getClaims());
+      logger.warn("⚠️ Security: No roles found in JWT for user subject: {}", jwt.getSubject());
+      // Log claims structure to help debug if roles are in a non-standard place
+      if (logger.isDebugEnabled()) {
+        logger.debug("JWT Claims Dump: {}", jwt.getClaims());
+      }
     } else {
-      logger.info("User {} granted roles: {}", jwt.getSubject(), combinedRoles);
+      // Info level allows us to see this in production logs to verify permissions
+      logger.info("🔐 User {} roles found: {}", jwt.getSubject(), combinedRoles);
     }
 
-    // 4. Convert to Spring Authorities (Always Uppercase + ROLE_ Prefix)
+    // 4. Convert to Spring Authorities (ROLE_PREFIX + UPPERCASE)
+    // Example: "admin" -> "ROLE_ADMIN"
     return combinedRoles.stream()
-        .map(roleName -> "ROLE_" + roleName.toUpperCase()) // e.g. "admin" -> "ROLE_ADMIN"
+        .map(
+            roleName -> {
+              String transformed = roleName.toUpperCase();
+              if (!transformed.startsWith("ROLE_")) {
+                transformed = "ROLE_" + transformed;
+              }
+              return transformed;
+            })
         .distinct()
         .map(SimpleGrantedAuthority::new)
         .collect(Collectors.toList());
