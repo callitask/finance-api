@@ -89,9 +89,12 @@ public class NewsHighlightService {
     return repository.findByIsArchivedFalseOrderByPublishedAtDesc(pageable);
   }
 
-  @Scheduled(fixedRate = 3600000)
+  // --- CHANGED: Synchronized with Fetch Cycle (15 Minutes) ---
+  @Scheduled(fixedRate = 900000)
   public void healLegacyImages() {
-    logger.info("🚑 Starting News Image Healer V6 (Aggressive Repair)...");
+    logger.info("🚑 Starting News Image Healer V7 (Real-Time Sync)...");
+
+    // Safety Limit: Only check the most recent 100 articles to prevent over-scanning
     Pageable limit = PageRequest.of(0, 100, Sort.by(Sort.Direction.DESC, "publishedAt"));
     List<NewsHighlight> recentNews =
         repository.findByIsArchivedFalseOrderByPublishedAtDesc(limit).getContent();
@@ -119,7 +122,7 @@ public class NewsHighlightService {
         fixedCount++;
       }
     }
-    if (fixedCount > 0) logger.info("✅ Healer V6 processed {} items.", fixedCount);
+    if (fixedCount > 0) logger.info("✅ Healer V7 processed {} items.", fixedCount);
   }
 
   private void repairSingleNewsItem(NewsHighlight news) {
@@ -143,6 +146,7 @@ public class NewsHighlightService {
     }
   }
 
+  // Fetch Cycle: Every 15 Minutes (900000 ms)
   @Scheduled(fixedRate = 900000)
   public void fetchAndStoreNews() {
     logger.info("🌍 Starting Global News Intelligence Cycle...");
