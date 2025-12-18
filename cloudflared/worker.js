@@ -412,6 +412,65 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
       }
     }
 
+    // ------------------------------------------------------
+    // SCENARIO D: MARKET DATA (NEW ENTERPRISE AI FIX)
+    // ------------------------------------------------------
+    // EXPLANATION FOR AI/DEV:
+    // This block handles URLs like /market/AAPL.
+    // It fetches live price data from the backend and injects a 
+    // 'FinancialProduct' JSON-LD schema. This allows Google and AI agents
+    // to "understand" the stock price, currency, and ticker symbol.
+    // ------------------------------------------------------
+    if (url.pathname.startsWith("/market/")) {
+      const ticker = url.pathname.split("/market/")[1];
+      if (!ticker) return response;
+
+      // Fetch Live Market Data from your Backend
+      const apiUrl = `https://backend.treishvaamgroup.com/api/v1/market/widget?ticker=${ticker}`;
+
+      try {
+        const apiResp = await fetch(apiUrl, { headers: { "User-Agent": "Cloudflare-Worker-SEO-Bot" } });
+        if (!apiResp.ok) return response;
+        const marketData = await apiResp.json();
+        const quote = marketData.quoteData;
+
+        if (!quote) return response;
+
+        const pageTitle = `${quote.name} (${quote.ticker}) Price, News & Analysis | Treishfin`;
+        const pageDesc = `Real-time stock price for ${quote.name} (${quote.ticker}). Market cap: ${quote.marketCap}, PE Ratio: ${quote.peRatio || 'N/A'}. detailed financial analysis on Treishvaam Finance.`;
+        
+        // --- FINANCIAL PRODUCT SCHEMA (AI OPTIMIZED) ---
+        const schema = {
+          "@context": "https://schema.org",
+          "@type": "FinancialProduct",
+          "name": quote.name,
+          "tickerSymbol": quote.ticker,
+          "exchangeTicker": quote.exchange || "NYSE", 
+          "description": pageDesc,
+          "url": `https://treishfin.treishvaamgroup.com/market/${ticker}`,
+          "image": quote.logoUrl || "https://treishfin.treishvaamgroup.com/logo.webp",
+          "currentExchangeRate": {
+             "@type": "UnitPriceSpecification",
+             "price": quote.price,
+             "priceCurrency": "USD" 
+          }
+        };
+
+        return new HTMLRewriter()
+          .on("title", { element(e) { e.setInnerContent(pageTitle); } })
+          .on('meta[name="description"]', { element(e) { e.setAttribute("content", pageDesc); } })
+          .on('meta[property="og:title"]', { element(e) { e.setAttribute("content", pageTitle); } })
+          .on('meta[property="og:description"]', { element(e) { e.setAttribute("content", pageDesc); } })
+          .on("head", {
+            element(e) {
+              // Inject JSON-LD so AI bots can read the stock price instantly
+              e.append(`<script type="application/ld+json">${JSON.stringify(schema)}</script>`, { html: true });
+            }
+          })
+          .transform(response);
+      } catch (e) { return response; }
+    }
+
     return response;
   }
 };
