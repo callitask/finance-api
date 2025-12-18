@@ -2,7 +2,6 @@ package com.treishvaam.financeapi.security;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -14,8 +13,8 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 
 /**
- * Robust Converter for Keycloak Roles.
- * Checks 'realm_access' and 'resource_access' and Logs found roles for debugging.
+ * Robust Converter for Keycloak Roles. Checks 'realm_access' and 'resource_access' and Logs found
+ * roles for debugging.
  */
 public class KeycloakRealmRoleConverter implements Converter<Jwt, Collection<GrantedAuthority>> {
 
@@ -36,18 +35,22 @@ public class KeycloakRealmRoleConverter implements Converter<Jwt, Collection<Gra
     }
 
     // 2. Check Resource Access (Client Roles - Fallback)
-    Map<String, Object> resourceAccess = (Map<String, Object>) jwt.getClaims().get("resource_access");
+    Map<String, Object> resourceAccess =
+        (Map<String, Object>) jwt.getClaims().get("resource_access");
     if (resourceAccess != null && !resourceAccess.isEmpty()) {
-        // Iterate through all clients and grab their roles
-        resourceAccess.values().forEach(clientAccess -> {
-            if (clientAccess instanceof Map) {
-                Map<String, Object> clientMap = (Map<String, Object>) clientAccess;
-                Collection<String> clientRoles = (Collection<String>) clientMap.get("roles");
-                if (clientRoles != null) {
+      // Iterate through all clients and grab their roles
+      resourceAccess
+          .values()
+          .forEach(
+              clientAccess -> {
+                if (clientAccess instanceof Map) {
+                  Map<String, Object> clientMap = (Map<String, Object>) clientAccess;
+                  Collection<String> clientRoles = (Collection<String>) clientMap.get("roles");
+                  if (clientRoles != null) {
                     combinedRoles.addAll(clientRoles);
+                  }
                 }
-            }
-        });
+              });
     }
 
     // 3. Debug Logging (Visible in Loki/Console)
