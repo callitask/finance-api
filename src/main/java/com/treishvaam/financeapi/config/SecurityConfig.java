@@ -25,7 +25,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity
+@EnableMethodSecurity // Allows @PreAuthorize to work
 public class SecurityConfig {
 
   private final RateLimitingFilter rateLimitingFilter;
@@ -52,6 +52,10 @@ public class SecurityConfig {
         .authorizeHttpRequests(
             auth ->
                 auth
+                    // 0. Pre-flight checks (CORS)
+                    .requestMatchers(HttpMethod.OPTIONS, "/**")
+                    .permitAll()
+
                     // 1. System, Health & Monitoring (Public)
                     .requestMatchers(
                         "/actuator/**", "/api/v1/health/**", "/api/v1/monitoring/ingest")
@@ -79,7 +83,7 @@ public class SecurityConfig {
                         "/api/v1/logo")
                     .permitAll()
 
-                    // 4. CRITICAL FIX: Allow POST for Market Quotes Batch
+                    // 4. Market Quotes Batch (POST allowed publicly)
                     .requestMatchers(HttpMethod.POST, "/api/v1/market/quotes/batch")
                     .permitAll()
 
@@ -87,16 +91,18 @@ public class SecurityConfig {
                     .requestMatchers("/api/v1/auth/**", "/api/v1/contact/**")
                     .permitAll()
 
-                    // 6. Dashboard & Admin Routes
-                    // FIX: Changed roles to UPPERCASE to match KeycloakRealmRoleConverter
+                    // 6. Secure Admin/Dashboard Routes
+                    // Using hasAuthority('ROLE_NAME') is safer/clearer than hasRole('NAME')
                     .requestMatchers("/api/v1/analytics/**")
-                    .hasAnyRole("ANALYST", "ADMIN")
+                    .hasAnyAuthority("ROLE_ANALYST", "ROLE_ADMIN")
                     .requestMatchers("/api/v1/posts/admin/**")
-                    .hasAnyRole("EDITOR", "PUBLISHER", "ADMIN")
+                    .hasAnyAuthority("ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
                     .requestMatchers("/api/v1/files/upload")
-                    .hasAnyRole("PUBLISHER", "ADMIN")
-                    .requestMatchers("/api/v1/admin/**")
-                    .hasRole("ADMIN")
+                    .hasAnyAuthority("ROLE_PUBLISHER", "ROLE_ADMIN")
+                    .requestMatchers("/api/v1/admin/**", "/api/v1/status/**")
+                    .hasAuthority("ROLE_ADMIN")
+
+                    // 7. Fallback: Require authentication for anything else
                     .anyRequest()
                     .authenticated())
         .oauth2ResourceServer(
