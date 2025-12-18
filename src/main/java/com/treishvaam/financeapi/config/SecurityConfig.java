@@ -87,15 +87,16 @@ public class SecurityConfig {
                     .requestMatchers("/api/v1/auth/**", "/api/v1/contact/**")
                     .permitAll()
 
-                    // 6. Dashboard & Admin Routes (Restored from 5-day old config)
+                    // 6. Dashboard & Admin Routes
+                    // FIX: Changed roles to UPPERCASE to match KeycloakRealmRoleConverter
                     .requestMatchers("/api/v1/analytics/**")
-                    .hasAnyRole("analyst", "admin")
+                    .hasAnyRole("ANALYST", "ADMIN")
                     .requestMatchers("/api/v1/posts/admin/**")
-                    .hasAnyRole("editor", "publisher", "admin")
+                    .hasAnyRole("EDITOR", "PUBLISHER", "ADMIN")
                     .requestMatchers("/api/v1/files/upload")
-                    .hasAnyRole("publisher", "admin")
+                    .hasAnyRole("PUBLISHER", "ADMIN")
                     .requestMatchers("/api/v1/admin/**")
-                    .hasRole("admin")
+                    .hasRole("ADMIN")
                     .anyRequest()
                     .authenticated())
         .oauth2ResourceServer(

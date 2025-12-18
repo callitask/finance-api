@@ -4,7 +4,7 @@ import com.treishvaam.financeapi.analytics.AudienceVisit;
 import com.treishvaam.financeapi.analytics.AudienceVisitRepository;
 import com.treishvaam.financeapi.dto.FaroPayload;
 import java.time.LocalDate;
-import java.util.Optional;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.client.RestTemplateBuilder;
@@ -79,13 +79,14 @@ public class MonitoringController {
       String sessionId = payload.getMeta().getSession().getId();
       LocalDate today = LocalDate.now();
 
-      // Check if we already tracked this session today
-      Optional<AudienceVisit> existingVisit =
+      // FIX: Handle potential duplicate records (race condition) gracefully
+      List<AudienceVisit> existingVisits =
           audienceVisitRepository.findBySessionIdAndDate(sessionId, today);
 
       AudienceVisit visit;
-      if (existingVisit.isPresent()) {
-        visit = existingVisit.get();
+      if (!existingVisits.isEmpty()) {
+        // Pick the first one if multiple exist
+        visit = existingVisits.get(0);
         // Increment views if new events came in
         int newEvents = payload.getEvents() != null ? payload.getEvents().size() : 0;
         visit.setViews(visit.getViews() + (newEvents > 0 ? 1 : 0));

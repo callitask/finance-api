@@ -12,9 +12,10 @@ public interface AudienceVisitRepository extends JpaRepository<AudienceVisit, Lo
   @Query("SELECT MAX(av.sessionDate) FROM AudienceVisit av")
   Optional<LocalDate> findMaxSessionDate();
 
+  // FIX: Return List instead of Optional to handle duplicate keys gracefully
   @Query(
       "SELECT av FROM AudienceVisit av WHERE av.sessionId = :sessionId AND av.sessionDate = :date")
-  Optional<AudienceVisit> findBySessionIdAndDate(
+  List<AudienceVisit> findBySessionIdAndDate(
       @Param("sessionId") String sessionId, @Param("date") LocalDate date);
 
   @Query(
