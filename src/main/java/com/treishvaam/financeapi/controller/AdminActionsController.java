@@ -1,6 +1,6 @@
 package com.treishvaam.financeapi.controller;
 
-import com.treishvaam.financeapi.service.SitemapGenerationService;
+import com.treishvaam.financeapi.service.SitemapService; // FIXED IMPORT
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,19 +18,21 @@ public class AdminActionsController {
 
   private static final Logger logger = LoggerFactory.getLogger(AdminActionsController.class);
 
-  @Autowired private SitemapGenerationService sitemapGenerationService;
+  // FIXED: Injected SitemapService instead of GenerationService
+  @Autowired private SitemapService sitemapService;
 
   @PostMapping("/regenerate-sitemap")
   public ResponseEntity<?> regenerateSitemap() {
-    logger.info("Admin manually triggered sitemap regeneration.");
+    logger.info("Admin manually triggered sitemap cache flush.");
     try {
-      sitemapGenerationService.generateSitemaps();
-      logger.info("Sitemap regeneration completed successfully.");
-      return ResponseEntity.ok(Map.of("message", "Sitemap regeneration complete."));
+      // ENTERPRISE FIX: We clear the cache to force a fresh DB pull on next visit
+      sitemapService.clearCaches();
+      logger.info("Sitemap cache cleared successfully.");
+      return ResponseEntity.ok(Map.of("message", "Sitemap cache cleared. Fresh data is live."));
     } catch (Exception e) {
-      logger.error("Admin-triggered sitemap regeneration failed", e);
+      logger.error("Admin-triggered sitemap cache clear failed", e);
       return ResponseEntity.status(500)
-          .body(Map.of("message", "Sitemap generation failed: " + e.getMessage()));
+          .body(Map.of("message", "Sitemap cache clear failed: " + e.getMessage()));
     }
   }
 }

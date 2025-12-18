@@ -5,7 +5,7 @@ import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.search.PostDocument;
 import com.treishvaam.financeapi.search.PostSearchRepository;
-import com.treishvaam.financeapi.service.SitemapGenerationService;
+import com.treishvaam.financeapi.service.SitemapService; // FIXED IMPORT
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,7 +22,8 @@ public class MessageListener {
 
   @Autowired private BlogPostRepository blogPostRepository;
 
-  @Autowired private SitemapGenerationService sitemapGenerationService;
+  // FIXED: Injected SitemapService (Dynamic) instead of GenerationService (File-based)
+  @Autowired private SitemapService sitemapService;
 
   // WORKER 1: Handles Search Indexing (Elasticsearch)
   @RabbitListener(queues = RabbitMQConfig.QUEUE_SEARCH_INDEX)
@@ -65,15 +66,17 @@ public class MessageListener {
     }
   }
 
-  // WORKER 2: Handles Sitemap Generation
+  // WORKER 2: Handles Sitemap Updates
   @RabbitListener(queues = RabbitMQConfig.QUEUE_SITEMAP)
   public void handleSitemapEvent(EventMessage message) {
-    logger.info(" [Async] Starting Sitemap Regeneration...");
+    logger.info(" [Async] Received Sitemap update event. Clearing cache...");
     try {
-      sitemapGenerationService.generateSitemaps();
-      logger.info(" [Async] Sitemap Regeneration Complete.");
+      // ENTERPRISE FIX: Instead of generating files, we just clear the cache.
+      // The next request to /sitemap.xml will automatically regenerate fresh data.
+      sitemapService.clearCaches();
+      logger.info(" [Async] Sitemap cache cleared. Data is fresh.");
     } catch (Exception e) {
-      logger.error("Sitemap generation failed", e);
+      logger.error("Sitemap cache eviction failed", e);
     }
   }
 }
