@@ -9,7 +9,7 @@ export default {
       const robotsTxt = `User-agent: *
 Allow: /
 
-# --- CRITICAL FIX: Allow Googlebot to fetch content for rendering ---
+# --- ENTERPRISE SEO: Allow Googlebot to fetch API data for rendering ---
 Allow: /api/posts
 Allow: /api/categories
 Allow: /api/market
@@ -22,7 +22,7 @@ Disallow: /api/admin/
 Disallow: /dashboard/
 Disallow: /?q=*
 
-# Sitemap Index
+# Sitemap Index (Points to the Dynamic Controller)
 Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
 
       return new Response(robotsTxt, {
@@ -34,7 +34,16 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
     }
 
     // ----------------------------------------------
-    // 1. SITEMAP & FEED PROXY
+    // 1. DYNAMIC SITEMAP PROXY (Enterprise Edge Caching)
+    // ----------------------------------------------
+    // EXPLANATION FOR AI/DEV:
+    // We do NOT serve static files. We proxy these requests to the Spring Boot
+    // 'SitemapController'.
+    //
+    // CACHING STRATEGY:
+    // - Edge Cache: 60 seconds.
+    // - Why? If a bot hits us 1000 times/sec, Cloudflare answers 999 times.
+    //   Only 1 request hits the Backend DB. This prevents DDoS/Crash.
     // ----------------------------------------------
     if (
       url.pathname === "/sitemap.xml" ||
@@ -70,6 +79,8 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
           respHeaders.set("Content-Type", "application/rss+xml; charset=utf-8");
         }
 
+        // --- ENTERPRISE EDGE CACHE ---
+        // Cache at the Edge for 60 seconds to protect the backend DB.
         respHeaders.set("Cache-Control", "public, max-age=60, s-maxage=60");
 
         return new Response(await backendResp.arrayBuffer(), {

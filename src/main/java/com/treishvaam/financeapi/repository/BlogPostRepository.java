@@ -25,7 +25,7 @@ public interface BlogPostRepository extends JpaRepository<BlogPost, Long> {
 
   List<BlogPost> findByTitleContainingIgnoreCaseAndStatus(String title, PostStatus status);
 
-  // This is the key method for pagination
+  // This is the key method for pagination (Used by Archive Sitemaps)
   Page<BlogPost> findAllByStatus(PostStatus status, Pageable pageable);
 
   long countByLayoutGroupId(String layoutGroupId);
@@ -39,6 +39,10 @@ public interface BlogPostRepository extends JpaRepository<BlogPost, Long> {
   // NEW METHOD to find by the custom URL ID
   Optional<BlogPost> findByUrlArticleId(String urlArticleId);
 
-  // NEW METHOD for sitemap generation
+  // Used for Sitemap Index calculation
   long countByStatus(PostStatus status);
+
+  // --- PHASE 2 ENTERPRISE ADDITION ---
+  // High-performance query for "News Sitemap" (Last 48 hours only)
+  List<BlogPost> findByStatusAndCreatedAtAfterOrderByCreatedAtDesc(PostStatus status, Instant date);
 }
