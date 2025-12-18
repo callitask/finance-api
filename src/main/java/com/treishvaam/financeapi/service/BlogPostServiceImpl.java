@@ -128,9 +128,12 @@ public class BlogPostServiceImpl implements BlogPostService {
     newPost.setStatus(PostStatus.DRAFT);
     String username = SecurityContextHolder.getContext().getAuthentication().getName();
     newPost.setAuthor(username);
-    String currentTenant = TenantContext.getCurrentTenant();
+
+    // FIX: Updated method call to match new TenantContext API
+    String currentTenant = TenantContext.getTenantId();
     newPost.setTenantId(
         currentTenant != null && !currentTenant.isEmpty() ? currentTenant : "treishfin");
+
     newPost.setSlug(generateUniqueId());
     newPost.setLayoutStyle("DEFAULT");
     newPost.setUserFriendlySlug(generateUserFriendlySlug(newPost.getTitle()));
@@ -231,15 +234,11 @@ public class BlogPostServiceImpl implements BlogPostService {
     }
 
     // --- PHASE 6 FIX: Robust Messaging Handling ---
-    // Wrapped in try-catch to prevent 500 Error if RabbitMQ is down
     if (savedPost.getStatus() == PostStatus.PUBLISHED) {
       try {
-        // 1. Trigger Search Indexing
         messagePublisher.publishSearchIndexEvent(savedPost.getId(), "INDEX");
-        // 2. Trigger Sitemap Regeneration
         messagePublisher.publishSitemapRegenerateEvent();
       } catch (Exception e) {
-        // Log the failure but DO NOT rollback the transaction
         logger.error(
             "Failed to publish async events for post ID: {}. Post was saved successfully.",
             savedPost.getId(),
@@ -255,7 +254,6 @@ public class BlogPostServiceImpl implements BlogPostService {
   @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, allEntries = true)
   public void deleteById(Long id) {
     blogPostRepository.deleteById(id);
-    // --- PHASE 6 FIX: Robust Messaging Handling ---
     try {
       messagePublisher.publishSearchIndexEvent(id, "DELETE");
       messagePublisher.publishSitemapRegenerateEvent();
@@ -270,7 +268,6 @@ public class BlogPostServiceImpl implements BlogPostService {
   public void deletePostsInBulk(List<Long> postIds) {
     if (postIds != null && !postIds.isEmpty()) {
       blogPostRepository.deleteByIdIn(postIds);
-      // --- PHASE 6 FIX: Robust Messaging Handling ---
       try {
         for (Long id : postIds) {
           messagePublisher.publishSearchIndexEvent(id, "DELETE");
@@ -296,7 +293,6 @@ public class BlogPostServiceImpl implements BlogPostService {
       }
       blogPostRepository.save(post);
 
-      // --- PHASE 6 FIX: Robust Messaging Handling ---
       try {
         messagePublisher.publishSearchIndexEvent(post.getId(), "INDEX");
         logger.info("Published scheduled post with ID: {}", post.getId());
@@ -358,9 +354,12 @@ public class BlogPostServiceImpl implements BlogPostService {
             .orElseThrow(() -> new RuntimeException("Post not found with id: " + id));
     BlogPost newPost = new BlogPost();
     newPost.setAuthor(SecurityContextHolder.getContext().getAuthentication().getName());
-    String currentTenant = TenantContext.getCurrentTenant();
+
+    // FIX: Updated method call to match new TenantContext API
+    String currentTenant = TenantContext.getTenantId();
     newPost.setTenantId(
         currentTenant != null && !currentTenant.isEmpty() ? currentTenant : "treishfin");
+
     newPost.setTitle("Copy of " + originalPost.getTitle());
     newPost.setContent("");
     newPost.setCustomSnippet("");
