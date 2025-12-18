@@ -53,8 +53,7 @@ public class SecurityConfig {
             auth ->
                 auth
                     // 0. Pre-flight checks (CORS)
-                    .requestMatchers(HttpMethod.OPTIONS, "/**")
-                    .permitAll()
+                    .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                     // 1. System, Health & Monitoring (Public)
                     .requestMatchers(
@@ -95,10 +94,13 @@ public class SecurityConfig {
                     // Using hasAuthority('ROLE_NAME') is safer/clearer than hasRole('NAME')
                     .requestMatchers("/api/v1/analytics/**")
                     .hasAnyAuthority("ROLE_ANALYST", "ROLE_ADMIN")
+                    
                     .requestMatchers("/api/v1/posts/admin/**")
                     .hasAnyAuthority("ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
+                    
                     .requestMatchers("/api/v1/files/upload")
                     .hasAnyAuthority("ROLE_PUBLISHER", "ROLE_ADMIN")
+                    
                     .requestMatchers("/api/v1/admin/**", "/api/v1/status/**")
                     .hasAuthority("ROLE_ADMIN")
 
