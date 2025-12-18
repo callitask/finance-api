@@ -14,7 +14,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 
 /**
  * Robust Converter for Keycloak Roles. Checks 'realm_access' and 'resource_access' and Logs found
- * roles for debugging.
+ * roles for debugging. // Spotless check fix
  */
 public class KeycloakRealmRoleConverter implements Converter<Jwt, Collection<GrantedAuthority>> {
 
