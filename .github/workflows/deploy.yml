@@ -41,6 +41,15 @@ jobs:
 
         echo "--> Restarting Backend..."
         cd /opt/treishvaam
+        
+        # --- ENTERPRISE FIX: ROBUST CONTAINER RESTART ---
+        # 1. Force stop the service (ignore errors if already stopped)
+        docker compose stop backend || true
+        
+        # 2. Force remove the container state (fixes "No such container" error)
+        docker compose rm -f -s -v backend || true
+        
+        # 3. Bring up fresh container
         docker compose up -d --force-recreate --no-deps backend
         
         # docker compose start elasticsearch loki tempo

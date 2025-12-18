@@ -1,7 +1,7 @@
 #!/bin/bash
 # ----------------------------------------------------------------------
 # SMART AUTO-DEPLOYMENT SCRIPT
-# Purpose: Checks for Git updates and only restarts changed services.
+# Purpose: Checks for Git updates and performs STATE-SAFE restarts.
 # Run Frequency: Every minute (via Cron)
 # ----------------------------------------------------------------------
 
@@ -36,8 +36,15 @@ if [ "$LOCAL" != "$REMOTE" ]; then
 
     # 1. Backend Code / Build Config
     if echo "$CHANGED_FILES" | grep -qE "^src/|^pom.xml|^Dockerfile"; then
-        echo "[$(date)] ☕ Backend code changed. Rebuilding Java container..." >> "$LOG_FILE"
-        docker-compose up -d --build backend >> "$LOG_FILE" 2>&1
+        echo "[$(date)] ☕ Backend code changed. Performing Robust Rebuild..." >> "$LOG_FILE"
+        
+        # ENTERPRISE FIX: Force remove old containers to prevent "No such container" sync errors
+        # We use '|| true' to ensure the script continues even if the container is already gone
+        docker-compose stop backend >> "$LOG_FILE" 2>&1 || true
+        docker-compose rm -f -s -v backend >> "$LOG_FILE" 2>&1 || true
+        
+        # Rebuild with force-recreate to ensure fresh state
+        docker-compose up -d --build --force-recreate backend >> "$LOG_FILE" 2>&1
     fi
 
     # 2. Nginx Config
