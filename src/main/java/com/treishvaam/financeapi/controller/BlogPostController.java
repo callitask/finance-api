@@ -48,7 +48,7 @@ public class BlogPostController {
   }
 
   @GetMapping("/admin/all")
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+  @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
   public ResponseEntity<List<BlogPost>> getAllPostsForAdmin() {
     return ResponseEntity.ok(blogPostService.findAllForAdmin());
   }
@@ -87,20 +87,20 @@ public class BlogPostController {
   }
 
   @GetMapping("/admin/drafts")
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+  @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
   public ResponseEntity<List<BlogPost>> getDrafts() {
     return ResponseEntity.ok(blogPostService.findDrafts());
   }
 
   @PostMapping("/draft")
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+  @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
   public ResponseEntity<BlogPost> createDraft(@RequestBody BlogPostDto postDto) {
     BlogPost createdPost = blogPostService.createDraft(postDto);
     return ResponseEntity.status(HttpStatus.CREATED).body(createdPost);
   }
 
   @PutMapping("/draft/{id}")
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+  @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
   public ResponseEntity<BlogPost> updateDraft(
       @PathVariable Long id, @RequestBody BlogPostDto postDto) {
     BlogPost updatedDraft = blogPostService.updateDraft(id, postDto);
@@ -108,7 +108,7 @@ public class BlogPostController {
   }
 
   @PostMapping
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+  @PreAuthorize("hasAnyAuthority('ROLE_PUBLISHER', 'ROLE_ADMIN')")
   public ResponseEntity<BlogPost> createPost(
       @RequestParam("title") String title,
       @RequestParam("content") String content,
@@ -175,7 +175,7 @@ public class BlogPostController {
   }
 
   @PostMapping("/{id}/duplicate")
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+  @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
   public ResponseEntity<BlogPost> duplicatePost(@PathVariable Long id) {
     try {
       BlogPost duplicatedPost = blogPostService.duplicatePost(id);
@@ -186,7 +186,7 @@ public class BlogPostController {
   }
 
   @PutMapping("/{id}")
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+  @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
   public ResponseEntity<BlogPost> updatePost(
       @PathVariable Long id,
       @RequestParam("title") String title,
@@ -256,21 +256,21 @@ public class BlogPostController {
   }
 
   @DeleteMapping("/{id}")
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+  @PreAuthorize("hasAnyAuthority('ROLE_PUBLISHER', 'ROLE_ADMIN')")
   public ResponseEntity<Void> deletePost(@PathVariable Long id) {
     blogPostService.deleteById(id);
     return ResponseEntity.noContent().build();
   }
 
   @DeleteMapping("/bulk")
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+  @PreAuthorize("hasAnyAuthority('ROLE_PUBLISHER', 'ROLE_ADMIN')")
   public ResponseEntity<Void> deleteMultiplePosts(@RequestBody List<Long> postIds) {
     blogPostService.deletePostsInBulk(postIds);
     return ResponseEntity.noContent().build();
   }
 
   @PostMapping("/{id}/share")
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+  @PreAuthorize("hasAnyAuthority('ROLE_PUBLISHER', 'ROLE_ADMIN')")
   public Mono<ResponseEntity<String>> sharePost(
       @PathVariable Long id, @RequestBody ShareRequest shareRequest) {
     if (linkedInService == null) {
