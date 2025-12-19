@@ -92,7 +92,6 @@ public class SecurityConfig {
                     .permitAll()
 
                     // 6. Secure Admin/Dashboard Routes
-                    // Using hasAuthority('ROLE_NAME') is safer/clearer than hasRole('NAME')
                     .requestMatchers("/api/v1/analytics/**")
                     .hasAnyAuthority("ROLE_ANALYST", "ROLE_ADMIN")
                     .requestMatchers("/api/v1/posts/admin/**")
@@ -103,6 +102,7 @@ public class SecurityConfig {
                     .hasAuthority("ROLE_ADMIN")
 
                     // 7. Fallback: Require authentication for anything else
+                    // This covers /api/v1/posts/draft/**
                     .anyRequest()
                     .authenticated())
         .oauth2ResourceServer(
@@ -117,13 +117,8 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-    // Gateway-Level CORS support - STRICT ORIGINS
-    configuration.setAllowedOrigins(
-        Arrays.asList(
-            "https://treishfin.treishvaamgroup.com",
-            "https://backend.treishvaamgroup.com",
-            "http://localhost:3000" // For local development
-            ));
+    // Use Pattern matching to avoid specific domain string issues
+    configuration.setAllowedOriginPatterns(Arrays.asList("*"));
     configuration.setAllowedMethods(
         Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
     configuration.setAllowedHeaders(Arrays.asList("*"));

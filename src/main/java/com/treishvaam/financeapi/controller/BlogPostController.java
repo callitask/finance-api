@@ -48,7 +48,7 @@ public class BlogPostController {
   }
 
   @GetMapping("/admin/all")
-  @PreAuthorize("isAuthenticated()") // Relaxed: Any logged-in user can view admin list
+  @PreAuthorize("isAuthenticated()")
   public ResponseEntity<List<BlogPost>> getAllPostsForAdmin() {
     return ResponseEntity.ok(blogPostService.findAllForAdmin());
   }
@@ -87,20 +87,20 @@ public class BlogPostController {
   }
 
   @GetMapping("/admin/drafts")
-  @PreAuthorize("isAuthenticated()") // Relaxed: Any logged-in user can view drafts
+  // Access control delegated to SecurityConfig (Authenticated)
   public ResponseEntity<List<BlogPost>> getDrafts() {
     return ResponseEntity.ok(blogPostService.findDrafts());
   }
 
   @PostMapping("/draft")
-  @PreAuthorize("isAuthenticated()") // Relaxed: Any logged-in user can create drafts
+  // Access control delegated to SecurityConfig (Authenticated)
   public ResponseEntity<BlogPost> createDraft(@RequestBody BlogPostDto postDto) {
     BlogPost createdPost = blogPostService.createDraft(postDto);
     return ResponseEntity.status(HttpStatus.CREATED).body(createdPost);
   }
 
   @PutMapping("/draft/{id}")
-  @PreAuthorize("isAuthenticated()") // Relaxed: Any logged-in user can save drafts
+  // Access control delegated to SecurityConfig (Authenticated)
   public ResponseEntity<BlogPost> updateDraft(
       @PathVariable Long id, @RequestBody BlogPostDto postDto) {
     BlogPost updatedDraft = blogPostService.updateDraft(id, postDto);
@@ -175,7 +175,7 @@ public class BlogPostController {
   }
 
   @PostMapping("/{id}/duplicate")
-  @PreAuthorize("isAuthenticated()") // Relaxed: Any logged-in user can duplicate
+  @PreAuthorize("isAuthenticated()")
   public ResponseEntity<BlogPost> duplicatePost(@PathVariable Long id) {
     try {
       BlogPost duplicatedPost = blogPostService.duplicatePost(id);
@@ -232,7 +232,7 @@ public class BlogPostController {
     existingPost.setCanonicalUrl(canonicalUrl);
     existingPost.setFocusKeyword(focusKeyword);
     try {
-      existingPost.setDisplaySection(DisplaySection.valueOf(displaySection.toUpperCase()));
+      newPost.setDisplaySection(DisplaySection.valueOf(displaySection.toUpperCase()));
     } catch (IllegalArgumentException e) {
       existingPost.setDisplaySection(DisplaySection.STANDARD);
     }
