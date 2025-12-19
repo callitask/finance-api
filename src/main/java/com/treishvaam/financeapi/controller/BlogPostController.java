@@ -232,7 +232,7 @@ public class BlogPostController {
     existingPost.setCanonicalUrl(canonicalUrl);
     existingPost.setFocusKeyword(focusKeyword);
     try {
-      newPost.setDisplaySection(DisplaySection.valueOf(displaySection.toUpperCase()));
+      existingPost.setDisplaySection(DisplaySection.valueOf(displaySection.toUpperCase()));
     } catch (IllegalArgumentException e) {
       existingPost.setDisplaySection(DisplaySection.STANDARD);
     }
