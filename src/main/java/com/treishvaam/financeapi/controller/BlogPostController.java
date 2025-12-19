@@ -48,7 +48,7 @@ public class BlogPostController {
   }
 
   @GetMapping("/admin/all")
-  @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
+  @PreAuthorize("isAuthenticated()") // Relaxed: Any logged-in user can view admin list
   public ResponseEntity<List<BlogPost>> getAllPostsForAdmin() {
     return ResponseEntity.ok(blogPostService.findAllForAdmin());
   }
@@ -87,20 +87,20 @@ public class BlogPostController {
   }
 
   @GetMapping("/admin/drafts")
-  @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
+  @PreAuthorize("isAuthenticated()") // Relaxed: Any logged-in user can view drafts
   public ResponseEntity<List<BlogPost>> getDrafts() {
     return ResponseEntity.ok(blogPostService.findDrafts());
   }
 
   @PostMapping("/draft")
-  @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
+  @PreAuthorize("isAuthenticated()") // Relaxed: Any logged-in user can create drafts
   public ResponseEntity<BlogPost> createDraft(@RequestBody BlogPostDto postDto) {
     BlogPost createdPost = blogPostService.createDraft(postDto);
     return ResponseEntity.status(HttpStatus.CREATED).body(createdPost);
   }
 
   @PutMapping("/draft/{id}")
-  @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
+  @PreAuthorize("isAuthenticated()") // Relaxed: Any logged-in user can save drafts
   public ResponseEntity<BlogPost> updateDraft(
       @PathVariable Long id, @RequestBody BlogPostDto postDto) {
     BlogPost updatedDraft = blogPostService.updateDraft(id, postDto);
@@ -175,7 +175,7 @@ public class BlogPostController {
   }
 
   @PostMapping("/{id}/duplicate")
-  @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
+  @PreAuthorize("isAuthenticated()") // Relaxed: Any logged-in user can duplicate
   public ResponseEntity<BlogPost> duplicatePost(@PathVariable Long id) {
     try {
       BlogPost duplicatedPost = blogPostService.duplicatePost(id);
