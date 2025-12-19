@@ -117,11 +117,18 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-    // Gateway-Level CORS support
-    configuration.setAllowedOriginPatterns(Arrays.asList("*"));
+    // Gateway-Level CORS support - STRICT ORIGINS
+    configuration.setAllowedOrigins(
+        Arrays.asList(
+            "https://treishfin.treishvaamgroup.com",
+            "https://backend.treishvaamgroup.com",
+            "http://localhost:3000" // For local development
+            ));
     configuration.setAllowedMethods(
         Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
     configuration.setAllowedHeaders(Arrays.asList("*"));
+    configuration.setExposedHeaders(
+        Arrays.asList("Authorization", "Content-Type", "X-Requested-With"));
     configuration.setAllowCredentials(true);
     configuration.setMaxAge(3600L);
 
