@@ -9,6 +9,8 @@ public class FaroPayload {
   private Meta meta;
   private List<Event> events;
   private List<Measurement> measurements;
+  // Added: Capture intelligent source tracking from Frontend
+  private Map<String, String> extra;
 
   public Meta getMeta() {
     return meta;
@@ -34,12 +36,21 @@ public class FaroPayload {
     this.measurements = measurements;
   }
 
+  public Map<String, String> getExtra() {
+    return extra;
+  }
+
+  public void setExtra(Map<String, String> extra) {
+    this.extra = extra;
+  }
+
   @JsonIgnoreProperties(ignoreUnknown = true)
   public static class Meta {
     private App app;
     private Browser browser;
     private Page page;
     private Session session;
+    private User user; // Added: Capture User info
 
     public App getApp() {
       return app;
@@ -71,6 +82,14 @@ public class FaroPayload {
 
     public void setSession(Session session) {
       this.session = session;
+    }
+
+    public User getUser() {
+      return user;
+    }
+
+    public void setUser(User user) {
+      this.user = user;
     }
   }
 
@@ -151,6 +170,37 @@ public class FaroPayload {
 
     public void setId(String id) {
       this.id = id;
+    }
+  }
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public static class User {
+    private String id;
+    private String username;
+    private String email;
+
+    public String getId() {
+      return id;
+    }
+
+    public void setId(String id) {
+      this.id = id;
+    }
+
+    public String getUsername() {
+      return username;
+    }
+
+    public void setUsername(String username) {
+      this.username = username;
+    }
+
+    public String getEmail() {
+      return email;
+    }
+
+    public void setEmail(String email) {
+      this.email = email;
     }
   }
 
