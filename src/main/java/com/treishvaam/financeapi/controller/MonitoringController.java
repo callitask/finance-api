@@ -44,28 +44,27 @@ public class MonitoringController {
   @PostConstruct
   public void init() {
     logger.info("Initializing UserAgentAnalyzer...");
-    this.uaa = UserAgentAnalyzer.newBuilder()
-            .hideMatcherLoadStats()
-            .withCache(10000)
-            .build();
+    this.uaa = UserAgentAnalyzer.newBuilder().hideMatcherLoadStats().withCache(10000).build();
     logger.info("UserAgentAnalyzer initialized.");
   }
 
   @PostMapping("/ingest")
   public ResponseEntity<Void> ingest(
-      @RequestBody FaroPayload payload,
-      @RequestHeader Map<String, String> allHeaders) {
+      @RequestBody FaroPayload payload, @RequestHeader Map<String, String> allHeaders) {
 
     // --- DEBUG LOGGING (Check Docker Logs for this line) ---
-    logger.info("=== MONITORING INGEST DEBUG === | City: {} | UA: {}", 
-        allHeaders.get("x-visitor-city") != null ? allHeaders.get("x-visitor-city") : allHeaders.get("cf-ipcity"),
+    logger.info(
+        "=== MONITORING INGEST DEBUG === | City: {} | UA: {}",
+        allHeaders.get("x-visitor-city") != null
+            ? allHeaders.get("x-visitor-city")
+            : allHeaders.get("cf-ipcity"),
         allHeaders.get("user-agent"));
 
     // Extract Headers Case-Insensitively
     String cfCountry = getHeader(allHeaders, "cf-ipcountry");
     String cfRegion = getHeader(allHeaders, "cf-region");
     String cfCity = getHeader(allHeaders, "cf-ipcity");
-    
+
     String xCity = getHeader(allHeaders, "x-visitor-city");
     String xRegion = getHeader(allHeaders, "x-visitor-region");
     String xCountry = getHeader(allHeaders, "x-visitor-country");
@@ -81,20 +80,22 @@ public class MonitoringController {
 
     return ResponseEntity.accepted().build();
   }
-  
+
   private String getHeader(Map<String, String> headers, String key) {
-      if (headers == null) return null;
-      if (headers.containsKey(key)) return headers.get(key);
-      for (String k : headers.keySet()) {
-          if (k.equalsIgnoreCase(key)) return headers.get(k);
-      }
-      return null;
+    if (headers == null) return null;
+    if (headers.containsKey(key)) return headers.get(key);
+    for (String k : headers.keySet()) {
+      if (k.equalsIgnoreCase(key)) return headers.get(k);
+    }
+    return null;
   }
 
   private String resolveValue(String primary, String secondary, String defaultValue) {
-      if (primary != null && !primary.isEmpty() && !"Unknown".equalsIgnoreCase(primary)) return primary;
-      if (secondary != null && !secondary.isEmpty() && !"Unknown".equalsIgnoreCase(secondary)) return secondary;
-      return defaultValue;
+    if (primary != null && !primary.isEmpty() && !"Unknown".equalsIgnoreCase(primary))
+      return primary;
+    if (secondary != null && !secondary.isEmpty() && !"Unknown".equalsIgnoreCase(secondary))
+      return secondary;
+    return defaultValue;
   }
 
   @Async
@@ -126,9 +127,9 @@ public class MonitoringController {
         int newEvents = payload.getEvents() != null ? payload.getEvents().size() : 0;
         visit.setViews(visit.getViews() + (newEvents > 0 ? 1 : 0));
         visit.setSessionDurationSeconds(visit.getSessionDurationSeconds() + 10);
-        
+
         if (payload.getMeta().getUser() != null && payload.getMeta().getUser().getEmail() != null) {
-            visit.setClientId(payload.getMeta().getUser().getEmail());
+          visit.setClientId(payload.getMeta().getUser().getEmail());
         }
       } else {
         visit = new AudienceVisit();
@@ -137,11 +138,11 @@ public class MonitoringController {
 
         // Identity Logic
         if (payload.getMeta().getUser() != null && payload.getMeta().getUser().getEmail() != null) {
-            visit.setClientId(payload.getMeta().getUser().getEmail());
+          visit.setClientId(payload.getMeta().getUser().getEmail());
         } else if (payload.getExtra() != null && payload.getExtra().get("visitorId") != null) {
-             visit.setClientId(payload.getExtra().get("visitorId"));
+          visit.setClientId(payload.getExtra().get("visitorId"));
         } else {
-            visit.setClientId(sessionId);
+          visit.setClientId(sessionId);
         }
 
         visit.setCountry(country);
@@ -150,7 +151,7 @@ public class MonitoringController {
 
         String smartSource = "Direct/Faro";
         if (payload.getExtra() != null && payload.getExtra().containsKey("trafficSource")) {
-            smartSource = payload.getExtra().get("trafficSource");
+          smartSource = payload.getExtra().get("trafficSource");
         }
         visit.setSessionSource(smartSource);
 
@@ -162,46 +163,48 @@ public class MonitoringController {
 
         // 1. Fallback to Faro
         if (payload.getMeta().getBrowser() != null) {
-             os = payload.getMeta().getBrowser().getOs();
-             osVer = payload.getMeta().getBrowser().getVersion();
-             devModel = payload.getMeta().getBrowser().getName();
+          os = payload.getMeta().getBrowser().getOs();
+          osVer = payload.getMeta().getBrowser().getVersion();
+          devModel = payload.getMeta().getBrowser().getName();
         }
 
         // 2. Yauaa Overrides
         if (userAgentString != null && !userAgentString.isEmpty()) {
-            try {
-                UserAgent agent = uaa.parse(userAgentString);
+          try {
+            UserAgent agent = uaa.parse(userAgentString);
 
-                // FIX: Use "OperatingSystemNameVersion" to get "Windows 10" instead of "Windows NT"
-                String bestOS = agent.getValue("OperatingSystemNameVersion"); 
-                String bestDevice = agent.getValue("DeviceName");
-                String deviceClass = agent.getValue("DeviceClass");
+            // FIX: Use "OperatingSystemNameVersion" to get "Windows 10" instead of "Windows NT"
+            String bestOS = agent.getValue("OperatingSystemNameVersion");
+            String bestDevice = agent.getValue("DeviceName");
+            String deviceClass = agent.getValue("DeviceClass");
 
-                if (bestOS != null && !bestOS.contains("??") && !bestOS.equalsIgnoreCase("Unknown")) {
-                    // Split "Windows 10" -> OS="Windows 10", Ver="" (redundant)
-                    if (bestOS.startsWith("Windows")) {
-                        os = bestOS;
-                        osVer = ""; 
-                    } else {
-                        os = bestOS.split(" ")[0]; 
-                        osVer = bestOS.contains(" ") ? bestOS.substring(bestOS.indexOf(" ") + 1) : osVer;
-                    }
-                } else {
-                    // Fallback for Android if NameVersion is weird
-                    String simpleOS = agent.getValue("OperatingSystemName");
-                    if (simpleOS != null && !simpleOS.contains("??")) os = simpleOS;
-                }
-
-                if (bestDevice != null && !bestDevice.contains("??") && !bestDevice.equalsIgnoreCase("Unknown")) {
-                    devModel = bestDevice; 
-                }
-                
-                if (deviceClass != null && !deviceClass.equalsIgnoreCase("Unknown")) {
-                    devCat = deviceClass;
-                }
-            } catch (Exception e) {
-                logger.warn("UA Parsing issue: {}", e.getMessage());
+            if (bestOS != null && !bestOS.contains("??") && !bestOS.equalsIgnoreCase("Unknown")) {
+              // Split "Windows 10" -> OS="Windows 10", Ver="" (redundant)
+              if (bestOS.startsWith("Windows")) {
+                os = bestOS;
+                osVer = "";
+              } else {
+                os = bestOS.split(" ")[0];
+                osVer = bestOS.contains(" ") ? bestOS.substring(bestOS.indexOf(" ") + 1) : osVer;
+              }
+            } else {
+              // Fallback for Android if NameVersion is weird
+              String simpleOS = agent.getValue("OperatingSystemName");
+              if (simpleOS != null && !simpleOS.contains("??")) os = simpleOS;
             }
+
+            if (bestDevice != null
+                && !bestDevice.contains("??")
+                && !bestDevice.equalsIgnoreCase("Unknown")) {
+              devModel = bestDevice;
+            }
+
+            if (deviceClass != null && !deviceClass.equalsIgnoreCase("Unknown")) {
+              devCat = deviceClass;
+            }
+          } catch (Exception e) {
+            logger.warn("UA Parsing issue: {}", e.getMessage());
+          }
         }
 
         visit.setOperatingSystem(os);
