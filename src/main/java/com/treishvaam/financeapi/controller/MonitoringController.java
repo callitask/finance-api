@@ -29,14 +29,10 @@ import org.springframework.web.client.RestTemplate;
 public class MonitoringController {
 
   private static final Logger logger = LoggerFactory.getLogger(MonitoringController.class);
-
-  // Internal Docker URL for Grafana Alloy Faro Receiver (Standard Port 12347)
   private static final String ALLOY_URL = "http://alloy:12347/collect";
 
   private final AudienceVisitRepository audienceVisitRepository;
   private final RestTemplate restTemplate;
-
-  // Enterprise User Agent Analyzer
   private UserAgentAnalyzer uaa;
 
   public MonitoringController(
@@ -47,55 +43,58 @@ public class MonitoringController {
 
   @PostConstruct
   public void init() {
-    // Initialize Yauaa - this performs heavy caching on startup
     logger.info("Initializing UserAgentAnalyzer...");
-    this.uaa = UserAgentAnalyzer.newBuilder().hideMatcherLoadStats().withCache(10000).build();
+    this.uaa = UserAgentAnalyzer.newBuilder()
+            .hideMatcherLoadStats()
+            .withCache(10000)
+            .build();
     logger.info("UserAgentAnalyzer initialized.");
   }
 
   @PostMapping("/ingest")
   public ResponseEntity<Void> ingest(
       @RequestBody FaroPayload payload,
-      @RequestHeader Map<String, String> allHeaders) { // Capture ALL headers for debugging
+      @RequestHeader Map<String, String> allHeaders) {
 
-    // --- DEBUG: Print Raw Headers & Payload ---
-    // This will show us exactly what Nginx is passing to Java
-    logger.info("=== MONITORING INGEST DEBUG ===");
-    logger.info(
-        "Headers received: CF-City={}, X-City={}, UA={}",
-        allHeaders.get("cf-ipcity"),
-        allHeaders.get("x-visitor-city"),
+    // --- DEBUG LOGGING (Check Docker Logs for this line) ---
+    logger.info("=== MONITORING INGEST DEBUG === | City: {} | UA: {}", 
+        allHeaders.get("x-visitor-city") != null ? allHeaders.get("x-visitor-city") : allHeaders.get("cf-ipcity"),
         allHeaders.get("user-agent"));
 
-    // Extract headers manually from the map (Spring usually lowercases keys in this map)
-    String cfCountry = allHeaders.getOrDefault("cf-ipcountry", "Unknown");
-    String cfCity = allHeaders.getOrDefault("cf-ipcity", "Unknown");
-    String cfRegion = allHeaders.getOrDefault("cf-region", "Unknown");
+    // Extract Headers Case-Insensitively
+    String cfCountry = getHeader(allHeaders, "cf-ipcountry");
+    String cfRegion = getHeader(allHeaders, "cf-region");
+    String cfCity = getHeader(allHeaders, "cf-ipcity");
+    
+    String xCity = getHeader(allHeaders, "x-visitor-city");
+    String xRegion = getHeader(allHeaders, "x-visitor-region");
+    String xCountry = getHeader(allHeaders, "x-visitor-country");
+    String userAgentString = getHeader(allHeaders, "user-agent");
 
-    String xCity = allHeaders.getOrDefault("x-visitor-city", "Unknown");
-    String xRegion = allHeaders.getOrDefault("x-visitor-region", "Unknown");
-    String xCountry = allHeaders.getOrDefault("x-visitor-country", "Unknown");
-    String userAgentString = allHeaders.getOrDefault("user-agent", "");
+    // Resolve Location (Worker > Cloudflare > Unknown)
+    String finalCity = resolveValue(xCity, cfCity, "Unknown");
+    String finalRegion = resolveValue(xRegion, cfRegion, "Unknown");
+    String finalCountry = resolveValue(xCountry, cfCountry, "Unknown");
 
-    // Resolve Best Location Data
-    String finalCity =
-        (xCity != null && !xCity.equals("Unknown")) ? xCity : (cfCity != null ? cfCity : "Unknown");
-    String finalRegion =
-        (xRegion != null && !xRegion.equals("Unknown"))
-            ? xRegion
-            : (cfRegion != null ? cfRegion : "Unknown");
-    String finalCountry =
-        (xCountry != null && !xCountry.equals("Unknown"))
-            ? xCountry
-            : (cfCountry != null ? cfCountry : "Unknown");
-
-    // 1. Process Custom Analytics (Database)
     processAudienceAnalytics(payload, finalCountry, finalCity, finalRegion, userAgentString);
-
-    // 2. Forward to Grafana Alloy (Observability)
     forwardToAlloy(payload);
 
     return ResponseEntity.accepted().build();
+  }
+  
+  private String getHeader(Map<String, String> headers, String key) {
+      if (headers == null) return null;
+      if (headers.containsKey(key)) return headers.get(key);
+      for (String k : headers.keySet()) {
+          if (k.equalsIgnoreCase(key)) return headers.get(k);
+      }
+      return null;
+  }
+
+  private String resolveValue(String primary, String secondary, String defaultValue) {
+      if (primary != null && !primary.isEmpty() && !"Unknown".equalsIgnoreCase(primary)) return primary;
+      if (secondary != null && !secondary.isEmpty() && !"Unknown".equalsIgnoreCase(secondary)) return secondary;
+      return defaultValue;
   }
 
   @Async
@@ -103,116 +102,113 @@ public class MonitoringController {
     try {
       HttpHeaders headers = new HttpHeaders();
       headers.setContentType(MediaType.APPLICATION_JSON);
-
       HttpEntity<FaroPayload> request = new HttpEntity<>(payload, headers);
       restTemplate.postForLocation(ALLOY_URL, request);
-
     } catch (Exception e) {
-      // Log minimally to avoid noise; Faro delivery is best-effort
-      logger.debug("Failed to forward payload to Alloy: {}", e.getMessage());
+      logger.debug("Alloy forward failed: {}", e.getMessage());
     }
   }
 
   private void processAudienceAnalytics(
       FaroPayload payload, String country, String city, String region, String userAgentString) {
     try {
-      if (payload.getMeta() == null || payload.getMeta().getSession() == null) {
-        return;
-      }
+      if (payload.getMeta() == null || payload.getMeta().getSession() == null) return;
 
       String sessionId = payload.getMeta().getSession().getId();
       LocalDate today = LocalDate.now();
 
-      // FIX: Handle potential duplicate records (race condition) gracefully
       List<AudienceVisit> existingVisits =
           audienceVisitRepository.findBySessionIdAndDate(sessionId, today);
 
       AudienceVisit visit;
       if (!existingVisits.isEmpty()) {
-        // Pick the first one if multiple exist
         visit = existingVisits.get(0);
-
-        // Update Stats
         int newEvents = payload.getEvents() != null ? payload.getEvents().size() : 0;
         visit.setViews(visit.getViews() + (newEvents > 0 ? 1 : 0));
         visit.setSessionDurationSeconds(visit.getSessionDurationSeconds() + 10);
-
-        // Update User Identity if available (e.g., user logged in mid-session)
+        
         if (payload.getMeta().getUser() != null && payload.getMeta().getUser().getEmail() != null) {
-          visit.setClientId(payload.getMeta().getUser().getEmail());
+            visit.setClientId(payload.getMeta().getUser().getEmail());
         }
-
       } else {
         visit = new AudienceVisit();
         visit.setSessionDate(today);
         visit.setSessionId(sessionId);
 
-        // Identity: Use Email if logged in, otherwise VisitorID from Phase 2, otherwise SessionID
+        // Identity Logic
         if (payload.getMeta().getUser() != null && payload.getMeta().getUser().getEmail() != null) {
-          visit.setClientId(payload.getMeta().getUser().getEmail());
+            visit.setClientId(payload.getMeta().getUser().getEmail());
         } else if (payload.getExtra() != null && payload.getExtra().get("visitorId") != null) {
-          visit.setClientId(payload.getExtra().get("visitorId"));
+             visit.setClientId(payload.getExtra().get("visitorId"));
         } else {
-          visit.setClientId(sessionId);
+            visit.setClientId(sessionId);
         }
 
-        // Location
         visit.setCountry(country);
         visit.setCity(city);
         visit.setRegion(region);
 
-        // Intelligent Source Tracking (Phase 2)
         String smartSource = "Direct/Faro";
         if (payload.getExtra() != null && payload.getExtra().containsKey("trafficSource")) {
-          smartSource = payload.getExtra().get("trafficSource");
+            smartSource = payload.getExtra().get("trafficSource");
         }
         visit.setSessionSource(smartSource);
 
-        // Deep Device Parsing (Phase 3)
-        // 1. Fallback to Faro Data
+        // --- ENTERPRISE DEVICE PARSING (IMPROVED) ---
         String os = "Unknown";
         String osVer = "Unknown";
         String devModel = "Desktop";
+        String devCat = "Desktop";
 
+        // 1. Fallback to Faro
         if (payload.getMeta().getBrowser() != null) {
-          os = payload.getMeta().getBrowser().getOs();
-          osVer = payload.getMeta().getBrowser().getVersion();
-          devModel = payload.getMeta().getBrowser().getName();
+             os = payload.getMeta().getBrowser().getOs();
+             osVer = payload.getMeta().getBrowser().getVersion();
+             devModel = payload.getMeta().getBrowser().getName();
         }
 
-        // 2. Override with Enterprise Parser if User-Agent exists
+        // 2. Yauaa Overrides
         if (userAgentString != null && !userAgentString.isEmpty()) {
-          try {
-            UserAgent agent = uaa.parse(userAgentString);
+            try {
+                UserAgent agent = uaa.parse(userAgentString);
 
-            String parsedDeviceName = agent.getValue(UserAgent.DEVICE_NAME); // e.g., "Galaxy S21"
-            String parsedDeviceClass = agent.getValue(UserAgent.DEVICE_CLASS); // e.g., "Phone"
-            String parsedOsName =
-                agent.getValue(UserAgent.OPERATING_SYSTEM_NAME); // e.g., "Android"
-            String parsedOsVer = agent.getValue(UserAgent.OPERATING_SYSTEM_VERSION); // e.g., "11"
+                // FIX: Use "OperatingSystemNameVersion" to get "Windows 10" instead of "Windows NT"
+                String bestOS = agent.getValue("OperatingSystemNameVersion"); 
+                String bestDevice = agent.getValue("DeviceName");
+                String deviceClass = agent.getValue("DeviceClass");
 
-            if (parsedDeviceName != null && !parsedDeviceName.equals("Unknown")) {
-              devModel = parsedDeviceName;
+                if (bestOS != null && !bestOS.contains("??") && !bestOS.equalsIgnoreCase("Unknown")) {
+                    // Split "Windows 10" -> OS="Windows 10", Ver="" (redundant)
+                    if (bestOS.startsWith("Windows")) {
+                        os = bestOS;
+                        osVer = ""; 
+                    } else {
+                        os = bestOS.split(" ")[0]; 
+                        osVer = bestOS.contains(" ") ? bestOS.substring(bestOS.indexOf(" ") + 1) : osVer;
+                    }
+                } else {
+                    // Fallback for Android if NameVersion is weird
+                    String simpleOS = agent.getValue("OperatingSystemName");
+                    if (simpleOS != null && !simpleOS.contains("??")) os = simpleOS;
+                }
+
+                if (bestDevice != null && !bestDevice.contains("??") && !bestDevice.equalsIgnoreCase("Unknown")) {
+                    devModel = bestDevice; 
+                }
+                
+                if (deviceClass != null && !deviceClass.equalsIgnoreCase("Unknown")) {
+                    devCat = deviceClass;
+                }
+            } catch (Exception e) {
+                logger.warn("UA Parsing issue: {}", e.getMessage());
             }
-            if (parsedOsName != null && !parsedOsName.equals("Unknown")) {
-              os = parsedOsName;
-            }
-            if (parsedOsVer != null && !parsedOsVer.equals("Unknown")) {
-              osVer = parsedOsVer;
-            }
-            if (parsedDeviceClass != null) {
-              visit.setDeviceCategory(parsedDeviceClass);
-            }
-          } catch (Exception e) {
-            logger.warn("UA Parsing failed, falling back to basic info");
-          }
         }
 
         visit.setOperatingSystem(os);
         visit.setOsVersion(osVer);
         visit.setDeviceModel(devModel);
+        visit.setDeviceCategory(devCat);
 
-        // Page Data
         if (payload.getMeta().getPage() != null) {
           visit.setLandingPage(payload.getMeta().getPage().getUrl());
         }
@@ -222,7 +218,6 @@ public class MonitoringController {
       }
 
       audienceVisitRepository.save(visit);
-
     } catch (Exception e) {
       logger.error("Error saving audience analytics", e);
     }
