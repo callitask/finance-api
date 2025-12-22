@@ -3,6 +3,38 @@ export default {
     const url = new URL(request.url);
 
     // ----------------------------------------------
+    // HELPER: INJECT GEO & INTELLIGENCE HEADERS
+    // ----------------------------------------------
+    // We create a new request with added headers derived from Cloudflare's 'cf' object.
+    // This allows the Backend/Faro to see City, Region, and detailed location data.
+    const getEnhancedRequest = (req) => {
+      const cf = req.cf || {};
+      const newHeaders = new Headers(req.headers);
+      
+      // Inject Location Data
+      newHeaders.set("X-Visitor-City", cf.city || "Unknown");
+      newHeaders.set("X-Visitor-Region", cf.region || "Unknown"); // e.g., "California" or "KA"
+      newHeaders.set("X-Visitor-Country", cf.country || "Unknown"); // e.g., "US" or "IN"
+      newHeaders.set("X-Visitor-Continent", cf.continent || "Unknown");
+      newHeaders.set("X-Visitor-Timezone", cf.timezone || "UTC");
+      
+      // Inject Coordinates (Useful for Heatmaps later)
+      newHeaders.set("X-Visitor-Lat", cf.latitude || "0");
+      newHeaders.set("X-Visitor-Lon", cf.longitude || "0");
+
+      // Inject Connection Details
+      newHeaders.set("X-Visitor-Device-Colo", cf.colo || "Unknown"); // Cloudflare Data Center Code
+
+      // Return new request with injected headers
+      return new Request(req, {
+        headers: newHeaders,
+        method: req.method,
+        body: req.body,
+        redirect: req.redirect
+      });
+    };
+
+    // ----------------------------------------------
     // 0. HIGH AVAILABILITY ROBOTS.TXT (Edge-Served)
     // ----------------------------------------------
     if (url.pathname === "/robots.txt") {
@@ -91,7 +123,9 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
       url.pathname.startsWith("/api") ||
       url.pathname.match(/\.(jpg|jpeg|png|gif|webp|css|js|json|ico|xml)$/)
     ) {
-      return fetch(request);
+      // UPGRADE: Use enhanced request to pass geo-headers to API/Backend
+      const enhancedReq = getEnhancedRequest(request);
+      return fetch(enhancedReq);
     }
 
     // ----------------------------------------------
@@ -102,7 +136,10 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
     const cache = caches.default;
 
     try {
-      response = await fetch(request);
+      // UPGRADE: Use enhanced request so initial HTML load has location data for Faro
+      const enhancedReq = getEnhancedRequest(request);
+      response = await fetch(enhancedReq);
+
       if (response.ok) {
         const clone = response.clone();
         const cacheHeaders = new Headers(clone.headers);
@@ -135,7 +172,6 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
     if (url.pathname === "/" || url.pathname === "") {
       const pageTitle = "Treishfin · Treishvaam Finance | Financial News & Analysis";
       const pageDesc = "Stay ahead with the latest financial news, market updates, and expert analysis from Treishvaam Finance.";
-      const imageUrl = "https://treishfin.treishvaamgroup.com/logo.webp";
       const canonicalUrl = "https://treishfin.treishvaamgroup.com/";
 
       const homeSchema = {
