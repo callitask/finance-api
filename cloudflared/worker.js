@@ -7,7 +7,7 @@ export default {
     // ----------------------------------------------
     // We create a new request with added headers derived from Cloudflare's 'cf' object.
     // This allows the Backend/Faro to see City, Region, and detailed location data.
-    const getEnhancedRequest = (req) => {
+    const getEnhancedRequest = (req, targetUrlStr) => {
       const cf = req.cf || {};
       const newHeaders = new Headers(req.headers);
       
@@ -25,8 +25,11 @@ export default {
       // Inject Connection Details
       newHeaders.set("X-Visitor-Device-Colo", cf.colo || "Unknown"); // Cloudflare Data Center Code
 
-      // Return new request with injected headers
-      return new Request(req, {
+      // Construct new request pointing to target (or original) URL
+      // If targetUrlStr is provided, we rewrite the destination host.
+      const finalUrl = targetUrlStr || req.url;
+
+      return new Request(finalUrl, {
         headers: newHeaders,
         method: req.method,
         body: req.body,
@@ -117,19 +120,34 @@ Sitemap: https://treishfin.treishvaamgroup.com/sitemap.xml`;
     }
 
     // ----------------------------------------------
-    // 2. BYPASS STATIC ASSETS
+    // 2. API PROXY (CRITICAL: Routes Frontend API calls to Backend)
+    // ----------------------------------------------
+    // This intercepts requests to https://treishfin.treishvaamgroup.com/api/...
+    // injects the City/Region headers, and forwards them to https://backend.treishvaamgroup.com/api/...
+    if (url.pathname.startsWith("/api")) {
+      // 1. Point to Backend Domain
+      const backendUrl = new URL(request.url);
+      backendUrl.hostname = "backend.treishvaamgroup.com";
+      backendUrl.protocol = "https:";
+
+      // 2. Inject Headers & Proxy
+      const enhancedReq = getEnhancedRequest(request, backendUrl.toString());
+      return fetch(enhancedReq);
+    }
+
+    // ----------------------------------------------
+    // 3. BYPASS STATIC ASSETS (With Header Injection)
     // ----------------------------------------------
     if (
-      url.pathname.startsWith("/api") ||
       url.pathname.match(/\.(jpg|jpeg|png|gif|webp|css|js|json|ico|xml)$/)
     ) {
-      // UPGRADE: Use enhanced request to pass geo-headers to API/Backend
+      // UPGRADE: Use enhanced request to pass geo-headers to API/Backend if served via worker
       const enhancedReq = getEnhancedRequest(request);
       return fetch(enhancedReq);
     }
 
     // ----------------------------------------------
-    // 3. FETCH HTML SHELL WITH FAILOVER CACHING
+    // 4. FETCH HTML SHELL WITH FAILOVER CACHING
     // ----------------------------------------------
     let response;
     const cacheKey = new Request(url.origin + "/", request);

@@ -52,15 +52,14 @@ public class MonitoringController {
   public ResponseEntity<Void> ingest(
       @RequestBody FaroPayload payload, @RequestHeader Map<String, String> allHeaders) {
 
-    // --- DEBUG LOGGING (Check Docker Logs for this line) ---
+    // --- DEBUG LOGGING ---
     logger.info(
-        "=== MONITORING INGEST DEBUG === | City: {} | UA: {}",
+        "=== MONITORING INGEST DEBUG === | City: {} | Source: {}",
         allHeaders.get("x-visitor-city") != null
             ? allHeaders.get("x-visitor-city")
             : allHeaders.get("cf-ipcity"),
-        allHeaders.get("user-agent"));
+        payload.getExtra() != null ? payload.getExtra().get("trafficSource") : "NULL");
 
-    // Extract Headers Case-Insensitively
     String cfCountry = getHeader(allHeaders, "cf-ipcountry");
     String cfRegion = getHeader(allHeaders, "cf-region");
     String cfCity = getHeader(allHeaders, "cf-ipcity");
@@ -70,7 +69,7 @@ public class MonitoringController {
     String xCountry = getHeader(allHeaders, "x-visitor-country");
     String userAgentString = getHeader(allHeaders, "user-agent");
 
-    // Resolve Location (Worker > Cloudflare > Unknown)
+    // Resolve Location
     String finalCity = resolveValue(xCity, cfCity, "Unknown");
     String finalRegion = resolveValue(xRegion, cfRegion, "Unknown");
     String finalCountry = resolveValue(xCountry, cfCountry, "Unknown");
@@ -155,42 +154,42 @@ public class MonitoringController {
         }
         visit.setSessionSource(smartSource);
 
-        // --- ENTERPRISE DEVICE PARSING (IMPROVED) ---
         String os = "Unknown";
         String osVer = "Unknown";
         String devModel = "Desktop";
         String devCat = "Desktop";
 
-        // 1. Fallback to Faro
         if (payload.getMeta().getBrowser() != null) {
           os = payload.getMeta().getBrowser().getOs();
           osVer = payload.getMeta().getBrowser().getVersion();
           devModel = payload.getMeta().getBrowser().getName();
         }
 
-        // 2. Yauaa Overrides
         if (userAgentString != null && !userAgentString.isEmpty()) {
           try {
             UserAgent agent = uaa.parse(userAgentString);
 
-            // FIX: Use "OperatingSystemNameVersion" to get "Windows 10" instead of "Windows NT"
+            // --- MANUAL FIX FOR WINDOWS & ANDROID PARSING ---
             String bestOS = agent.getValue("OperatingSystemNameVersion");
+            String simpleOS = agent.getValue("OperatingSystemName");
             String bestDevice = agent.getValue("DeviceName");
             String deviceClass = agent.getValue("DeviceClass");
 
+            // Logic: Prefer NameVersion (e.g. "Android 12"), fallback to Name (e.g. "Android")
             if (bestOS != null && !bestOS.contains("??") && !bestOS.equalsIgnoreCase("Unknown")) {
-              // Split "Windows 10" -> OS="Windows 10", Ver="" (redundant)
-              if (bestOS.startsWith("Windows")) {
+              // Normalize "Windows NT 10.0" -> "Windows 10"
+              if (bestOS.startsWith("Windows NT 10")) {
+                os = "Windows 10";
+                osVer = "";
+              } else if (bestOS.startsWith("Windows")) {
                 os = bestOS;
                 osVer = "";
               } else {
                 os = bestOS.split(" ")[0];
                 osVer = bestOS.contains(" ") ? bestOS.substring(bestOS.indexOf(" ") + 1) : osVer;
               }
-            } else {
-              // Fallback for Android if NameVersion is weird
-              String simpleOS = agent.getValue("OperatingSystemName");
-              if (simpleOS != null && !simpleOS.contains("??")) os = simpleOS;
+            } else if (simpleOS != null && !simpleOS.contains("??")) {
+              os = simpleOS; // Fallback to just "Android" instead of "Android ??"
             }
 
             if (bestDevice != null
