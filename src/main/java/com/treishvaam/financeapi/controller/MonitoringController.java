@@ -6,6 +6,7 @@ import com.treishvaam.financeapi.dto.FaroPayload;
 import jakarta.annotation.PostConstruct;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import nl.basjes.parse.useragent.UserAgent;
 import nl.basjes.parse.useragent.UserAgentAnalyzer;
 import org.slf4j.Logger;
@@ -55,17 +56,26 @@ public class MonitoringController {
   @PostMapping("/ingest")
   public ResponseEntity<Void> ingest(
       @RequestBody FaroPayload payload,
-      // 1. Cloudflare Native Headers (Fallbacks)
-      @RequestHeader(value = "CF-IPCountry", required = false) String cfCountry,
-      @RequestHeader(value = "CF-IPCity", required = false) String cfCity,
-      @RequestHeader(value = "CF-Region", required = false) String cfRegion,
-      // 2. Intelligent Worker Headers (Phase 1 Injection)
-      @RequestHeader(value = "X-Visitor-City", required = false) String xCity,
-      @RequestHeader(value = "X-Visitor-Region", required = false) String xRegion,
-      @RequestHeader(value = "X-Visitor-Country", required = false) String xCountry,
-      @RequestHeader(value = "X-Visitor-Continent", required = false) String xContinent,
-      @RequestHeader(value = "X-Visitor-Timezone", required = false) String xTimezone,
-      @RequestHeader(value = "User-Agent", required = false) String userAgentString) {
+      @RequestHeader Map<String, String> allHeaders) { // Capture ALL headers for debugging
+
+    // --- DEBUG: Print Raw Headers & Payload ---
+    // This will show us exactly what Nginx is passing to Java
+    logger.info("=== MONITORING INGEST DEBUG ===");
+    logger.info(
+        "Headers received: CF-City={}, X-City={}, UA={}",
+        allHeaders.get("cf-ipcity"),
+        allHeaders.get("x-visitor-city"),
+        allHeaders.get("user-agent"));
+
+    // Extract headers manually from the map (Spring usually lowercases keys in this map)
+    String cfCountry = allHeaders.getOrDefault("cf-ipcountry", "Unknown");
+    String cfCity = allHeaders.getOrDefault("cf-ipcity", "Unknown");
+    String cfRegion = allHeaders.getOrDefault("cf-region", "Unknown");
+
+    String xCity = allHeaders.getOrDefault("x-visitor-city", "Unknown");
+    String xRegion = allHeaders.getOrDefault("x-visitor-region", "Unknown");
+    String xCountry = allHeaders.getOrDefault("x-visitor-country", "Unknown");
+    String userAgentString = allHeaders.getOrDefault("user-agent", "");
 
     // Resolve Best Location Data
     String finalCity =
