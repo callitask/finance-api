@@ -9,7 +9,6 @@ WORKDIR /build
 
 # 1. Copy configuration
 COPY pom.xml .
-
 # 2. Download dependencies (Cached if pom.xml doesn't change)
 RUN mvn dependency:go-offline
 
@@ -25,9 +24,12 @@ FROM eclipse-temurin:21-jdk-jammy
 
 WORKDIR /app
 
-# 1. Install Python 3 and Dependencies (For Market Data Scripts)
+# 1. Install Python 3, Dependencies, AND Infisical CLI
+# We combine apt-get commands to keep the image layer small.
 RUN apt-get update && \
-    apt-get install -y python3 python3-pip python-is-python3 && \
+    apt-get install -y python3 python3-pip python-is-python3 curl && \
+    curl -1sLf 'https://dl.cloudsmith.io/public/infisical/infisical-cli/setup.deb.sh' | bash && \
+    apt-get install -y infisical && \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install --no-cache-dir \
@@ -42,11 +44,12 @@ RUN pip3 install --no-cache-dir \
 RUN mkdir -p /app/uploads /app/sitemaps /app/logs /app/scripts
 
 # 3. Copy the compiled WAR file from the 'builder' stage
-# We take it from /build/target/ and put it in /app/
 COPY --from=builder /build/target/finance-api.war app.war
 
 # 4. Expose Port
 EXPOSE 8080
 
-# 5. Start the App
-ENTRYPOINT ["java", "-jar", "app.war"]
+# 5. Start the App via Infisical
+# "infisical run --" fetches secrets using the ENV vars provided in docker-compose,
+# injects them into the process, and then starts the Java app.
+ENTRYPOINT ["infisical", "run", "--", "java", "-jar", "app.war"]

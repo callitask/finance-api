@@ -152,16 +152,24 @@ services:
       - treish_net
     env_file: .env
     environment:
-      SPRING_PROFILES_ACTIVE: prod
-      SPRING_DATA_REDIS_HOST: treishvaam-redis
-      SPRING_ELASTICSEARCH_URIS: http://treishvaam-elastic:9200
-      STORAGE_S3_ENDPOINT: http://treishvaam-minio:9000
-      SPRING_RABBITMQ_HOST: treishvaam-rabbitmq
-      APP_PYTHON_SCRIPT_PATH: /app/scripts/market_data_updater.py
-      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://tempo:9411/api/v2/spans
-      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: https://backend.treishvaamgroup.com/auth/realms/treishvaam
-      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/auth/realms/treishvaam/protocol/openid-connect/certs
-      LOGGING_FILE_NAME: /app/logs/application-${HOSTNAME}.log
+      # --- INFISICAL SECRET MANAGEMENT ---
+      # These 3 variables unlock the secrets in memory at runtime
+      - INFISICAL_CLIENT_ID=${INFISICAL_CLIENT_ID}
+      - INFISICAL_CLIENT_SECRET=${INFISICAL_CLIENT_SECRET}
+      - INFISICAL_PROJECT_ID=${INFISICAL_PROJECT_ID}
+      - INFISICAL_ENVIRONMENT=prod
+      
+      # --- APP CONFIG ---
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_DATA_REDIS_HOST=treishvaam-redis
+      - SPRING_ELASTICSEARCH_URIS=http://treishvaam-elastic:9200
+      - STORAGE_S3_ENDPOINT=http://treishvaam-minio:9000
+      - SPRING_RABBITMQ_HOST=treishvaam-rabbitmq
+      - APP_PYTHON_SCRIPT_PATH=/app/scripts/market_data_updater.py
+      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://tempo:9411/api/v2/spans
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=https://backend.treishvaamgroup.com/auth/realms/treishvaam
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/auth/realms/treishvaam/protocol/openid-connect/certs
+      - LOGGING_FILE_NAME=/app/logs/application-${HOSTNAME}.log
     volumes:
       - ./backend-app.war:/app/app.war
       - ./ga4-credentials.json:/app/ga4-credentials.json
