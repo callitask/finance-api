@@ -1,107 +1,115 @@
 # 09-DEPLOYMENT-OPS.md
 
-## 1. Deployment Pipeline (Smart Auto-Pilot)
-The platform utilizes a **Smart Auto-Pilot** deployment strategy (`scripts/auto_deploy.sh`). Unlike traditional scripts that blindly rebuild everything, this intelligent system detects exactly *which* files changed and only restarts the necessary services.
+## 1. Deployment Pipeline (GitOps Automation)
+The platform utilizes a fully automated **GitOps** deployment strategy. We do not manually copy files to the server. All deployments are triggered by Git commits.
 
-### The "Smart" Mechanism
-- **Trigger**: A Cron job runs `scripts/auto_deploy.sh` every minute.
-- **Detection**: Checks `git diff` between Local (`HEAD`) and Remote (`origin/main`).
-- **Intelligent Action**:
-    - **Backend Code (`src/`, `pom.xml`)**: Rebuilds the Java container (`docker-compose up -d --build backend`).
-    - **Nginx Config (`nginx/`)**: Reloads the Proxy/WAF (`docker restart treishvaam-nginx`).
-    - **Monitoring Config (`config/prometheus.yml`)**: Restarts Prometheus only.
-    - **Backup Scripts (`backup/`)**: Rebuilds the Backup Service.
+### The Workflow
+1.  **Trigger**: A push to the `main` branch on GitHub.
+2.  **Runner Execution**: The self-hosted Git Runner on the Ubuntu Server detects the change.
+3.  **Build Phase**:
+    * **Java**: Maven builds the Spring Boot JAR (`mvn clean package`).
+    * **Docker**: The `Dockerfile` builds the image, installing Python dependencies and the **Infisical CLI**.
+4.  **Deployment Phase**:
+    * The runner executes `docker-compose up -d --build --remove-orphans`.
+    * Containers are recreated with the new code.
+    * **Zero-Downtime Goal**: Nginx handles traffic while the backend restarts (approx 15-20s startup).
 
-### Manual Trigger
-If you need to force an update immediately without waiting for the cron job:
+### Manual Deployment (Emergency Only)
+If the runner fails or you need to force a restart manually:
 ```bash
 cd /opt/treishvaam
-./scripts/auto_deploy.sh
+git pull origin main
+docker-compose up -d --build backend
 ```
 
 ---
 
-## 2. Environment Variables & Secrets
-Secrets are strictly categorized. **Never commit `.env` files to version control.**
+## 2. Secret Management (Infisical)
+**Status**: ✅ Active (Enterprise Grade)
+**Policy**: **Zero-Secrets-on-Disk**
 
-### Runtime Secrets (Production `.env`)
-| Category | Variable | Description |
-|----------|----------|-------------|
-| **Database** | `DB_HOST`, `DB_NAME` | Connection details. |
-| | `DB_USER`, `PROD_DB_PASSWORD` | **Critical**: Root/User credentials. |
-| **Messaging** | `RABBITMQ_HOST`, `RABBITMQ_PASS` | Broker credentials. |
-| **Storage** | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | S3 Admin keys. |
-| **IAM (Keycloak)** | `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD` | Super-admin credentials. |
-| **Infrastructure** | `CLOUDFLARE_TUNNEL_TOKEN` | **Critical**: Auth token for Zero Trust Tunnel (Replaces legacy json file). |
+We strictly adhere to a security model where no sensitive data (DB passwords, API keys) is stored in file systems.
+
+### Architecture
+* **Storage**: Secrets are encrypted and stored in **Infisical Cloud**.
+* **Injection**: The `Dockerfile` entrypoint wraps the Java application with the Infisical CLI (`infisical run -- java ...`).
+* **Runtime**: Secrets are fetched into **RAM** at startup and injected as Environment Variables to the process.
+
+### Server Configuration (`.env`)
+The server contains only **one** configuration file at `/opt/treishvaam/.env`. It holds **only** the authentication tokens required for the machine to prove its identity to Infisical.
+
+| Variable | Description |
+|----------|-------------|
+| `INFISICAL_URL` | The auth endpoint (e.g., `https://app.infisical.com`). |
+| `INFISICAL_PROJECT_ID` | The Treishvaam Finance Project ID. |
+| `INFISICAL_CLIENT_ID` | The Machine Identity (Robot) ID. |
+| `INFISICAL_CLIENT_SECRET` | The Robot's Secret Key (Generated once). |
+
+**Note:** If you need to rotate a database password, do it in the Infisical Dashboard, then restart the backend container.
 
 ---
 
 ## 3. Startup Order & Healthchecks
-To prevent "White Screen of Death" and deployment loops:
+To prevent deployment loops and service failures:
 
-1.  **Backend Dependency**: The backend depends on `keycloak` using **`condition: service_started`**.
-2.  **Nginx Resilience**: Uses Dynamic DNS Resolution (`resolver 127.0.0.11`) to prevent Nginx from crashing if the backend container is momentarily down during a restart.
+1.  **Backend Dependency**: The backend waits for `keycloak`, `mariadb`, and `redis` to be healthy before starting (`condition: service_healthy`).
+2.  **Nginx Resilience**: Nginx uses a dynamic Docker DNS resolver (`127.0.0.11`) to prevent crashing if the backend container is momentarily missing during a rebuild.
+3.  **Infisical Validation**: If the Infisical authentication fails (e.g., bad token), the container will exit immediately with an error code, preventing the app from starting with missing config.
 
 ---
 
-## 4. Observability & Debugging (Mission Control)
-The platform uses a "Zero-CLI" debugging model via the **LGTM Stack**.
+## 4. Observability (LGTM Stack)
+We use the "Zero-CLI" debugging model via the Grafana LGTM Stack.
 
-### Accessing the Dashboard
-- **URL**: `http://<YOUR_UBUNTU_SERVER_IP>:3001`
-- **User**: `admin`
-- **Password**: `%getrichsoon1954`
+### Mission Control
+- **URL**: `http://<YOUR_SERVER_IP>:3001` (Grafana)
+- **Login**: `admin` / `%getrichsoon1954`
+- **Dashboard**: "Treishvaam Mission Control"
 
-### The "Mission Control" View
-Located under **Dashboards > Treishvaam Mission Control**.
-1.  **Traffic**: Real-time Requests Per Second (RPS).
-2.  **Latency**: Request duration (Target: < 200ms).
-3.  **Application Logs**: Live feed. Errors (stack traces) appear in **RED**.
-
-### Advanced Debugging (Loki)
-1.  Go to **Explore** (Compass Icon).
-2.  Select **Loki**.
-3.  **Find Errors:** `{job="varlogs"} |= "ERROR"`
-4.  **Find Firewall Blocks:** `{job="varlogs"} |= "403"` (Useful for ModSecurity debugging).
+### Debugging with Loki (Logs)
+Instead of SSH-ing into the server to `tail` logs, use Loki in Grafana:
+1.  Go to **Explore**.
+2.  Select source **Loki**.
+3.  **Query (Errors)**: `{app="finance-api"} |= "ERROR"`
+4.  **Query (Infisical)**: `{app="finance-api"} |= "Infisical"` (To debug secret injection).
 
 ---
 
 ## 5. Disaster Recovery (DR)
-The system guarantees data safety via an isolated Backup Service.
+Data safety is guaranteed via an isolated Backup Service container.
 
-- **Frequency**: Every 24 hours (Automated Alpine container).
-- **Storage**: MinIO Bucket `treishvaam-backups`.
-- **Method**: `mysqldump` with `--master-data=2` (Enables Point-in-Time Recovery).
-- **Restore Command**:
+- **Frequency**: Automated daily backups (24h interval).
+- **Destination**: MinIO Bucket (`treishvaam-backups`).
+- **Encryption**: Backups are encrypted at rest.
+- **Restore Procedure**:
   ```bash
-  docker exec -it treishvaam-backup ./restore.sh <backup_file.sql.gz>
+  # 1. List backups
+  docker exec -it treishvaam-minio ls /data/treishvaam-backups
+  
+  # 2. Run restore script
+  docker exec -it treishvaam-backup ./restore.sh <backup_filename.sql.gz>
   ```
 
 ---
 
-## 6. Gateway, WAF & Security
+## 6. Gateway & Security
 Responsibility is divided between the Origin (Nginx) and the Edge (Cloudflare).
 
 ### Nginx (Origin Gateway)
-- **Role**: Load Balancer, Reverse Proxy, and WAF.
-- **Gateway-Level CORS**:
-    - **Update:** Nginx **explicitly handles** CORS (`Access-Control-Allow-Origin`).
-    - **Why:** This ensures that even if the Backend crashes (500 Error) or ModSecurity blocks a request (403), the browser still receives the permission headers to display the error correctly, preventing generic "Network Errors".
-- **WAF (ModSecurity)**:
-    - Enforces OWASP Core Rules.
-    - **Whitelisting:** Explicitly allows complex JSON payloads for:
-        - `/api/v1/monitoring/ingest` (Faro Logs)
-        - `/api/v1/posts/admin` (Blog Content)
+- **Role**: Reverse Proxy, WAF, and CORS Handler.
+- **WAF (ModSecurity)**: Blocks SQL Injection (SQLi) and XSS attacks using OWASP Core Rules.
+- **CORS**: Explicitly injects `Access-Control-Allow-Origin` headers to ensure frontend clients can always read error responses (403/500), preventing generic network errors.
 
 ### Cloudflare Tunnel
-- **Security:** Uses `TUNNEL_TOKEN` from `.env`. No certificate files are stored on disk.
-- **Access:** Acts as the *only* entry point into the server. No open ports (80/443) are exposed to the internet.
+- **Security**: The server exposes **zero** open ports (80/443) to the public internet.
+- **Access**: Traffic is routed exclusively via the Cloudflare Tunnel (`cloudflared`), authenticated via `TUNNEL_TOKEN`.
 
 ---
 
 ## 7. Resilience Strategies
 | Scenario | Behavior |
 |----------|----------|
-| **Redis Failure** | **Fail-Open:** The API Rate Limiter detects the failure and allows traffic to pass instead of crashing the site. |
-| **Backend Down** | **Worker Failover:** Cloudflare Worker serves `robots.txt` and cached HTML shells to keep SEO alive. |
-| **Database Down** | Backend Circuit Breakers open; User sees a friendly 503 error page. |
+| **Secrets Rotation** | Change secret in Infisical -> Restart Backend. Zero code changes required. |
+| **Redis Failure** | **Fail-Open:** Rate limiters disable themselves; site remains online. |
+| **Backend Down** | **Worker Failover:** Cloudflare Worker serves fallback `robots.txt` and cached pages (Stale-While-Revalidate). |
+| **Vault Failure** | **Resolved:** Legacy Vault dependency removed to eliminate startup hangs. |

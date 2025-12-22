@@ -4,7 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.3.0] - Phase 4: Security, SEO & Resilience (Current)
+## [2.4.0] - Phase 5 & 6: Enterprise Secret Management (Current)
+### Infrastructure & Security (Infisical Integration)
+- **Sec**: Implemented **Infisical** for Enterprise Secret Management. Secrets are now injected in-memory at runtime via CLI (Zero-Secrets-on-Disk).
+- **Infra**: Removed **HashiCorp Vault** dependency (`spring-cloud-starter-vault-config`) to resolve 76s startup delay and connection timeouts.
+- **Ops**: Migrated from local `.env` files to Machine Identity authentication (`INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET`).
+- **Docs**: Added `SECRETS.md` guide and updated Architecture/Ops documentation.
+- **Fix**: Finalized "Full Fidelity" Cloudflare Worker for Enterprise SEO (JSON-LD Schema & Geo-Headers).
+
+## [2.3.0] - Phase 4: Security, SEO & Resilience
 ### Critical Security & Stability Fixes
 - **Sec**: Implemented **Gateway-Level CORS** in Nginx (`Access-Control-Allow-Origin`) to prevent browser network errors during backend failures.
 - **Sec**: Configured **ModSecurity WAF Whitelist** for Faro Monitoring (`/api/v1/monitoring/ingest`) and Admin APIs to prevent false positives.
