@@ -1,0 +1,34 @@
+{
+  "realm": "treishvaam",
+  "enabled": true,
+  "roles": {
+    "realm": [
+      { "name": "admin", "description": "Superuser privileges" },
+      { "name": "editor", "description": "Can create and edit drafts" },
+      { "name": "publisher", "description": "Can publish and schedule posts" },
+      { "name": "analyst", "description": "Can view analytics" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "finance-app",
+      "enabled": true,
+      "publicClient": true,
+      "redirectUris": [ "https://treishfin.treishvaamgroup.com/*", "http://localhost:3000/*" ],
+      "webOrigins": [ "https://treishfin.treishvaamgroup.com", "http://localhost:3000" ],
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true
+    },
+    { "clientId": "finance-api", "enabled": true, "bearerOnly": true }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "callitask@gmail.com",
+      "firstName": "Treishvaam",
+      "credentials": [ { "type": "password", "value": "RESET_ME_IN_ADMIN_CONSOLE", "temporary": true } ],
+      "realmRoles": ["admin", "publisher", "editor"]
+    }
+  ]
+}

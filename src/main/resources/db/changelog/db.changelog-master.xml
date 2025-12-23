@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <include file="db/changelog/V1__init.xml"/>
+    <include file="db/changelog/V2__add_users_table.xml"/>
+    <include file="db/changelog/V3__add_roles_table.xml"/>
+    <include file="db/changelog/V4__add_user_roles_table.xml"/>
+    <include file="db/changelog/V5__add_categories_table.xml"/>
+    <include file="db/changelog/V6__add_tenant_id_to_posts.xml"/>
+    
+    <include file="db/changelog/008-add-scheduling-to-posts.xml"/>
+    <include file="db/changelog/V8_5__migrate_status.xml"/>
+    <include file="db/changelog/V9__add_author_to_posts.xml"/>
+    <include file="db/changelog/V10__add_linkedin_token_to_users.xml"/>
+    
+    <include file="db/changelog/010-add-story-thumbnails.xml"/>
+    <include file="db/changelog/V11__add_market_data_table.xml"/>
+    <include file="db/changelog/V12__add_url_article_id_to_posts.xml"/>
+    <include file="db/changelog/V12__add_category_column_to_blog_posts.xml"/>
+    <include file="db/changelog/V12__add_page_content_table.xml"/>
+    <include file="db/changelog/V13__modify_alt_text_column.xml"/>
+    <include file="db/changelog/V14__add_user_friendly_slug.xml"/>
+    <include file="db/changelog/V15__add_category_field_to_blog_posts.xml"/>
+    <include file="db/changelog/V15__add_slug_to_categories.xml"/>
+    <include file="db/changelog/V16__refactor_post_category_relation.xml"/>
+    <include file="db/changelog/V17__modify_alt_text_column.xml"/>
+    <include file="db/changelog/V18__add_meta_description_to_posts.xml"/>
+    <include file="db/changelog/V19__add_keywords_to_posts.xml"/>
+    <include file="db/changelog/V20__create_contact_message_table.xml"/>
+    
+    <include file="db/changelog/V21__add_historical_data_cache_table.xml"/>
+    <include file="db/changelog/V25__add_permanent_market_data.xml"/>
+    <include file="db/changelog/V26__create_audience_visits_table.xml"/>
+    <include file="db/changelog/V27__add_quote_details.xml"/>
+    
+    <include file="db/changelog/V28__add_homepage_meta.xml"/>
+    <include file="db/changelog/V29__add_static_pages_meta.xml"/>
+    <include file="db/changelog/V30__add_missing_tables.xml"/>
+    <include file="db/changelog/V31__add_cover_image_alt_text.xml"/>
+    <include file="db/changelog/V32__add_blog_missing_columns.xml"/>
+    <include file="db/changelog/V33__add_slug_to_posts.xml"/>
+    <include file="db/changelog/V34__fix_status_enum.xml"/>
+    <include file="db/changelog/V33__add_market_data_missing_columns.xml"/>
+    <include file="db/changelog/V34__add_thumbnail_metadata.xml"/>
+    <include file="db/changelog/V33__add_enabled_to_users.xml"/>
+    <include file="db/changelog/V35__add_editorial_fields.xml"/>
+    <include file="db/changelog/V36__add_audit_log_table.xml"/>
+    <include file="db/changelog/V37__add_image_url_to_news_highlights.xml"/>
+     <include file="db/changelog/V38__add_archived_flag_to_news.xml"/>
+     <include file="db/changelog/V39__add_description_to_news.xml"/>
+
+</databaseChangeLog>

@@ -1,0 +1,334 @@
+version: '3.8'
+
+networks:
+  treish_net:
+    driver: bridge
+
+services:
+  treishvaam-db:
+    image: mariadb:10.6
+    container_name: treishvaam-db
+    restart: always
+    networks:
+      - treish_net
+    environment:
+      MYSQL_ROOT_PASSWORD: ${PROD_DB_PASSWORD}
+      MYSQL_DATABASE: finance_db
+    volumes:
+      - ./data/mariadb:/var/lib/mysql
+      - ./config/mariadb:/etc/mysql/conf.d
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  keycloak-db:
+    image: mariadb:10.6
+    container_name: treishvaam-keycloak-db
+    restart: always
+    networks:
+      - treish_net
+    environment:
+      MYSQL_ROOT_PASSWORD: ${PROD_DB_PASSWORD}
+      MYSQL_DATABASE: keycloak
+      MYSQL_USER: keycloak
+      MYSQL_PASSWORD: keycloak_password
+    volumes:
+      - ./data/keycloak-db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0.0
+    container_name: treishvaam-keycloak
+    restart: always
+    networks:
+      - treish_net
+    environment:
+      KC_DB: mariadb
+      KC_DB_URL: jdbc:mariadb://keycloak-db/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak_password
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HOSTNAME_URL: https://backend.treishvaamgroup.com/auth
+      KC_HOSTNAME_ADMIN_URL: https://backend.treishvaamgroup.com/auth
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD}
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+    command: start-dev --import-realm
+    volumes:
+      - ./config/keycloak/realm-export.json:/opt/keycloak/data/import/realm.json
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/auth/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 90s
+
+  redis:
+    image: redis:alpine
+    container_name: treishvaam-redis
+    restart: always
+    networks:
+      - treish_net
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    command: redis-server --save 60 1 --loglevel warning --stop-writes-on-bgsave-error no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  minio:
+    image: minio/minio
+    container_name: treishvaam-minio
+    restart: always
+    networks:
+      - treish_net
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: treishvaam_storage_secret
+    volumes:
+      - ./data/minio:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.10
+    container_name: treishvaam-elastic
+    restart: always
+    networks:
+      - treish_net
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - ./data/elastic:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -E -q 'status.*(green|yellow)'"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  tunnel:
+    image: cloudflare/cloudflared
+    container_name: treishvaam-tunnel
+    restart: always
+    networks:
+      - treish_net
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+
+  backend:
+    image: ghcr.io/callitask/finance-api:latest
+    restart: always
+    networks:
+      - treish_net
+    env_file: .env
+    environment:
+      # --- INFISICAL INJECTED SECRETS ---
+      # These mappings pass the Host Shell variables (from Infisical) into the Container
+      - PROD_DB_URL=${PROD_DB_URL}
+      - PROD_DB_USERNAME=${PROD_DB_USERNAME}
+      - PROD_DB_PASSWORD=${PROD_DB_PASSWORD}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - INTERNAL_API_SECRET_KEY=${INTERNAL_API_SECRET_KEY}
+      - APP_ADMIN_EMAIL=${APP_ADMIN_EMAIL}
+      - APP_ADMIN_PASSWORD=${APP_ADMIN_PASSWORD}
+      - MARKET_DATA_API_KEY=${MARKET_DATA_API_KEY}
+      - ALPHAVANTAGE_API_KEY=${ALPHAVANTAGE_API_KEY}
+      - FINNHUB_API_KEY=${FINNHUB_API_KEY}
+      - NEWS_API_KEY=${NEWS_API_KEY}
+      - GA4_PROPERTY_ID=${GA4_PROPERTY_ID}
+      # --- CONFIG ---
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_DATA_REDIS_HOST=treishvaam-redis
+      - SPRING_ELASTICSEARCH_URIS=http://treishvaam-elastic:9200
+      - STORAGE_S3_ENDPOINT=http://treishvaam-minio:9000
+      - SPRING_RABBITMQ_HOST=treishvaam-rabbitmq
+      - APP_PYTHON_SCRIPT_PATH=/app/scripts/market_data_updater.py
+      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://tempo:9411/api/v2/spans
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=https://backend.treishvaamgroup.com/auth/realms/treishvaam
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/auth/realms/treishvaam/protocol/openid-connect/certs
+      - LOGGING_FILE_NAME=/app/logs/application-${HOSTNAME}.log
+    volumes:
+      - ./backend-app.war:/app/app.war
+      - ./ga4-credentials.json:/app/ga4-credentials.json
+      - ./scripts:/app/scripts
+      - ./uploads:/app/uploads
+      - ./sitemaps:/app/sitemaps
+      - ./logs:/app/logs
+    deploy:
+      mode: replicated
+      replicas: 2
+    depends_on:
+      treishvaam-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
+      tempo:
+        condition: service_started
+      keycloak:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(1); s.connect((\"localhost\", 8080)); s.close();' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+
+  nginx:
+    image: owasp/modsecurity-crs:nginx
+    container_name: treishvaam-nginx
+    restart: always
+    networks:
+      - treish_net
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PARANOIA: 1
+    volumes:
+      - ./nginx/conf.d/default.conf:/etc/nginx/templates/conf.d/default.conf.template
+      - ./nginx/modsecurity/whitelist.conf:/etc/nginx/modsecurity/whitelist.conf
+      - ./uploads:/app/uploads
+      - ./sitemaps:/app/sitemaps
+    depends_on:
+      backend:
+        condition: service_started
+
+  loki:
+    image: grafana/loki:2.9.2
+    container_name: treishvaam-loki
+    restart: always
+    networks:
+      - treish_net
+    volumes:
+      - ./config/loki-config.yml:/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+
+  promtail:
+    image: grafana/promtail:2.9.2
+    container_name: treishvaam-promtail
+    restart: always
+    networks:
+      - treish_net
+    volumes:
+      - ./config/promtail-config.yml:/etc/promtail/config.yml
+      - ./logs:/app/logs
+    command: -config.file=/etc/promtail/config.yml
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: treishvaam-prometheus
+    restart: always
+    networks:
+      - treish_net
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: treishvaam-grafana
+    restart: always
+    networks:
+      - treish_net
+    ports:
+      - "3001:3000"
+    user: "0" 
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=%getrichsoon1954
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+      - ./config/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./config/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
+      - ./dashboards:/var/lib/grafana/dashboards
+      - ./config/grafana-alerting.yml:/etc/grafana/provisioning/alerting/alerts.yml
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: treishvaam-tempo
+    restart: always
+    networks:
+      - treish_net
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./config/tempo.yaml:/etc/tempo.yaml
+      - ./data/tempo:/tmp/tempo
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+      - "9411:9411"
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: treishvaam-rabbitmq
+    restart: always
+    networks:
+      - treish_net
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  backup-service:
+    build: ./backup
+    container_name: treishvaam-backup
+    restart: always
+    networks:
+      - treish_net
+    environment:
+      DB_HOST: treishvaam-db
+      DB_USER: root
+      DB_PASS: ${PROD_DB_PASSWORD}
+      DB_NAME: finance_db
+      S3_ENDPOINT: http://treishvaam-minio:9000
+      S3_BUCKET: treishvaam-backups
+      MINIO_ACCESS_KEY: admin
+      MINIO_SECRET_KEY: treishvaam_storage_secret
+    depends_on:
+      treishvaam-db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
