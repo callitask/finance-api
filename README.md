@@ -11,7 +11,7 @@ The Treishvaam Finance API is an enterprise-grade backend service built with Spr
 * **Search Engine**: Elasticsearch
 * **Object Storage**: MinIO (S3 Compatible)
 * **Identity Management**: Keycloak (OAuth2 / OIDC)
-* **Secret Management**: Infisical (Zero-Trust)
+* **Secret Management**: Infisical (Zero-Trust / Orchestrator Injection)
 
 ## Quick Start Guide
 
@@ -19,12 +19,12 @@ The Treishvaam Finance API is an enterprise-grade backend service built with Spr
 * Java Development Kit (JDK) 21
 * Docker and Docker Compose
 * Maven 3.9+
-* Infisical CLI
+* Infisical CLI (v0.154+ via official repository)
 
 ### Configuration
 This project adheres to strict security standards and does not use local configuration files for sensitive data. All secrets are managed via Infisical.
 
-1.  **Install CLI**: Install the Infisical CLI tool.
+1.  **Install CLI**: Install the Infisical CLI tool using the official artifacts repository.
 2.  **Authenticate**: Run `infisical login` and authenticate using your organization credentials.
 3.  **Link Project**: Link your local repository to the 'Treishvaam Finance' workspace.
 
@@ -34,10 +34,12 @@ To compile the project and run unit tests:
 mvn clean package
 ```
 
-### Running Locally
-To start the application with injected secrets:
+### Running Locally (Enterprise Mode)
+We use **Orchestrator Injection**. You do not need to configure `.env` files for application secrets. Infisical injects them directly into the Docker process from the host.
+
 ```bash
-infisical run -- java -jar target/finance-api.war
+# This fetches secrets and starts the entire stack (DB, Cache, Backend)
+infisical run --env dev -- docker-compose up -d
 ```
 
 ## Architecture and Design
@@ -56,7 +58,11 @@ The platform integrates with the LGTM stack (Loki, Grafana, Tempo, Mimir) for co
 * **Tracing**: Distributed tracing via Zipkin/Tempo protocols.
 
 ## Deployment
-Deployment is fully automated using a GitOps workflow. Changes pushed to the `main` branch trigger the self-hosted runner to build and deploy the latest Docker containers.
+Deployment is fully automated using a GitOps workflow with a custom Orchestrator Script.
+
+* **Trigger**: Push to `main`.
+* **Orchestrator**: `scripts/auto_deploy.sh`
+* **Mechanism**: The script authenticates with Infisical using Machine Identity and performs a secure, secret-injected `docker-compose` restart.
 
 For detailed deployment procedures, refer to:
 `docs/09-DEPLOYMENT-OPS.md`

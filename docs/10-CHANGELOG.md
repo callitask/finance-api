@@ -4,7 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.4.0] - Phase 5 & 6: Enterprise Secret Management (Current)
+## [2.5.0] - Phase 7: Orchestrator Injection & Final Stabilization (Current)
+### Infrastructure & Security (Host-Level)
+- **Arch**: Transitioned to **Orchestrator Injection Pattern**. Secrets are now fetched by the host and injected into standard Docker containers, removing all secret-fetching logic from the images.
+- **Sec**: Moved `CLOUDFLARE_TUNNEL_TOKEN` to Infisical, achieving 100% Zero-Secrets-on-Disk (except for Identity tokens).
+- **Ops**: Upgraded Infisical CLI to `v0.154+` via official artifact repository to support modern Machine Identity authentication.
+- **Fix**: Resolved "Zombie Token" conflict in Cloudflare Tunnel (`TUNNEL_TOKEN` vs `CLOUDFLARE_TUNNEL_TOKEN`).
+- **Fix**: Corrected malformed `PROD_DB_URL` injection that caused JDBC driver crashes.
+
+## [2.4.0] - Phase 5 & 6: Enterprise Secret Management
 ### Infrastructure & Security (Infisical Integration)
 - **Sec**: Implemented **Infisical** for Enterprise Secret Management. Secrets are now injected in-memory at runtime via CLI (Zero-Secrets-on-Disk).
 - **Infra**: Removed **HashiCorp Vault** dependency (`spring-cloud-starter-vault-config`) to resolve 76s startup delay and connection timeouts.

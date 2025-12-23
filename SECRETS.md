@@ -7,14 +7,20 @@ This project utilizes Infisical for enterprise-grade secret management, strictly
 * **No Hardcoded Secrets**: Passwords, API keys, and tokens must never be embedded in source code, properties files, or Dockerfiles.
 * **Least Privilege**: Application services use restricted Machine Identities (Robots) with read-only access to specific environments.
 
-## 2. Architecture Overview
-The application configuration does not rely on static text files for sensitive data. Instead, the Docker container utilizes the **Infisical Command Line Interface (CLI)** to inject secrets directly into the process memory at runtime.
+## 2. Architecture Overview: Orchestrator Injection
+We utilize the **Host-Level Injection** pattern. The application containers (Backend, Database, Keycloak) are standard Docker images and contain **no secret-fetching logic**.
+
+Instead, the Host (Orchestrator) is responsible for fetching secrets and passing them into the container runtime memory.
 
 ### Injection Workflow
-1.  **Container Initialization**: The Docker entrypoint invokes the Infisical CLI wrapper.
-2.  **Authentication**: The CLI authenticates with the Infisical Cloud using a Machine Identity (Client ID and Client Secret).
-3.  **Injection**: Secrets are fetched securely over TLS and injected as environment variables available **only** to the Java process.
-4.  **Execution**: The Spring Boot application starts with full access to the required configuration without writing data to the file system.
+1.  **Deployment Trigger**: The `auto_deploy.sh` script is triggered.
+2.  **Host Authentication**: The host authenticates with Infisical using the Machine Identity tokens stored in `/opt/treishvaam/.env`.
+3.  **Secure Expansion**: The command `infisical run -- docker-compose up` is executed.
+4.  **Runtime Injection**:
+    * Infisical fetches secrets into the Host's RAM.
+    * It populates the environment variables for the `docker-compose` process.
+    * Docker Compose maps these variables to the containers via the `environment` blocks in `docker-compose.yml` (e.g., `MYSQL_ROOT_PASSWORD: ${PROD_DB_PASSWORD}`).
+5.  **Result**: Containers start with full access to secrets, but **no secrets ever touch the server's disk**.
 
 ## 3. Local Development Setup
 Developers must install the Infisical CLI to run the backend locally. This ensures development environments mirror production security standards.
@@ -22,9 +28,9 @@ Developers must install the Infisical CLI to run the backend locally. This ensur
 ### Installation
 * **MacOS**: `brew install infisical/tap/infisical`
 * **Windows**: `winget install Infisical.Infisical`
-* **Linux**:
+* **Linux (Ubuntu/Debian)**:
     ```bash
-    curl -1sLf '[https://dl.cloudsmith.io/public/infisical/infisical-cli/setup.deb.sh](https://dl.cloudsmith.io/public/infisical/infisical-cli/setup.deb.sh)' | sudo -E bash
+    curl -1sLf '[https://artifacts-cli.infisical.com/setup.deb.sh](https://artifacts-cli.infisical.com/setup.deb.sh)' | sudo -E bash
     sudo apt-get update && sudo apt-get install -y infisical
     ```
 
@@ -33,31 +39,35 @@ Developers must install the Infisical CLI to run the backend locally. This ensur
 2.  **Select Project**: Choose 'Treishvaam Finance'.
 3.  **Execute**:
     ```bash
-    infisical run -- mvn spring-boot:run
+    # Runs the full stack with injected secrets
+    infisical run -- docker-compose up
     ```
 
 ## 4. Production Configuration
-The production environment uses a Machine Identity for authentication. The server requires a single configuration file containing authentication tokens to establish trust.
+The production environment uses a Machine Identity for authentication.
 
 ### Server-Side Configuration
 * **File Location**: `/opt/treishvaam/.env`
 * **Permissions**: `600` (Read/Write by Owner only)
+* **Contents**: Only authentication tokens. No actual application secrets.
 
-### Required Variables
+### Required Variables (Identity Only)
 | Variable | Description |
 | :--- | :--- |
-| `INFISICAL_URL` | The URL of the secret management server (e.g., https://app.infisical.com). |
 | `INFISICAL_PROJECT_ID` | The unique identifier for the Treishvaam Finance project. |
-| `INFISICAL_CLIENT_ID` | The Machine Identity Client ID (Public identifier). |
-| `INFISICAL_CLIENT_SECRET` | The Machine Identity Client Secret (Private key). |
+| `INFISICAL_CLIENT_ID` | The Machine Identity Client ID. |
+| `INFISICAL_CLIENT_SECRET` | The Machine Identity Client Secret. |
 
 ## 5. Secret Rotation Policy
 To rotate a database password, API key, or internal secret:
 
 1.  **Update**: Change the secret value in the Infisical Dashboard (Production Environment).
-2.  **Restart**: Restart the backend service using Docker Compose:
+2.  **Restart**: Run the secure restart command on the server:
     ```bash
     cd /opt/treishvaam
-    docker-compose restart backend
+    # Load Auth
+    export $(grep -v '^#' .env | xargs)
+    # Restart
+    infisical run --projectId "$INFISICAL_PROJECT_ID" --env prod -- docker-compose up -d --force-recreate
     ```
 3.  **Verify**: The application will fetch the new value immediately upon startup. No code changes or commits are required.
