@@ -1,27 +1,19 @@
 #!/bin/bash
 # ----------------------------------------------------------------------
-# FINAL SIMPLIFIED DEPLOYMENT (EXACT MANUAL REPLICA)
-# Purpose: Replicates your manual terminal command 100% correctly.
-# Run Context: This script can be run by Root/Cron, and it will auto-switch
-#              to 'vboxuser' to execute the logic.
+# FINAL ROBUST DEPLOY (WAIT-FOR-DB + USER CONTEXT)
+# Purpose: Ensures DB is ready before backend starts.
+#          Replicates manual command exactly as 'vboxuser'.
 # ----------------------------------------------------------------------
 
 # --- 1. ROOT CHECK & USER SWITCH ---
-# If running as root (Cron/Sudo), switch to 'vboxuser' and run the EXACT command chain.
 if [ "$(id -u)" -eq 0 ]; then
-    echo "[$(date)] ⚠️ Running as root. Switching to 'vboxuser' to match manual environment..." >> /var/log/treishvaam_deploy.log
-    
-    # We construct the command string exactly as you type it manually.
-    # 1. Go to dir
-    # 2. Export .env (to get INFISICAL_PROJECT_ID)
-    # 3. Run the Auto Deploy script again (as vboxuser)
-    
+    echo "[$(date)] ⚠️ Running as root. Switching to 'vboxuser'..." >> /var/log/treishvaam_deploy.log
     su vboxuser -c "cd /opt/treishvaam && export \$(grep -v '^#' .env | xargs) && /opt/treishvaam/scripts/auto_deploy.sh"
     exit 0
 fi
 
 # ======================================================================
-#  BELOW THIS LINE RUNS AS 'vboxuser' (Your working environment)
+#  RUNNING AS 'vboxuser'
 # ======================================================================
 
 PROJECT_DIR="/opt/treishvaam"
@@ -29,7 +21,7 @@ LOG_FILE="/var/log/treishvaam_deploy.log"
 
 cd "$PROJECT_DIR" || exit 1
 
-# 1. LOAD ENV (Just to be safe, though the 'su' command above handled it)
+# 1. LOAD ENV
 if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
 fi
@@ -58,17 +50,30 @@ if [ "$LOCAL" != "$REMOTE" ]; then
     git reset --hard "origin/$TARGET_BRANCH" >> "$LOG_FILE" 2>&1
     chmod +x scripts/*.sh backup/*.sh
     
-    echo "[$(date)] ☕ Executing Infisical Start Command..." >> "$LOG_FILE"
+    echo "[$(date)] ☕ Restarting Backend (Robust Mode)..." >> "$LOG_FILE"
 
-    # --- THE MAGIC COMMAND (Exact Replica) ---
-    # We use full paths just to be safe, but the logic is identical.
+    # --- ROBUST RESTART LOGIC ---
     
+    # 1. Clean up old backend containers (Ignore errors if they don't exist)
+    docker-compose stop backend >> "$LOG_FILE" 2>&1 || true
+    docker-compose rm -f -s -v backend >> "$LOG_FILE" 2>&1 || true
+    
+    # 2. Ensure Database is Healthy FIRST
+    echo "[$(date)] ⏳ Waiting for Database to be healthy..." >> "$LOG_FILE"
+    # This ensures the DB container is actually running and marked healthy
+    until [ "`docker inspect -f {{.State.Health.Status}} treishvaam-db`" == "healthy" ]; do
+        sleep 2;
+        echo -n "." >> "$LOG_FILE";
+    done;
+    echo " DB is Healthy." >> "$LOG_FILE"
+
+    # 3. Start Backend with Secrets (The Magic Command)
     if command -v infisical &> /dev/null; then
-        # This is your command:
-        infisical run --projectId "$INFISICAL_PROJECT_ID" --env prod -- docker-compose up -d --force-recreate >> "$LOG_FILE" 2>&1
+        echo "[$(date)] 🔐 Injecting secrets via Infisical..." >> "$LOG_FILE"
+        infisical run --projectId "$INFISICAL_PROJECT_ID" --env prod -- docker-compose up -d --force-recreate backend >> "$LOG_FILE" 2>&1
     else
-        # Fallback if infisical isn't in PATH (try /usr/local/bin)
-        /usr/local/bin/infisical run --projectId "$INFISICAL_PROJECT_ID" --env prod -- docker-compose up -d --force-recreate >> "$LOG_FILE" 2>&1
+        echo "[$(date)] ❌ CRITICAL: Infisical not found." >> "$LOG_FILE"
+        /usr/local/bin/infisical run --projectId "$INFISICAL_PROJECT_ID" --env prod -- docker-compose up -d --force-recreate backend >> "$LOG_FILE" 2>&1
     fi
     
     # Cleanup
