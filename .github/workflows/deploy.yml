@@ -2,7 +2,7 @@ name: Treishvaam Enterprise Deploy
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
   workflow_dispatch:
 
 concurrency:
@@ -25,6 +25,11 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
         # cache: 'maven'  <-- Disabled to prevent 800MB downloads on self-hosted runner
+
+    - name: Log Deployment Branch
+      run: |
+        echo "🚀 DEPLOYING BRANCH: ${{ github.ref_name }}"
+        echo "Server will now be updated with code from ${{ github.ref_name }}..."
 
     - name: Build with Maven
       run: |
@@ -62,7 +67,7 @@ jobs:
         echo "Waiting for Backend to initialize..."
         sleep 15
         if docker ps | grep -q treishvaam-backend; then
-          echo "✅ Backend Container is Running"
+          echo "✅ Backend Container is Running with version form branch: ${{ github.ref_name }}"
         else
           echo "❌ Backend Container failed to start"
           exit 1
