@@ -1,10 +1,10 @@
 #!/bin/bash
 # ----------------------------------------------------------------------
-# DYNAMIC ENV AUTO-DEPLOYMENT (DEV vs PROD)
+# SIMPLIFIED ENTERPRISE DEPLOY (PROD ONLY)
 # Purpose: 
-#   - If HEAD is 'develop' -> Uses Infisical 'dev' environment.
-#   - If HEAD is 'main'    -> Uses Infisical 'prod' environment.
-#   - Always performs aggressive restarts to ensure secrets apply.
+#   - Automatically deploys the latest code from (main OR develop).
+#   - ALWAYS uses 'prod' secrets (Single Source of Truth).
+#   - ALWAYS performs aggressive restarts to ensure stability.
 # ----------------------------------------------------------------------
 
 # 1. FIX PATH & ENVIRONMENT
@@ -26,12 +26,10 @@ TS_MAIN=$(git log -1 --format=%ct origin/main 2>/dev/null || echo 0)
 TS_DEVELOP=$(git log -1 --format=%ct origin/develop 2>/dev/null || echo 0)
 
 TARGET_BRANCH="main"
-INFISICAL_ENV="prod"
 
-# If develop is more recent than main, we are in DEV mode
+# Even if we switch to develop, we will still use PROD secrets below
 if [ "$TS_DEVELOP" -gt "$TS_MAIN" ]; then
     TARGET_BRANCH="develop"
-    INFISICAL_ENV="dev"
 fi
 
 # --- HELPER: SECURE EXECUTION WRAPPER ---
@@ -41,9 +39,9 @@ run_secure() {
     if [ -f "/usr/bin/infisical" ]; then INFISICAL_CMD="/usr/bin/infisical"; fi
 
     if command -v $INFISICAL_CMD &> /dev/null; then
-        echo "[$(date)] 🔐 Injecting secrets from [${INFISICAL_ENV}] environment..." >> "$LOG_FILE"
-        # DYNAMICALLY USES THE CALCULATED ENV (dev OR prod)
-        $INFISICAL_CMD run --projectId "$INFISICAL_PROJECT_ID" --env "$INFISICAL_ENV" -- "$@"
+        echo "[$(date)] 🔐 Injecting 'prod' secrets via Infisical..." >> "$LOG_FILE"
+        # HARDCODED TO PROD
+        $INFISICAL_CMD run --projectId "$INFISICAL_PROJECT_ID" --env prod -- "$@"
     else
         echo "[$(date)] ❌ CRITICAL: Infisical not found. Deployment may fail." >> "$LOG_FILE"
         "$@"
@@ -56,7 +54,7 @@ REMOTE=$(git rev-parse "origin/$TARGET_BRANCH")
 
 if [ "$LOCAL" != "$REMOTE" ]; then
     echo "----------------------------------------------------------------" >> "$LOG_FILE"
-    echo "[$(date)] 🚀 New activity on [$TARGET_BRANCH]. Switching to ENV: [$INFISICAL_ENV]..." >> "$LOG_FILE"
+    echo "[$(date)] 🚀 New activity on [$TARGET_BRANCH]. Deploying with PROD config..." >> "$LOG_FILE"
     
     CHANGED_FILES=$(git diff --name-only HEAD "origin/$TARGET_BRANCH")
     
@@ -67,14 +65,14 @@ if [ "$LOCAL" != "$REMOTE" ]; then
     
     chmod +x scripts/*.sh backup/*.sh
     
-    # 5. AGGRESSIVE RESTART (Ensure secrets apply)
-    echo "[$(date)] ☕ Rebuilding Backend with [$INFISICAL_ENV] secrets..." >> "$LOG_FILE"
+    # 5. AGGRESSIVE RESTART (Always Restart Backend)
+    echo "[$(date)] ☕ Rebuilding Backend..." >> "$LOG_FILE"
     
     # Stop/Remove to clear old environment variables
     docker-compose stop backend >> "$LOG_FILE" 2>&1 || true
     docker-compose rm -f -s -v backend >> "$LOG_FILE" 2>&1 || true
     
-    # Start with correct environment keys
+    # Start with PROD environment keys
     run_secure docker-compose up -d --build --force-recreate backend >> "$LOG_FILE" 2>&1
 
     # --- CONDITIONAL SERVICES ---
@@ -83,8 +81,13 @@ if [ "$LOCAL" != "$REMOTE" ]; then
         docker restart treishvaam-nginx >> "$LOG_FILE" 2>&1
     fi
 
+    if echo "$CHANGED_FILES" | grep -q "config/"; then
+        echo "[$(date)] 📊 Restarting Monitoring Stack..." >> "$LOG_FILE"
+        docker restart treishvaam-prometheus treishvaam-grafana treishvaam-loki >> "$LOG_FILE" 2>&1
+    fi
+
     docker image prune -f >> "$LOG_FILE" 2>&1
     
-    echo "[$(date)] ✅ Deployed [$TARGET_BRANCH] as [$INFISICAL_ENV] Successfully." >> "$LOG_FILE"
+    echo "[$(date)] ✅ Deployed [$TARGET_BRANCH] Successfully." >> "$LOG_FILE"
     echo "----------------------------------------------------------------" >> "$LOG_FILE"
 fi
