@@ -1,29 +1,38 @@
 #!/bin/bash
 # ----------------------------------------------------------------------
-# FINAL STABLE DEPLOY (HARDCODED AUTH + NO BUILD)
+# FINAL ENTERPRISE DEPLOY (USER-CONTEXT EDITION)
 # Purpose: 
-#   1. Forces use of 'vboxuser' credentials for Infisical (Fixes Cron/Root).
-#   2. Skips Maven Build (Fixes corrupted JAR/WAR issues).
-#   3. Restarts containers with PROD secrets.
+#   1. Detects if running as root.
+#   2. Switches to 'vboxuser' to match manual success EXACTLY.
+#   3. Deploys with PROD secrets using your exact manual command logic.
 # ----------------------------------------------------------------------
 
-# 1. FIX PATH & ENVIRONMENT
-export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# --- 1. SELF-CORRECTION: DROP PRIVILEGES ---
+# If this script is run as root (e.g., via Cron/Sudo), re-run it as 'vboxuser'
+if [ "$(id -u)" -eq 0 ]; then
+    echo "[$(date)] ⚠️ Running as root. Switching to 'vboxuser' for consistent environment..." >> /var/log/treishvaam_deploy.log
+    # Pass the script execution to vboxuser with a clean login shell
+    su - vboxuser -c "/opt/treishvaam/scripts/auto_deploy.sh"
+    exit 0
+fi
+
+# ======================================================================
+#  BELOW THIS LINE RUNS AS 'vboxuser' (Just like manual mode)
+# ======================================================================
+
+# 2. SETUP ENVIRONMENT
 PROJECT_DIR="/opt/treishvaam"
 LOG_FILE="/var/log/treishvaam_deploy.log"
 
+# Ensure we are in the right place
 cd "$PROJECT_DIR" || exit 1
 
-# --- SECURITY: FORCE VBOXUSER AUTH ---
-# We know the credentials work for 'vboxuser', so we point root/cron to them.
-export INFISICAL_CONFIG_DIR="/home/vboxuser/.infisical"
-
-# Load local .env just in case
+# Load Environment Variables (Exact method from your manual command)
 if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
 fi
 
-# 2. FETCH LATEST CODE
+# 3. FETCH LATEST CODE
 git fetch --all >> "$LOG_FILE" 2>&1
 
 TS_MAIN=$(git log -1 --format=%ct origin/main 2>/dev/null || echo 0)
@@ -34,49 +43,39 @@ if [ "$TS_DEVELOP" -gt "$TS_MAIN" ]; then
     TARGET_BRANCH="develop"
 fi
 
-# --- HELPER: SECURE EXECUTION WRAPPER ---
-run_secure() {
-    INFISICAL_CMD="infisical"
-    if [ -f "/usr/local/bin/infisical" ]; then INFISICAL_CMD="/usr/local/bin/infisical"; fi
-    if [ -f "/usr/bin/infisical" ]; then INFISICAL_CMD="/usr/bin/infisical"; fi
-
-    if command -v $INFISICAL_CMD &> /dev/null; then
-        echo "[$(date)] 🔐 Injecting 'prod' secrets (Config: $INFISICAL_CONFIG_DIR)..." >> "$LOG_FILE"
-        $INFISICAL_CMD run --projectId "$INFISICAL_PROJECT_ID" --env prod -- "$@"
-    else
-        echo "[$(date)] ❌ CRITICAL: Infisical not found. Deployment may fail." >> "$LOG_FILE"
-        "$@"
-    fi
-}
-
-# 3. CHECK FOR ACTIVITY
+# 4. CHECK FOR CHANGES
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse "origin/$TARGET_BRANCH")
 
 if [ "$LOCAL" != "$REMOTE" ]; then
     echo "----------------------------------------------------------------" >> "$LOG_FILE"
-    echo "[$(date)] 🚀 New activity on [$TARGET_BRANCH]. Deploying..." >> "$LOG_FILE"
+    echo "[$(date)] 🚀 New activity on [$TARGET_BRANCH]. Deploying as user: $(whoami)..." >> "$LOG_FILE"
     
     CHANGED_FILES=$(git diff --name-only HEAD "origin/$TARGET_BRANCH")
     
-    # 4. FORCE SYNC
+    # 5. FORCE SYNC
     echo "[$(date)] Forcing synchronization with origin/$TARGET_BRANCH..." >> "$LOG_FILE"
     git checkout "$TARGET_BRANCH" >> "$LOG_FILE" 2>&1
     git reset --hard "origin/$TARGET_BRANCH" >> "$LOG_FILE" 2>&1
     
     chmod +x scripts/*.sh backup/*.sh
     
-    # 5. AGGRESSIVE RESTART
-    # (Removed Maven Build step to prevent 'NoClassDefFoundError')
+    # 6. RESTART BACKEND (Exact Manual Command Logic)
+    echo "[$(date)] ☕ Restarting Backend (Manual-Mode Logic)..." >> "$LOG_FILE"
     
-    echo "[$(date)] ☕ Restarting Backend Containers..." >> "$LOG_FILE"
-    
-    # Stop/Remove to clear old environment variables
+    # Clean up old state first
     docker-compose stop backend >> "$LOG_FILE" 2>&1 || true
     docker-compose rm -f -s -v backend >> "$LOG_FILE" 2>&1 || true
     
-    # Start with Secrets
-    run_secure docker-compose up -d --force-recreate backend >> "$LOG_FILE" 2>&1
+    # EXECUTE THE "MAGIC COMMAND"
+    # We check for infisical existence, then run it exactly as you do
+    if command -v infisical &> /dev/null; then
+        echo "[$(date)] 🔐 Injecting 'prod' secrets via Infisical..." >> "$LOG_FILE"
+        infisical run --projectId "$INFISICAL_PROJECT_ID" --env prod -- docker-compose up -d --force-recreate backend >> "$LOG_FILE" 2>&1
+    else
+        echo "[$(date)] ❌ CRITICAL: Infisical not found in user path." >> "$LOG_FILE"
+        docker-compose up -d --force-recreate backend >> "$LOG_FILE" 2>&1
+    fi
 
     # --- CONDITIONAL SERVICES ---
     if echo "$CHANGED_FILES" | grep -qE "^nginx/"; then
