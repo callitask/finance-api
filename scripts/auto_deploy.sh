@@ -1,8 +1,9 @@
 #!/bin/bash
 # ----------------------------------------------------------------------
-# SMART AUTO-DEPLOYMENT SCRIPT (ENTERPRISE EDITION)
-# Purpose: Checks for Git updates and performs SECURE, STATE-SAFE restarts.
+# SMART AUTO-DEPLOYMENT SCRIPT (ENTERPRISE DYNAMIC EDITION)
+# Purpose: Automatically deploys the LATEST updated branch (main OR develop).
 # Security: Uses Infisical Orchestrator Injection (Zero-Secrets-on-Disk).
+# Resilience: Uses 'git reset --hard' to prevent merge conflicts/divergence.
 # Run Frequency: Every minute (via Cron)
 # ----------------------------------------------------------------------
 
@@ -13,18 +14,13 @@ LOG_FILE="/var/log/treishvaam_deploy.log"
 cd "$PROJECT_DIR" || exit 1
 
 # --- SECURITY: LOAD INFISICAL AUTH TOKENS ---
-# We load the Machine Identity (Client ID/Secret) from .env
-# This DOES NOT load the DB passwords (they are not in the file anymore)
 if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
 fi
 
 # --- HELPER: SECURE EXECUTION WRAPPER ---
-# Wraps docker-compose commands with Infisical to inject secrets in-memory
 run_secure() {
-    # Check if Infisical CLI is installed
     if command -v infisical &> /dev/null; then
-        # Fetch secrets -> Inject to Docker Compose -> Start Containers
         infisical run --projectId "$INFISICAL_PROJECT_ID" --env prod -- "$@"
     else
         echo "[WARN] Infisical CLI not found. Falling back to standard execution." >> "$LOG_FILE"
@@ -32,25 +28,40 @@ run_secure() {
     fi
 }
 
-# 1. Fetch latest changes from Git
-git fetch origin main
+# 1. Fetch ALL branches to get latest info
+git fetch --all >> "$LOG_FILE" 2>&1
 
-# 2. Compare Local Version vs Remote Version
+# 2. Determine which branch is most recently updated
+# We get the commit timestamp (%ct) of both remote branches
+TS_MAIN=$(git log -1 --format=%ct origin/main 2>/dev/null || echo 0)
+TS_DEVELOP=$(git log -1 --format=%ct origin/develop 2>/dev/null || echo 0)
+
+TARGET_BRANCH="main"
+
+if [ "$TS_DEVELOP" -gt "$TS_MAIN" ]; then
+    TARGET_BRANCH="develop"
+fi
+
+# 3. Compare Local State vs Target Remote State
+# We compare the current HEAD hash with the remote target branch hash
 LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse origin/main)
+REMOTE=$(git rev-parse "origin/$TARGET_BRANCH")
 
 if [ "$LOCAL" != "$REMOTE" ]; then
     echo "----------------------------------------------------------------" >> "$LOG_FILE"
-    echo "[$(date)] 🚀 New code detected. Starting Enterprise Secure Deploy..." >> "$LOG_FILE"
+    echo "[$(date)] 🚀 New activity detected on [$TARGET_BRANCH]. Starting Secure Deploy..." >> "$LOG_FILE"
     
-    # Store the list of changed files
-    CHANGED_FILES=$(git diff --name-only HEAD origin/main)
+    # Store the list of changed files between current state and the NEW target
+    # This works even if we switch branches (it compares the two trees)
+    CHANGED_FILES=$(git diff --name-only HEAD "origin/$TARGET_BRANCH")
     
-    # Pull the new code
-    echo "[$(date)] Pulling changes..." >> "$LOG_FILE"
-    git pull origin main >> "$LOG_FILE" 2>&1
+    # 4. PERFORM UPDATE (Self-Healing)
+    # We forcefully checkout and reset to the target remote to avoid "divergent branch" errors
+    echo "[$(date)] Switching/Updating to origin/$TARGET_BRANCH..." >> "$LOG_FILE"
+    git checkout "$TARGET_BRANCH" >> "$LOG_FILE" 2>&1
+    git reset --hard "origin/$TARGET_BRANCH" >> "$LOG_FILE" 2>&1
     
-    # Ensure scripts are executable
+    # Ensure scripts are executable (in case they were changed)
     chmod +x scripts/*.sh backup/*.sh
     
     # --- INTELLIGENT RESTART LOGIC ---
@@ -63,15 +74,13 @@ if [ "$LOCAL" != "$REMOTE" ]; then
         docker-compose stop backend >> "$LOG_FILE" 2>&1 || true
         docker-compose rm -f -s -v backend >> "$LOG_FILE" 2>&1 || true
         
-        # SECURE REBUILD: Injects secrets for the build/up process
+        # SECURE REBUILD
         run_secure docker-compose up -d --build --force-recreate backend >> "$LOG_FILE" 2>&1
     fi
 
     # 2. Infrastructure Config (Docker Compose)
-    # If the infrastructure definition changes, we must recreate ALL services securely
     if echo "$CHANGED_FILES" | grep -q "docker-compose.yml"; then
-        echo "[$(date)] 🏗️ Infrastructure config changed. specific services..." >> "$LOG_FILE"
-        # We use run_secure to ensure DB/Keycloak get their passwords
+        echo "[$(date)] 🏗️ Infrastructure config changed. Recreating services..." >> "$LOG_FILE"
         run_secure docker-compose up -d --remove-orphans >> "$LOG_FILE" 2>&1
     fi
 
@@ -81,7 +90,7 @@ if [ "$LOCAL" != "$REMOTE" ]; then
         docker restart treishvaam-nginx >> "$LOG_FILE" 2>&1
     fi
 
-    # 4. Observability Stack (Prometheus/Grafana/Loki)
+    # 4. Observability Stack
     if echo "$CHANGED_FILES" | grep -q "config/"; then
         echo "[$(date)] 📊 Observability config changed. Restarting stack..." >> "$LOG_FILE"
         docker restart treishvaam-prometheus treishvaam-grafana treishvaam-loki treishvaam-promtail treishvaam-tempo >> "$LOG_FILE" 2>&1
@@ -90,13 +99,12 @@ if [ "$LOCAL" != "$REMOTE" ]; then
     # 5. Backup Service
     if echo "$CHANGED_FILES" | grep -q "backup/"; then
         echo "[$(date)] 💾 Backup scripts changed. Rebuilding Backup Service..." >> "$LOG_FILE"
-        # Backup service needs DB password, so we use run_secure
         run_secure docker-compose up -d --build backup-service >> "$LOG_FILE" 2>&1
     fi
 
     # Cleanup unused images
     docker image prune -f >> "$LOG_FILE" 2>&1
     
-    echo "[$(date)] ✅ Smart Deployment Complete." >> "$LOG_FILE"
+    echo "[$(date)] ✅ Deployed [$TARGET_BRANCH] Successfully." >> "$LOG_FILE"
     echo "----------------------------------------------------------------" >> "$LOG_FILE"
 fi
