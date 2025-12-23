@@ -145,20 +145,14 @@ services:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
 
   backend:
-    # --------------------------------------------------------
-    # FIX: Build from local Dockerfile instead of pulling image
-    # --------------------------------------------------------
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    container_name: treishvaam-backend
+    image: ghcr.io/callitask/finance-api:latest
     restart: always
     networks:
       - treish_net
     env_file: .env
     environment:
-      # These secrets are injected by auto_deploy.sh into the shell,
-      # and then passed here to the container.
+      # --- INFISICAL INJECTED SECRETS ---
+      # These mappings pass the Host Shell variables (from Infisical) into the Container
       - PROD_DB_URL=${PROD_DB_URL}
       - PROD_DB_USERNAME=${PROD_DB_USERNAME}
       - PROD_DB_PASSWORD=${PROD_DB_PASSWORD}
@@ -171,6 +165,7 @@ services:
       - FINNHUB_API_KEY=${FINNHUB_API_KEY}
       - NEWS_API_KEY=${NEWS_API_KEY}
       - GA4_PROPERTY_ID=${GA4_PROPERTY_ID}
+      # --- CONFIG ---
       - SPRING_PROFILES_ACTIVE=prod
       - SPRING_DATA_REDIS_HOST=treishvaam-redis
       - SPRING_ELASTICSEARCH_URIS=http://treishvaam-elastic:9200
@@ -182,10 +177,7 @@ services:
       - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/auth/realms/treishvaam/protocol/openid-connect/certs
       - LOGGING_FILE_NAME=/app/logs/application-${HOSTNAME}.log
     volumes:
-      # --------------------------------------------------------
-      # CRITICAL FIX: Removed volume mount for app.war
-      # The WAR is now built INSIDE the image.
-      # --------------------------------------------------------
+      - ./backend-app.war:/app/app.war
       - ./ga4-credentials.json:/app/ga4-credentials.json
       - ./scripts:/app/scripts
       - ./uploads:/app/uploads
