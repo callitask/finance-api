@@ -87,7 +87,6 @@ services:
       - "6379:6379"
     volumes:
       - ./data/redis:/data
-    # CRITICAL FIX: --stop-writes-on-bgsave-error no prevents Redis from locking up on disk permission errors
     command: redis-server --save 60 1 --loglevel warning --stop-writes-on-bgsave-error no
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -152,14 +151,21 @@ services:
       - treish_net
     env_file: .env
     environment:
-      # --- INFISICAL SECRET MANAGEMENT ---
-      # These 3 variables unlock the secrets in memory at runtime
-      - INFISICAL_CLIENT_ID=${INFISICAL_CLIENT_ID}
-      - INFISICAL_CLIENT_SECRET=${INFISICAL_CLIENT_SECRET}
-      - INFISICAL_PROJECT_ID=${INFISICAL_PROJECT_ID}
-      - INFISICAL_ENVIRONMENT=prod
-      
-      # --- APP CONFIG ---
+      # --- INFISICAL INJECTED SECRETS ---
+      # These mappings pass the Host Shell variables (from Infisical) into the Container
+      - PROD_DB_URL=${PROD_DB_URL}
+      - PROD_DB_USERNAME=${PROD_DB_USERNAME}
+      - PROD_DB_PASSWORD=${PROD_DB_PASSWORD}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - INTERNAL_API_SECRET_KEY=${INTERNAL_API_SECRET_KEY}
+      - APP_ADMIN_EMAIL=${APP_ADMIN_EMAIL}
+      - APP_ADMIN_PASSWORD=${APP_ADMIN_PASSWORD}
+      - MARKET_DATA_API_KEY=${MARKET_DATA_API_KEY}
+      - ALPHAVANTAGE_API_KEY=${ALPHAVANTAGE_API_KEY}
+      - FINNHUB_API_KEY=${FINNHUB_API_KEY}
+      - NEWS_API_KEY=${NEWS_API_KEY}
+      - GA4_PROPERTY_ID=${GA4_PROPERTY_ID}
+      # --- CONFIG ---
       - SPRING_PROFILES_ACTIVE=prod
       - SPRING_DATA_REDIS_HOST=treishvaam-redis
       - SPRING_ELASTICSEARCH_URIS=http://treishvaam-elastic:9200
