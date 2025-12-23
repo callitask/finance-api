@@ -1,11 +1,10 @@
 #!/bin/bash
 # ----------------------------------------------------------------------
-# COMPILE & DEPLOY SCRIPT (PROD ONLY)
+# FINAL ENTERPRISE DEPLOY (AUTH-FIXED + COMPILE)
 # Purpose: 
-#   1. Syncs Git.
-#   2. COMPILES the Java Code (Maven).
-#   3. Updates the WAR file.
-#   4. Restarts Containers with Secrets.
+#   1. Detects Real User to fix Infisical Auth (Root vs User issue).
+#   2. Compiles Java Code (Maven).
+#   3. Deploys with PROD secrets.
 # ----------------------------------------------------------------------
 
 # 1. FIX PATH & ENVIRONMENT
@@ -15,7 +14,15 @@ LOG_FILE="/var/log/treishvaam_deploy.log"
 
 cd "$PROJECT_DIR" || exit 1
 
-# --- SECURITY: LOAD PROJECT ID ---
+# --- CRITICAL: FIX INFISICAL AUTH FOR SUDO/ROOT ---
+# If running as root (sudo), use the real user's Infisical config
+if [ -n "$SUDO_USER" ]; then
+    REAL_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    export INFISICAL_CONFIG_DIR="$REAL_HOME/.infisical"
+    echo "[$(date)] 🔧 Running as sudo. Using Infisical config from: $INFISICAL_CONFIG_DIR" >> "$LOG_FILE"
+fi
+
+# --- SECURITY: LOAD ENV VARS ---
 if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
 fi
@@ -61,19 +68,17 @@ if [ "$LOCAL" != "$REMOTE" ]; then
     git checkout "$TARGET_BRANCH" >> "$LOG_FILE" 2>&1
     git reset --hard "origin/$TARGET_BRANCH" >> "$LOG_FILE" 2>&1
     
-    # Ensure permissions
     chmod +x scripts/*.sh backup/*.sh mvnw
     
     # --- 5. COMPILE JAVA CODE (Crucial Step) ---
     if echo "$CHANGED_FILES" | grep -qE "^src/|^pom.xml"; then
         echo "[$(date)] 🔨 Compiling Backend Code (Maven)..." >> "$LOG_FILE"
         
-        # Run Maven Build (Skip tests to save time in prod)
+        # Run Maven as the original user to avoid permission issues if possible, or just root
         ./mvnw clean package -DskipTests >> "$LOG_FILE" 2>&1
         
         if [ $? -eq 0 ]; then
             echo "[$(date)] ✅ Build Successful. Updating WAR file..." >> "$LOG_FILE"
-            # Move the new WAR to the Docker volume location
             cp target/*.war backend-app.war
         else
             echo "[$(date)] ❌ Build FAILED. Aborting deployment." >> "$LOG_FILE"
@@ -85,11 +90,9 @@ if [ "$LOCAL" != "$REMOTE" ]; then
     # 6. AGGRESSIVE RESTART
     echo "[$(date)] ☕ Restarting Backend Containers..." >> "$LOG_FILE"
     
-    # Stop to force reload of WAR file and Environment
     docker-compose stop backend >> "$LOG_FILE" 2>&1 || true
     docker-compose rm -f -s -v backend >> "$LOG_FILE" 2>&1 || true
     
-    # Start with Secrets
     run_secure docker-compose up -d --force-recreate backend >> "$LOG_FILE" 2>&1
 
     # --- CONDITIONAL SERVICES ---
