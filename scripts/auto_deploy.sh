@@ -4,22 +4,20 @@
 # TREISHVAAM FINANCE - ENTERPRISE AUTO DEPLOY
 # ==========================================
 # 1. Checks Git for updates (Main vs Develop)
-# 2. Compiles WAR via Runner (handled externally)
-# 3. Injects Secrets via Secure Bridge
-# 4. Restarts Docker Services ONLY if changes detected
+# 2. Syncs ALL files (Nginx, Scripts, Configs, Backend)
+# 3. Executes the "Manual Simulation" command for zero-config startup
+# 4. Prevents restart loops by checking commit hashes
 
 # --- CONFIGURATION ---
 PROJECT_DIR="/opt/treishvaam"
 LOG_FILE="/var/log/treishvaam_deploy.log"
 ENV_FILE="$PROJECT_DIR/.env"
-BRIDGE_FILE="$PROJECT_DIR/.env.bridge"
 
 # --- 1. IDENTITY & PERMISSIONS CHECK ---
-# Ensure we are running as 'vboxuser' to access Docker socket
+# We must run as 'vboxuser' to access Docker socket and Infisical Token
 if [ "$(id -u)" -eq 0 ]; then
-    # Only log if we are actually switching user to prevent log spam
-    # exec su vboxuser -c "$0"
-    exec su vboxuser -c "$0"
+    # Use 'su -' to simulate a full login shell (sets PATH correctly)
+    exec su - vboxuser -c "$0"
     exit
 fi
 
@@ -28,18 +26,8 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 
 cd "$PROJECT_DIR" || { echo "❌ Critical: Project directory not found!"; exit 1; }
 
-# --- 3. SECURITY: TRAP & CLEANUP ---
-# Ensure the bridge file is ALWAYS deleted, even if script crashes
-cleanup_secrets() {
-    if [ -f "$BRIDGE_FILE" ]; then
-        # Silent cleanup to reduce log noise
-        rm -f "$BRIDGE_FILE"
-    fi
-}
-trap cleanup_secrets EXIT
-
-# --- 4. GIT RACE CHECK (Main vs Develop) ---
-# Fetch quietly
+# --- 3. GIT RACE CHECK (Main vs Develop) ---
+# Fetch quietly to update remote references
 git fetch --all -q
 
 # Get timestamps of latest commits
@@ -58,23 +46,26 @@ TARGET_HASH=$(git rev-parse "origin/$TARGET_BRANCH")
 if [ "$CURRENT_HASH" != "$TARGET_HASH" ]; then
     echo "----------------------------------------------------------------"
     echo "[$(date)] 🚀 Update detected on $TARGET_BRANCH! Starting Deployment..."
-    echo "🔄 Syncing to $TARGET_BRANCH..."
+    echo "🔄 Syncing files (Nginx, Scripts, App)..."
+    
+    # Force sync to match remote exactly
     git checkout "$TARGET_BRANCH"
     git reset --hard "origin/$TARGET_BRANCH"
+    
+    # Ensure scripts are executable after pull
+    chmod +x scripts/*.sh
 else
-    # CRITICAL FIX: STOP HERE if no changes.
-    # This prevents the "Restart Loop" running every minute.
+    # CRITICAL: Stop here if no changes to prevent restart loops
     exit 0
 fi
 
 # ==============================================================================
-#DEPLOYMENT LOGIC (Only runs if we did NOT exit above)
+# DEPLOYMENT LOGIC (Runs only if update detected)
 # ==============================================================================
 
-# --- 5. SECURE BRIDGE INJECTION ---
-echo "🔐 Authenticating with Infisical..."
+echo "🔐 Preparing Runtime Environment..."
 
-# Load Machine Identity (Client ID/Secret)
+# 1. Load Machine Identity (Client ID/Secret)
 if [ -f "$ENV_FILE" ]; then
     export $(grep -v '^#' "$ENV_FILE" | xargs)
 else
@@ -82,32 +73,26 @@ else
     exit 1
 fi
 
-# EXPORT secrets to the temporary bridge file
-infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$BRIDGE_FILE"
+# 2. Ensure PATH includes Infisical (Critical for Cron/Script execution)
+export PATH=$PATH:/usr/local/bin:/usr/bin
 
-# Security Lock: Ensure only this user can read the file
-chmod 600 "$BRIDGE_FILE"
-
-if [ ! -s "$BRIDGE_FILE" ]; then
-    echo "❌ Critical: Infisical failed to export secrets. Bridge file is empty."
-    exit 1
-fi
-
-# --- 6. HEALTH CHECK & RESTART ---
+# 3. Check Database Health before restart
 echo "⏳ Checking Database Health..."
-# Ensure DB is up before backend tries to connect
 until docker inspect --format '{{.State.Health.Status}}' treishvaam-db | grep -q "healthy"; do
     echo "   ...waiting for DB"
     sleep 3
 done
 
-echo "🚀 Restarting Backend with Injected Secrets..."
+echo "🚀 Restarting Infrastructure & Backend (Infisical Wrapper)..."
 
-# Use the Bridge File explicitly
-docker-compose --env-file "$BRIDGE_FILE" up -d --force-recreate backend
+# 4. EXECUTE THE PROVEN MANUAL COMMAND
+# - Updates Nginx, Tunnel, and Backend configurations if files changed
+# - Injects secrets via Memory (No bridge file)
+# - --force-recreate ensures containers pick up the new JAR/Config
+infisical run --projectId "$INFISICAL_PROJECT_ID" --env prod -- docker-compose up -d --force-recreate
 
 # Prune old images to save disk space
 docker image prune -f
 
-echo "[$(date)] ✅ Deployment Complete. Secrets Wiped."
+echo "[$(date)] ✅ Deployment Complete."
 echo "----------------------------------------------------------------"
