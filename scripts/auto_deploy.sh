@@ -3,16 +3,16 @@
 # ==========================================
 # TREISHVAAM FINANCE - ENTERPRISE AUTO DEPLOY
 # ==========================================
-# FIX: 'Source-Based' Injection with EXPORT enforcement.
+# FIX: Physical '.env' Injection.
+# We temporarily append secrets to .env so Docker reads them natively.
 
 # --- CONFIGURATION ---
 PROJECT_DIR="/opt/treishvaam"
 LOG_FILE="/var/log/treishvaam_deploy.log"
 ENV_FILE="$PROJECT_DIR/.env"
-SECRETS_TEMP="$PROJECT_DIR/.secrets.temp"
+ENV_BACKUP="$PROJECT_DIR/.env.backup"
 
 # --- 1. IDENTITY CHECK ---
-# We must run as the correct user (vboxuser)
 if [ "$(whoami)" != "vboxuser" ]; then
     echo "⚠️ Switching to vboxuser..."
     exec su - vboxuser -c "$0"
@@ -24,10 +24,14 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 cd "$PROJECT_DIR" || { echo "❌ Critical: Project directory not found!"; exit 1; }
 
 # --- 3. SECURITY TRAP ---
-cleanup() {
-    rm -f "$SECRETS_TEMP"
+# RESTORE THE .env FILE NO MATTER WHAT
+restore_env() {
+    if [ -f "$ENV_BACKUP" ]; then
+        echo "🔒 Restoring original .env file..."
+        mv "$ENV_BACKUP" "$ENV_FILE"
+    fi
 }
-trap cleanup EXIT
+trap restore_env EXIT
 
 # --- 4. GIT RACE CHECK ---
 git fetch --all -q
@@ -48,7 +52,7 @@ if [ "$CURRENT_HASH" != "$TARGET_HASH" ]; then
     git checkout "$TARGET_BRANCH"
     git reset --hard "origin/$TARGET_BRANCH"
     
-    # SELF-HEALING: Fix Windows line endings (Exclude data dirs)
+    # SELF-HEALING
     find . -path ./data -prune -o -name "*.sh" -type f -exec sed -i 's/\r$//' {} +
     chmod +x scripts/*.sh
 else
@@ -57,7 +61,7 @@ else
 fi
 
 # ==============================================================================
-# DEPLOYMENT LOGIC
+# DEPLOYMENT LOGIC (Physical .env Injection)
 # ==============================================================================
 
 echo "🔐 Authenticating..."
@@ -67,39 +71,30 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-# Load Identity (Client ID)
+# 1. Load Identity for Infisical CLI
 set -a
 source "$ENV_FILE"
 set +a
-
 export PATH=$PATH:/usr/local/bin:/usr/bin
 
-echo "📥 Fetching Secrets..."
+echo "📥 Injecting Secrets into .env..."
 
-# Export Secrets to Temp File
-infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$SECRETS_TEMP"
+# 2. BACKUP EXISTING .ENV
+cp "$ENV_FILE" "$ENV_BACKUP"
 
-if [ ! -s "$SECRETS_TEMP" ]; then
-    echo "❌ Critical: Failed to fetch secrets!"
+# 3. APPEND SECRETS TO THE ACTUAL .ENV FILE
+# This ensures Docker Compose reads them natively as file variables.
+echo "" >> "$ENV_FILE"
+echo "# --- DYNAMIC SECRETS (AUTO-INJECTED) ---" >> "$ENV_FILE"
+infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv >> "$ENV_FILE"
+
+# Validation
+if ! grep -q "PROD_DB_URL" "$ENV_FILE"; then
+    echo "❌ Critical: Infisical failed to inject secrets into .env!"
+    # Restore immediately
+    mv "$ENV_BACKUP" "$ENV_FILE"
     exit 1
 fi
-
-# LOAD SECRETS INTO RAM (CRITICAL STEP)
-# set -a ensures that every variable sourced is automatically EXPORTED to child processes (Docker)
-set -a
-source "$SECRETS_TEMP"
-set +a
-
-# Verify injection (Debug Log)
-if [ -z "$PROD_DB_URL" ]; then
-    echo "❌ Critical: Secrets failed to load into RAM!"
-    exit 1
-else
-    echo "✅ Secrets loaded into RAM successfully."
-fi
-
-# Wipe file immediately
-rm -f "$SECRETS_TEMP"
 
 echo "⏳ Checking Database Health..."
 until docker inspect --format '{{.State.Health.Status}}' treishvaam-db | grep -q "healthy"; do
@@ -109,8 +104,8 @@ done
 
 echo "🚀 Restarting Backend..."
 
-# Run Docker Compose
-# Since variables are exported above, Docker will pick them up natively.
+# 4. RUN DOCKER
+# Now Docker just reads the local .env file. No magic required.
 docker-compose up -d --force-recreate backend
 
 # Prune old images
@@ -118,3 +113,4 @@ docker image prune -f
 
 echo "[$(date)] ✅ Deployment Complete."
 echo "----------------------------------------------------------------"
+# Trap will automatically restore the clean .env here
