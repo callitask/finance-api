@@ -3,10 +3,6 @@
 # ==========================================
 # TREISHVAAM FINANCE - ENTERPRISE AUTO DEPLOY
 # ==========================================
-# 1. Checks Git for updates
-# 2. Syncs files
-# 3. DIRECT MEMORY INJECTION (Fixes the wrapper issue)
-# 4. Deploys
 
 # --- CONFIGURATION ---
 PROJECT_DIR="/opt/treishvaam"
@@ -15,14 +11,12 @@ ENV_FILE="$PROJECT_DIR/.env"
 
 # --- 1. IDENTITY & PERMISSIONS CHECK ---
 if [ "$(id -u)" -eq 0 ]; then
-    # Use 'su -' to ensure we get a clean user environment (loads PATHs)
     exec su - vboxuser -c "$0"
     exit
 fi
 
 # --- 2. LOGGING SETUP ---
 exec > >(tee -a "$LOG_FILE") 2>&1
-
 cd "$PROJECT_DIR" || { echo "❌ Critical: Project directory not found!"; exit 1; }
 
 # --- 3. GIT RACE CHECK ---
@@ -43,10 +37,15 @@ if [ "$CURRENT_HASH" != "$TARGET_HASH" ]; then
     echo "[$(date)] 🚀 Update detected on $TARGET_BRANCH! Syncing..."
     git checkout "$TARGET_BRANCH"
     git reset --hard "origin/$TARGET_BRANCH"
-    # Ensure scripts remain executable after git pull
+    
+    # --- SELF-HEALING BLOCK ---
+    # This automatically removes Windows (\r) line endings from ALL scripts
+    # immediately after downloading them.
+    echo "🔧 Sanitizing script formats..."
+    find . -name "*.sh" -type f -exec sed -i 's/\r$//' {} +
+    
     chmod +x scripts/*.sh
 else
-    # STOP if no changes (Prevents restart loop)
     exit 0
 fi
 
@@ -56,24 +55,16 @@ fi
 
 echo "🔐 Authenticating..."
 
-# 1. Load Identity from .env (Client ID / Secret)
 if [ -f "$ENV_FILE" ]; then
-    # Export vars from .env, ignoring comments
     export $(grep -v '^#' "$ENV_FILE" | xargs)
 else
     echo "❌ Error: Identity file .env not found!"
     exit 1
 fi
 
-# 2. Ensure PATH has Infisical
 export PATH=$PATH:/usr/local/bin:/usr/bin
 
-# 3. INJECT SECRETS INTO MEMORY
-# We fetch secrets as 'KEY=VALUE' strings and export them to this shell.
-# This bypasses the 'infisical run' wrapper which fails in scripts.
 echo "📥 Fetching Production Secrets into RAM..."
-
-# Fetch secrets in dotenv format (KEY=VALUE)
 INFISICAL_DATA=$(infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv)
 
 if [ -z "$INFISICAL_DATA" ]; then
@@ -81,24 +72,16 @@ if [ -z "$INFISICAL_DATA" ]; then
     exit 1
 fi
 
-# Export all fetched secrets to the current environment
-# Note: Using xargs handles simple KEY=VALUE pairs. 
 export $(echo "$INFISICAL_DATA" | xargs)
 
-# 4. Check Health
 echo "⏳ Checking Database Health..."
 until docker inspect --format '{{.State.Health.Status}}' treishvaam-db | grep -q "healthy"; do
     echo "   ...waiting for DB"
     sleep 3
 done
 
-echo "🚀 Restarting Backend (Direct Env)..."
-
-# 5. RUN DOCKER COMPOSE
-# Since we exported the secrets above, docker-compose finds them natively in the shell env.
+echo "🚀 Restarting Backend..."
 docker-compose up -d --force-recreate backend
-
-# Prune old images to save space
 docker image prune -f
 
 echo "[$(date)] ✅ Deployment Complete."
