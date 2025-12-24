@@ -1,4 +1,3 @@
-cat << 'EOF' > /opt/treishvaam/scripts/auto_deploy.sh
 #!/bin/bash
 
 # ==========================================
@@ -109,4 +108,3 @@ docker image prune -f
 
 echo "[$(date)] ✅ Deployment Complete."
 echo "----------------------------------------------------------------"
-EOF
