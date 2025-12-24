@@ -3,8 +3,7 @@
 # ==========================================
 # TREISHVAAM FINANCE - ENTERPRISE AUTO DEPLOY
 # ==========================================
-# FIX: 'Source-Based' Memory Injection.
-# We load secrets into Shell RAM using 'source', then run Docker.
+# FIX: 'Source-Based' Injection with EXPORT enforcement.
 
 # --- CONFIGURATION ---
 PROJECT_DIR="/opt/treishvaam"
@@ -12,9 +11,10 @@ LOG_FILE="/var/log/treishvaam_deploy.log"
 ENV_FILE="$PROJECT_DIR/.env"
 SECRETS_TEMP="$PROJECT_DIR/.secrets.temp"
 
-# --- 1. IDENTITY & PERMISSIONS CHECK ---
-if [ "$(id -u)" -eq 0 ]; then
-    # Switch to vboxuser and ensure a login shell to load PATHs
+# --- 1. IDENTITY CHECK ---
+# We must run as the correct user (vboxuser)
+if [ "$(whoami)" != "vboxuser" ]; then
+    echo "⚠️ Switching to vboxuser..."
     exec su - vboxuser -c "$0"
     exit
 fi
@@ -24,11 +24,8 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 cd "$PROJECT_DIR" || { echo "❌ Critical: Project directory not found!"; exit 1; }
 
 # --- 3. SECURITY TRAP ---
-# Always wipe the secrets file, even if script crashes
 cleanup() {
-    if [ -f "$SECRETS_TEMP" ]; then
-        rm -f "$SECRETS_TEMP"
-    fi
+    rm -f "$SECRETS_TEMP"
 }
 trap cleanup EXIT
 
@@ -51,18 +48,16 @@ if [ "$CURRENT_HASH" != "$TARGET_HASH" ]; then
     git checkout "$TARGET_BRANCH"
     git reset --hard "origin/$TARGET_BRANCH"
     
-    # SELF-HEALING: Fix Windows line endings
-    # Exclude ./data directory to prevent permission errors
-    echo "🔧 Sanitizing script formats..."
+    # SELF-HEALING: Fix Windows line endings (Exclude data dirs)
     find . -path ./data -prune -o -name "*.sh" -type f -exec sed -i 's/\r$//' {} +
     chmod +x scripts/*.sh
 else
-    # EXIT if no changes (Prevents restart loop)
+    # EXIT if no changes
     exit 0
 fi
 
 # ==============================================================================
-# DEPLOYMENT LOGIC (Source-Based Injection)
+# DEPLOYMENT LOGIC
 # ==============================================================================
 
 echo "🔐 Authenticating..."
@@ -72,28 +67,38 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-# 1. Load Identity (Client ID) using xargs (Safe for simple .env files with comments)
-export $(grep -v '^#' "$ENV_FILE" | xargs)
+# Load Identity (Client ID)
+set -a
+source "$ENV_FILE"
+set +a
+
 export PATH=$PATH:/usr/local/bin:/usr/bin
 
 echo "📥 Fetching Secrets..."
 
-# 2. Export Secrets to Temp File
-# We use 'infisical export' to get a clean KEY=VALUE file.
+# Export Secrets to Temp File
 infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$SECRETS_TEMP"
 
 if [ ! -s "$SECRETS_TEMP" ]; then
-    echo "❌ Critical: Failed to fetch secrets (File is empty)"
+    echo "❌ Critical: Failed to fetch secrets!"
     exit 1
 fi
 
-# 3. Load Secrets into RAM (The Magic Step)
-# 'set -a' tells bash to export every variable defined in the sourced file
+# LOAD SECRETS INTO RAM (CRITICAL STEP)
+# set -a ensures that every variable sourced is automatically EXPORTED to child processes (Docker)
 set -a
 source "$SECRETS_TEMP"
 set +a
 
-# 4. Wipe the file immediately
+# Verify injection (Debug Log)
+if [ -z "$PROD_DB_URL" ]; then
+    echo "❌ Critical: Secrets failed to load into RAM!"
+    exit 1
+else
+    echo "✅ Secrets loaded into RAM successfully."
+fi
+
+# Wipe file immediately
 rm -f "$SECRETS_TEMP"
 
 echo "⏳ Checking Database Health..."
@@ -102,10 +107,10 @@ until docker inspect --format '{{.State.Health.Status}}' treishvaam-db | grep -q
     sleep 3
 done
 
-echo "🚀 Restarting Backend (RAM Injected)..."
+echo "🚀 Restarting Backend..."
 
-# 5. Run Docker Compose
-# It will now find PROD_DB_URL in the environment variables we just sourced.
+# Run Docker Compose
+# Since variables are exported above, Docker will pick them up natively.
 docker-compose up -d --force-recreate backend
 
 # Prune old images
