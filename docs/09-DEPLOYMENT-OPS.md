@@ -4,13 +4,13 @@
 The platform utilizes a fully automated **GitOps** deployment strategy. Deployments are managed by a smart orchestration script that handles secret injection.
 
 ### The Workflow
-1.  **Trigger**: A push to the `main` branch on GitHub.
+1.  **Trigger**: A push to the `main` or `develop` branch on GitHub.
 2.  **Runner Execution**: The self-hosted Git Runner on the Ubuntu Server detects the change.
 3.  **Orchestration**: The runner invokes `scripts/auto_deploy.sh`.
     * This script checks which files changed (Backend, Infrastructure, or Nginx).
     * It intelligently decides which services to restart.
 4.  **Secure Deployment Phase**:
-    * The script executes `infisical run -- docker-compose up -d ...`.
+    * The script executes `infisical run --env prod -- docker-compose up -d ...`.
     * Secrets are injected into the deployment process in real-time.
     * **Zero-Downtime**: Nginx remains active while the backend containers are recreated.
 

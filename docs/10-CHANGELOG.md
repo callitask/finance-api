@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Infrastructure & Security (Host-Level)
 - **Arch**: Transitioned to **Orchestrator Injection Pattern**. Secrets are now fetched by the host and injected into standard Docker containers, removing all secret-fetching logic from the images.
 - **Sec**: Moved `CLOUDFLARE_TUNNEL_TOKEN` to Infisical, achieving 100% Zero-Secrets-on-Disk (except for Identity tokens).
-- **Ops**: Upgraded Infisical CLI to `v0.154+` via official artifact repository to support modern Machine Identity authentication.
+- **Ops**: Validated Infisical CLI v0.43+ as the standard stable release for Machine Identity authentication on Ubuntu.
 - **Fix**: Resolved "Zombie Token" conflict in Cloudflare Tunnel (`TUNNEL_TOKEN` vs `CLOUDFLARE_TUNNEL_TOKEN`).
 - **Fix**: Corrected malformed `PROD_DB_URL` injection that caused JDBC driver crashes.
 

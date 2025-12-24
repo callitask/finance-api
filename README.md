@@ -19,7 +19,7 @@ The Treishvaam Finance API is an enterprise-grade backend service built with Spr
 * Java Development Kit (JDK) 21
 * Docker and Docker Compose
 * Maven 3.9+
-* Infisical CLI (v0.154+ via official repository)
+* Infisical CLI (v0.43+ via official repository)
 
 ### Configuration
 This project adheres to strict security standards and does not use local configuration files for sensitive data. All secrets are managed via Infisical.
@@ -60,7 +60,7 @@ The platform integrates with the LGTM stack (Loki, Grafana, Tempo, Mimir) for co
 ## Deployment
 Deployment is fully automated using a GitOps workflow with a custom Orchestrator Script.
 
-* **Trigger**: Push to `main`.
+* **Trigger**: Push to `main` or `develop`.
 * **Orchestrator**: `scripts/auto_deploy.sh`
 * **Mechanism**: The script authenticates with Infisical using Machine Identity and performs a secure, secret-injected `docker-compose` restart.
 
