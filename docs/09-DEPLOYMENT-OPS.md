@@ -1,4 +1,4 @@
-# 09-DEPLOYMENT-OPS.md
+# Deployment & Operations Guide
 
 ## 1. Deployment Pipeline (GitOps Automation)
 The platform utilizes a fully automated **GitOps** deployment strategy. Deployments are managed by a smart orchestration script that handles secret injection.
@@ -24,7 +24,7 @@ cd /opt/treishvaam
 ---
 
 ## 2. Secret Management (Infisical)
-**Status**: ✅ Active (Enterprise Orchestrator Mode)
+**Status**: Active (Enterprise Orchestrator Mode)
 **Policy**: **Zero-Secrets-on-Disk**
 
 We use **Host-Level Injection**. The `docker-compose.yml` file maps environment variables (e.g., `${PROD_DB_PASSWORD}`) to the containers. These variables are populated by the `infisical run` wrapper command on the host.
