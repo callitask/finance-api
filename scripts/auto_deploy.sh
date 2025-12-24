@@ -3,14 +3,13 @@
 # ==========================================
 # TREISHVAAM FINANCE - ENTERPRISE AUTO DEPLOY
 # ==========================================
-# FIX: Physical '.env' Injection.
-# We temporarily append secrets to .env so Docker reads them natively.
+# FIX: 'Inline' Command Injection.
+# We fetch secrets and pass them directly as env vars to the docker command.
 
 # --- CONFIGURATION ---
 PROJECT_DIR="/opt/treishvaam"
 LOG_FILE="/var/log/treishvaam_deploy.log"
 ENV_FILE="$PROJECT_DIR/.env"
-ENV_BACKUP="$PROJECT_DIR/.env.backup"
 
 # --- 1. IDENTITY CHECK ---
 if [ "$(whoami)" != "vboxuser" ]; then
@@ -23,17 +22,7 @@ fi
 exec > >(tee -a "$LOG_FILE") 2>&1
 cd "$PROJECT_DIR" || { echo "❌ Critical: Project directory not found!"; exit 1; }
 
-# --- 3. SECURITY TRAP ---
-# RESTORE THE .env FILE NO MATTER WHAT
-restore_env() {
-    if [ -f "$ENV_BACKUP" ]; then
-        echo "🔒 Restoring original .env file..."
-        mv "$ENV_BACKUP" "$ENV_FILE"
-    fi
-}
-trap restore_env EXIT
-
-# --- 4. GIT RACE CHECK ---
+# --- 3. GIT RACE CHECK ---
 git fetch --all -q
 TS_MAIN=$(git show -s --format=%ct origin/main)
 TS_DEVELOP=$(git show -s --format=%ct origin/develop)
@@ -61,7 +50,7 @@ else
 fi
 
 # ==============================================================================
-# DEPLOYMENT LOGIC (Physical .env Injection)
+# DEPLOYMENT LOGIC (Inline Command Injection)
 # ==============================================================================
 
 echo "🔐 Authenticating..."
@@ -71,28 +60,19 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-# 1. Load Identity for Infisical CLI
+# Load Identity (Client ID)
 set -a
 source "$ENV_FILE"
 set +a
 export PATH=$PATH:/usr/local/bin:/usr/bin
 
-echo "📥 Injecting Secrets into .env..."
+echo "📥 Fetching Secrets..."
 
-# 2. BACKUP EXISTING .ENV
-cp "$ENV_FILE" "$ENV_BACKUP"
+# Fetch raw secrets in KEY=VALUE format
+SECRETS=$(infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv)
 
-# 3. APPEND SECRETS TO THE ACTUAL .ENV FILE
-# This ensures Docker Compose reads them natively as file variables.
-echo "" >> "$ENV_FILE"
-echo "# --- DYNAMIC SECRETS (AUTO-INJECTED) ---" >> "$ENV_FILE"
-infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv >> "$ENV_FILE"
-
-# Validation
-if ! grep -q "PROD_DB_URL" "$ENV_FILE"; then
-    echo "❌ Critical: Infisical failed to inject secrets into .env!"
-    # Restore immediately
-    mv "$ENV_BACKUP" "$ENV_FILE"
+if [ -z "$SECRETS" ]; then
+    echo "❌ Critical: Failed to fetch secrets from Infisical!"
     exit 1
 fi
 
@@ -102,15 +82,15 @@ until docker inspect --format '{{.State.Health.Status}}' treishvaam-db | grep -q
     sleep 3
 done
 
-echo "🚀 Restarting Backend..."
+echo "🚀 Restarting Backend (Inline Injection)..."
 
-# 4. RUN DOCKER
-# Now Docker just reads the local .env file. No magic required.
-docker-compose up -d --force-recreate backend
+# EXECUTE DOCKER WITH INLINE SECRETS
+# This passes the secrets as environment variables *only* for this command.
+# 'eval' is used here to parse the newline-separated secrets string correctly into the command environment.
+env $(echo "$SECRETS" | xargs) docker-compose up -d --force-recreate backend
 
 # Prune old images
 docker image prune -f
 
 echo "[$(date)] ✅ Deployment Complete."
 echo "----------------------------------------------------------------"
-# Trap will automatically restore the clean .env here
