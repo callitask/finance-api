@@ -3,8 +3,8 @@
 # ==========================================
 # TREISHVAAM FINANCE - ENTERPRISE AUTO DEPLOY
 # ==========================================
-# FIX: 'Inline' Command Injection.
-# We fetch secrets and pass them directly as env vars to the docker command.
+# FIX: 'Brute Force' .env Rewrite.
+# We completely rebuild the .env file from Infisical before every deploy.
 
 # --- CONFIGURATION ---
 PROJECT_DIR="/opt/treishvaam"
@@ -50,31 +50,36 @@ else
 fi
 
 # ==============================================================================
-# DEPLOYMENT LOGIC (Inline Command Injection)
+# DEPLOYMENT LOGIC (Brute Force Rewrite)
 # ==============================================================================
 
 echo "🔐 Authenticating..."
 
-if [ ! -f "$ENV_FILE" ]; then
-    echo "❌ Error: Identity file .env not found!"
-    exit 1
+# We need the Client ID/Secret to talk to Infisical.
+# We assume these are ALREADY in the current .env or shell.
+# If .env exists, source it strictly for the Infisical CLI auth.
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    source "$ENV_FILE"
+    set +a
 fi
 
-# Load Identity (Client ID)
-set -a
-source "$ENV_FILE"
-set +a
 export PATH=$PATH:/usr/local/bin:/usr/bin
 
-echo "📥 Fetching Secrets..."
+echo "📥 Rebuilding .env file from Secrets..."
 
-# Fetch raw secrets in KEY=VALUE format
-SECRETS=$(infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv)
+# 1. FETCH ALL SECRETS (Config + Secrets)
+# We fetch the ENTIRE environment from Infisical and overwrite .env
+# This ensures .env is always fresh and correct.
+infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$ENV_FILE"
 
-if [ -z "$SECRETS" ]; then
-    echo "❌ Critical: Failed to fetch secrets from Infisical!"
+# 2. VALIDATE
+if ! grep -q "PROD_DB_URL" "$ENV_FILE"; then
+    echo "❌ Critical: Infisical failed to write secrets to .env!"
     exit 1
 fi
+
+echo "✅ .env file rebuilt successfully."
 
 echo "⏳ Checking Database Health..."
 until docker inspect --format '{{.State.Health.Status}}' treishvaam-db | grep -q "healthy"; do
@@ -82,12 +87,11 @@ until docker inspect --format '{{.State.Health.Status}}' treishvaam-db | grep -q
     sleep 3
 done
 
-echo "🚀 Restarting Backend (Inline Injection)..."
+echo "🚀 Restarting Backend..."
 
-# EXECUTE DOCKER WITH INLINE SECRETS
-# This passes the secrets as environment variables *only* for this command.
-# 'eval' is used here to parse the newline-separated secrets string correctly into the command environment.
-env $(echo "$SECRETS" | xargs) docker-compose up -d --force-recreate backend
+# 3. RUN DOCKER
+# Docker will read the freshly written .env file automatically.
+docker-compose up -d --force-recreate backend
 
 # Prune old images
 docker image prune -f
