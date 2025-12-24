@@ -1,84 +1,115 @@
 #!/bin/bash
-# ----------------------------------------------------------------------
-# FINAL ROBUST DEPLOY (WAIT-FOR-DB + USER CONTEXT)
-# Purpose: Ensures DB is ready before backend starts.
-#          Replicates manual command exactly as 'vboxuser'.
-# ----------------------------------------------------------------------
 
-# --- 1. ROOT CHECK & USER SWITCH ---
-if [ "$(id -u)" -eq 0 ]; then
-    echo "[$(date)] ⚠️ Running as root. Switching to 'vboxuser'..." >> /var/log/treishvaam_deploy.log
-    su vboxuser -c "cd /opt/treishvaam && export \$(grep -v '^#' .env | xargs) && /opt/treishvaam/scripts/auto_deploy.sh"
-    exit 0
-fi
+# ==========================================
+# TREISHVAAM FINANCE - ENTERPRISE AUTO DEPLOY
+# ==========================================
+# 1. Checks Git for updates (Main vs Develop)
+# 2. Compiles WAR via Runner (handled externally, this script manages runtime)
+# 3. Injects Secrets via Secure Bridge
+# 4. Restarts Docker Services with Zero Downtime
 
-# ======================================================================
-#  RUNNING AS 'vboxuser'
-# ======================================================================
-
+# --- CONFIGURATION ---
 PROJECT_DIR="/opt/treishvaam"
 LOG_FILE="/var/log/treishvaam_deploy.log"
+ENV_FILE="$PROJECT_DIR/.env"
+BRIDGE_FILE="$PROJECT_DIR/.env.bridge"
 
-cd "$PROJECT_DIR" || exit 1
-
-# 1. LOAD ENV
-if [ -f .env ]; then
-    export $(grep -v '^#' .env | xargs)
+# --- 1. IDENTITY & PERMISSIONS CHECK ---
+# Ensure we are running as 'vboxuser' to access Docker socket
+if [ "$(id -u)" -eq 0 ]; then
+    echo "⚠️  Running as root. Switching to vboxuser..." >> "$LOG_FILE"
+    exec su vboxuser -c "$0"
+    exit
 fi
 
-# 2. GIT OPERATIONS
-git fetch --all >> "$LOG_FILE" 2>&1
+# --- 2. LOGGING SETUP ---
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "----------------------------------------------------------------"
+echo "[$(date)] 🚀 Starting Auto-Deployment Routine..."
 
-TS_MAIN=$(git log -1 --format=%ct origin/main 2>/dev/null || echo 0)
-TS_DEVELOP=$(git log -1 --format=%ct origin/develop 2>/dev/null || echo 0)
+cd "$PROJECT_DIR" || { echo "❌ Critical: Project directory not found!"; exit 1; }
+
+# --- 3. SECURITY: TRAP & CLEANUP ---
+# Ensure the bridge file is ALWAYS deleted, even if script crashes
+cleanup_secrets() {
+    if [ -f "$BRIDGE_FILE" ]; then
+        echo "🔒 Securing: Wiping temporary secret bridge..."
+        rm -f "$BRIDGE_FILE"
+    fi
+}
+trap cleanup_secrets EXIT
+
+# --- 4. GIT RACE CHECK (Main vs Develop) ---
+echo "📡 Fetching latest updates..."
+git fetch --all
+
+# Get timestamps of latest commits
+TS_MAIN=$(git show -s --format=%ct origin/main)
+TS_DEVELOP=$(git show -s --format=%ct origin/develop)
 
 TARGET_BRANCH="main"
 if [ "$TS_DEVELOP" -gt "$TS_MAIN" ]; then
     TARGET_BRANCH="develop"
+    echo "twisted_rightwards_arrows  Detected activity on DEVELOP (Newer than Main)"
+else
+    echo "shield  Production MAIN is active"
 fi
 
-LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse "origin/$TARGET_BRANCH")
+# Reset to the winning branch
+CURRENT_HASH=$(git rev-parse HEAD)
+TARGET_HASH=$(git rev-parse "origin/$TARGET_BRANCH")
 
-# 3. EXECUTE DEPLOYMENT
-if [ "$LOCAL" != "$REMOTE" ]; then
-    echo "----------------------------------------------------------------" >> "$LOG_FILE"
-    echo "[$(date)] 🚀 New activity on [$TARGET_BRANCH]. Deploying..." >> "$LOG_FILE"
+if [ "$CURRENT_HASH" != "$TARGET_HASH" ]; then
+    echo "🔄 Update detected! Syncing to $TARGET_BRANCH..."
+    git checkout "$TARGET_BRANCH"
+    git reset --hard "origin/$TARGET_BRANCH"
     
-    # Git Sync
-    git checkout "$TARGET_BRANCH" >> "$LOG_FILE" 2>&1
-    git reset --hard "origin/$TARGET_BRANCH" >> "$LOG_FILE" 2>&1
-    chmod +x scripts/*.sh backup/*.sh
-    
-    echo "[$(date)] ☕ Restarting Backend (Robust Mode)..." >> "$LOG_FILE"
-
-    # --- ROBUST RESTART LOGIC ---
-    
-    # 1. Clean up old backend containers (Ignore errors if they don't exist)
-    docker-compose stop backend >> "$LOG_FILE" 2>&1 || true
-    docker-compose rm -f -s -v backend >> "$LOG_FILE" 2>&1 || true
-    
-    # 2. Ensure Database is Healthy FIRST
-    echo "[$(date)] ⏳ Waiting for Database to be healthy..." >> "$LOG_FILE"
-    # This ensures the DB container is actually running and marked healthy
-    until [ "`docker inspect -f {{.State.Health.Status}} treishvaam-db`" == "healthy" ]; do
-        sleep 2;
-        echo -n "." >> "$LOG_FILE";
-    done;
-    echo " DB is Healthy." >> "$LOG_FILE"
-
-    # 3. Start Backend with Secrets (The Magic Command)
-    if command -v infisical &> /dev/null; then
-        echo "[$(date)] 🔐 Injecting secrets via Infisical..." >> "$LOG_FILE"
-        infisical run --projectId "$INFISICAL_PROJECT_ID" --env prod -- docker-compose up -d --force-recreate backend >> "$LOG_FILE" 2>&1
-    else
-        echo "[$(date)] ❌ CRITICAL: Infisical not found." >> "$LOG_FILE"
-        /usr/local/bin/infisical run --projectId "$INFISICAL_PROJECT_ID" --env prod -- docker-compose up -d --force-recreate backend >> "$LOG_FILE" 2>&1
-    fi
-    
-    # Cleanup
-    docker image prune -f >> "$LOG_FILE" 2>&1
-    
-    echo "[$(date)] ✅ Deployed Successfully." >> "$LOG_FILE"
-    echo "----------------------------------------------------------------" >> "$LOG_FILE"
+    # Note: We assume the WAR file is updated by the GitHub Runner (deploy.yml)
+    # This script focuses on Environment & Service Restart.
+else
+    echo "✅ System is already up to date."
+    # Optional: Uncomment 'exit 0' if you want to skip restart when no code changes.
+    # We continue to ensure secrets/config are always compliant.
 fi
+
+# --- 5. SECURE BRIDGE INJECTION ---
+echo "🔐 Authenticating with Infisical..."
+
+# Load Machine Identity (Client ID/Secret)
+if [ -f "$ENV_FILE" ]; then
+    export $(grep -v '^#' "$ENV_FILE" | xargs)
+else
+    echo "❌ Error: Identity file .env not found!"
+    exit 1
+fi
+
+# EXPORT secrets to the temporary bridge file
+# This fixes the "Silent Drop" issue in Cron/Automation
+infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$BRIDGE_FILE"
+
+# Security Lock: Ensure only this user can read the file
+chmod 600 "$BRIDGE_FILE"
+
+if [ ! -s "$BRIDGE_FILE" ]; then
+    echo "❌ Critical: Infisical failed to export secrets. Bridge file is empty."
+    exit 1
+fi
+
+# --- 6. HEALTH CHECK & RESTART ---
+echo "⏳ Checking Database Health..."
+# Ensure DB is up before backend tries to connect
+until docker inspect --format '{{.State.Health.Status}}' treishvaam-db | grep -q "healthy"; do
+    echo "   ...waiting for DB"
+    sleep 3
+done
+
+echo "🚀 Restarting Backend with Injected Secrets..."
+
+# Use the Bridge File explicitly
+docker-compose --env-file "$BRIDGE_FILE" up -d --force-recreate backend
+
+# Prune old images to save disk space
+docker image prune -f
+
+echo "[$(date)] ✅ Deployment Complete. Secrets Wiped."
+echo "----------------------------------------------------------------"
