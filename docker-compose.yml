@@ -116,7 +116,6 @@ services:
       retries: 3
 
   elasticsearch:
-    # UPDATED: Matching Spring Boot 3.4 dependency (8.17.0)
     image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
     container_name: treishvaam-elastic
     restart: always
@@ -125,7 +124,6 @@ services:
     environment:
       - discovery.type=single-node
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-      # IMPORTANT: Disable Elastic 8 security features to match backend config (HTTP)
       - xpack.security.enabled=false
       - xpack.security.enrollment.enabled=false
       - xpack.security.http.ssl.enabled=false
@@ -209,7 +207,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 15
-      start_period: 60s
+      start_period: 160s
 
   nginx:
     image: owasp/modsecurity-crs:nginx
@@ -229,7 +227,7 @@ services:
       - ./sitemaps:/app/sitemaps
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
 
   loki:
     image: grafana/loki:2.9.2
