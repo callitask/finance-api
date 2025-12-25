@@ -71,9 +71,8 @@ if [ "$LOCAL" != "$REMOTE" ]; then
     
     echo "[Security] Fetching live secrets from Infisical..."
     
-    # --- FIX: FORCE NEWLINE TO PREVENT VARIABLE MERGING ---
+    # Force newline to prevent variable merging
     echo "" >> "$ENV_FILE"
-    # ----------------------------------------------------
 
     if infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv >> "$ENV_FILE"; then
         echo "  > Secrets injected."
@@ -86,6 +85,12 @@ if [ "$LOCAL" != "$REMOTE" ]; then
     
     docker compose down --remove-orphans
     docker compose up -d --build --force-recreate
+    
+    # --- SAFETY BUFFER (CRITICAL FIX) ---
+    # Wait for all containers (especially Nginx) to fully initialize and read env vars
+    echo "[System] Stabilizing containers (Waiting 10s)..."
+    sleep 10
+    # ------------------------------------
     
     # D. CONDITIONAL RESTARTS
     if echo "$CHANGED_FILES" | grep -qE "^nginx/"; then
