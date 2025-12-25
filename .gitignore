@@ -37,8 +37,10 @@ src/main/resources/marketdata/*.csv
 
 # --- FIX: Ignore compiled output folder ---
 bin/
-bin/
-
-bin/
-
 *.war
+
+# --- SECURITY: Ignore Environment Secrets ---
+.env
+.env.template
+.env.backup
+secrets/
