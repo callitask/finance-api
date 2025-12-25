@@ -5,7 +5,7 @@
 # ==============================================================================
 # Role: 
 #   1. Watches Git for infrastructure/config changes.
-#   2. Auto-selects the most recent branch (main vs develop).
+#   2. Auto-selects the most recent branch (main vs staging vs develop).
 #   3. Updates the server files (Self-Healing).
 #   4. Injects secrets securely (Flash & Wipe) to restart services if needed.
 # ==============================================================================
@@ -17,6 +17,9 @@ LOG_FILE="deploy.log"
 ENV_FILE=".env"
 TEMPLATE_FILE=".env.template"
 
+# List of branches to monitor for deployment
+MONITORED_BRANCHES=("main" "staging" "develop")
+
 # Ensure we are in the project directory
 cd "$PROJECT_DIR" || { echo "CRITICAL: Could not find project directory $PROJECT_DIR"; exit 1; }
 
@@ -24,16 +27,26 @@ cd "$PROJECT_DIR" || { echo "CRITICAL: Could not find project directory $PROJECT
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 # --- 1. BRANCH INTELLIGENCE ---
+# Objective: Find which branch was updated most recently (highest Unix timestamp)
 git fetch --all
 
-TS_MAIN=$(git log -1 --format=%ct origin/main 2>/dev/null || echo 0)
-TS_DEVELOP=$(git log -1 --format=%ct origin/develop 2>/dev/null || echo 0)
+TARGET_BRANCH="main" # Default fallback
+LATEST_TIMESTAMP=0
 
-TARGET_BRANCH="main"
+echo "Checking branch activity..."
 
-if [ "$TS_DEVELOP" -gt "$TS_MAIN" ]; then
-    TARGET_BRANCH="develop"
-fi
+for branch in "${MONITORED_BRANCHES[@]}"; do
+    # Get the commit timestamp of the remote branch. Returns 0 if branch doesn't exist.
+    TS=$(git log -1 --format=%ct "origin/$branch" 2>/dev/null || echo 0)
+    
+    # Compare timestamps to find the winner
+    if [ "$TS" -gt "$LATEST_TIMESTAMP" ]; then
+        LATEST_TIMESTAMP=$TS
+        TARGET_BRANCH="$branch"
+    fi
+    # Optional debug log
+    # echo "  > Branch: $branch | TS: $TS"
+done
 
 # --- 2. DETECT CHANGES ---
 LOCAL=$(git rev-parse HEAD)
@@ -41,14 +54,16 @@ REMOTE=$(git rev-parse "origin/$TARGET_BRANCH")
 
 if [ "$LOCAL" != "$REMOTE" ]; then
     echo "================================================================"
-    echo "[$(date)] 🚀 New activity detected on [$TARGET_BRANCH]."
-    echo "  > Main TS: $TS_MAIN | Develop TS: $TS_DEVELOP"
+    echo "[$(date)] 🚀 New activity detected. Winning Branch: [$TARGET_BRANCH]"
+    echo "  > Timestamp: $LATEST_TIMESTAMP"
     echo "================================================================"
 
     CHANGED_FILES=$(git diff --name-only HEAD "origin/$TARGET_BRANCH")
     
     # --- 3. SELF-HEALING UPDATE ---
     echo "[System] Syncing files with origin/$TARGET_BRANCH..."
+    
+    # Switch to the target branch and hard reset to match remote state
     git checkout "$TARGET_BRANCH"
     git reset --hard "origin/$TARGET_BRANCH"
     

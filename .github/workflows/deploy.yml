@@ -2,7 +2,7 @@ name: Treishvaam Enterprise Deploy
 
 on:
   push:
-    branches: [ "main", "develop" ]
+    branches: [ "main", "staging", "develop" ]
   workflow_dispatch:
 
 concurrency:
