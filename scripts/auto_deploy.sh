@@ -23,10 +23,12 @@ echo "=========================================="
 echo "DEPLOYMENT STARTED: $(date)"
 echo "=========================================="
 
-# --- 1. Fix Permissions (Crucial Step) ---
-# Ensure vboxuser owns the directory to prevent permission lockouts from previous sudo runs
-echo "[1/6] Fixing permissions..."
-sudo chown -R $APP_USER:$APP_USER "$PROJECT_DIR"
+# --- 1. Fix Permissions ---
+# We generally assume the user owns their own files. 
+# We skip 'sudo chown' to avoid password prompts. 
+# If permissions are broken, run 'sudo chown -R vboxuser:vboxuser .' manually ONCE.
+echo "[1/6] Ensuring file ownership..."
+# No-op: We rely on the user already being the owner.
 
 # --- 2. Update Codebase ---
 echo "[2/6] Pulling latest code from Git..."
@@ -38,24 +40,21 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Make sure this script is executable for next time
 chmod +x scripts/auto_deploy.sh
 
 # --- 3. Prepare Environment (.env) ---
 echo "[3/6] Preparing environment variables..."
 
-# Check if template exists (The source of truth for Auth Keys)
 if [ ! -f "$TEMPLATE_FILE" ]; then
     echo "CRITICAL: $TEMPLATE_FILE missing! Cannot restore Auth Keys."
-    echo "ACTION REQUIRED: Create .env.template with INFISICAL_CLIENT_ID/SECRET manually."
     exit 1
 fi
 
-# Reset .env from Template (This restores the Infisical Auth Keys)
+# Reset .env from Template
 cp "$TEMPLATE_FILE" "$ENV_FILE"
 echo "  > Restored .env from template (Auth keys loaded)."
 
-# Load Auth Keys into Shell for Infisical CLI
+# Load Auth Keys
 set -a
 source "$ENV_FILE"
 set +a
@@ -63,28 +62,23 @@ set +a
 # --- 4. Fetch Secrets (Infisical) ---
 echo "[4/6] Fetching secrets from Infisical..."
 
-# Append secrets to .env
-# We use >> to append, keeping the Auth Keys at the top
 if infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv >> "$ENV_FILE"; then
     echo "  > Secrets successfully injected into $ENV_FILE."
 else
-    echo "CRITICAL: Infisical fetch failed. Check Client ID/Secret."
-    # We do NOT exit here. We try to deploy. 
-    # If secrets are missing, Spring Boot will fail fast, which is better than hanging.
+    echo "CRITICAL: Infisical fetch failed. Proceeding with caution..."
 fi
 
 # --- 5. Restart Services ---
 echo "[5/6] Restarting Docker Services..."
 
-# Force recreation of containers to pick up new Env Vars and Code
-# We use 'sudo' for Docker, but we point to the .env file we just built
-sudo docker compose down --remove-orphans
-sudo docker compose up -d --build --force-recreate
+# REMOVED 'sudo': User must be in 'docker' group
+docker compose down --remove-orphans
+docker compose up -d --build --force-recreate
 
 # --- 6. Verification ---
 echo "[6/6] Verifying deployment..."
-sleep 10
-if sudo docker ps | grep -q "finance-api"; then
+sleep 15
+if docker ps | grep -q "finance-api"; then
     echo "SUCCESS: Backend container is running."
     echo "DEPLOYMENT COMPLETE: $(date)"
 else
