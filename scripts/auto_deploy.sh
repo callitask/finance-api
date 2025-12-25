@@ -23,8 +23,7 @@ cd "$PROJECT_DIR" || { echo "CRITICAL: Could not find project directory $PROJECT
 # Start Logging
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-# --- 1. BRANCH INTELLIGENCE (The "Old" Logic) ---
-# We fetch all branches to compare their latest activity timestamps
+# --- 1. BRANCH INTELLIGENCE ---
 git fetch --all
 
 TS_MAIN=$(git log -1 --format=%ct origin/main 2>/dev/null || echo 0)
@@ -32,7 +31,6 @@ TS_DEVELOP=$(git log -1 --format=%ct origin/develop 2>/dev/null || echo 0)
 
 TARGET_BRANCH="main"
 
-# If develop is more recent than main, we track develop
 if [ "$TS_DEVELOP" -gt "$TS_MAIN" ]; then
     TARGET_BRANCH="develop"
 fi
@@ -50,45 +48,46 @@ if [ "$LOCAL" != "$REMOTE" ]; then
     CHANGED_FILES=$(git diff --name-only HEAD "origin/$TARGET_BRANCH")
     
     # --- 3. SELF-HEALING UPDATE ---
-    # Force the server to match the git repo exactly
     echo "[System] Syncing files with origin/$TARGET_BRANCH..."
     git checkout "$TARGET_BRANCH"
     git reset --hard "origin/$TARGET_BRANCH"
     
-    # Ensure scripts are executable
     chmod +x scripts/*.sh backup/*.sh
     chmod +x scripts/auto_deploy.sh
 
-    # --- 4. SECURE RESTART STRATEGY (The "New" Flash & Wipe) ---
+    # --- 4. SECURE RESTART STRATEGY ---
     
     echo "[Security] Preparing Secure Environment..."
     
-    # A. RESTORE AUTH KEYS (From Template)
+    # A. RESTORE AUTH KEYS
     if [ ! -f "$TEMPLATE_FILE" ]; then
         echo "CRITICAL: $TEMPLATE_FILE missing! Cannot fetch secrets."
         exit 1
     fi
     cp "$TEMPLATE_FILE" "$ENV_FILE"
     
-    # B. INJECT SECRETS (Using Infisical)
-    # Load Auth Keys temporarily for the CLI
+    # B. INJECT SECRETS
     set -a; source "$ENV_FILE"; set +a
     
     echo "[Security] Fetching live secrets from Infisical..."
+    
+    # --- FIX: FORCE NEWLINE TO PREVENT VARIABLE MERGING ---
+    echo "" >> "$ENV_FILE"
+    # ----------------------------------------------------
+
     if infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv >> "$ENV_FILE"; then
         echo "  > Secrets injected."
     else
         echo "CRITICAL: Infisical fetch failed. Service restart may fail."
     fi
     
-    # C. RESTART SERVICES (Passwordless Docker)
+    # C. RESTART SERVICES (Passwordless)
     echo "[Docker] Rebuilding services..."
     
-    # Note: We use 'docker compose' (v2) as confirmed working in recent tests
     docker compose down --remove-orphans
     docker compose up -d --build --force-recreate
     
-    # D. CONDITIONAL RESTARTS (Infrastructure)
+    # D. CONDITIONAL RESTARTS
     if echo "$CHANGED_FILES" | grep -qE "^nginx/"; then
         echo "[Config] Nginx configuration changed. Restarting..."
         docker restart treishvaam-nginx
@@ -104,13 +103,11 @@ if [ "$LOCAL" != "$REMOTE" ]; then
     cp "$TEMPLATE_FILE" "$ENV_FILE"
     echo "  > SECURE WIPE COMPLETE. .env now contains only Auth Keys."
     
-    # Cleanup
     docker image prune -f
     
     echo "[$(date)] ✅ Update & Deployment Complete for [$TARGET_BRANCH]."
     echo "================================================================"
 else
-    # No changes - Silent exit (or minimal log if debug needed)
-    # echo "[$(date)] System is up to date ($TARGET_BRANCH)."
+    # echo "[$(date)] System is up to date."
     :
 fi
