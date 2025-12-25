@@ -7,6 +7,7 @@ Treishvaam Finance is deployed on an Ubuntu Server (VirtualBox) using Docker Com
 - **Backend**: Spring Boot 3.4 (Java 21) — Port 8080
 - **Database**: MariaDB — Port 3306
 - **Cache**: Redis — Port 6379 (Configured for Resilience/Fail-Open)
+- **Search**: Elasticsearch 8.17.0 (Configured for HTTP/No-SSL to match Backend Client)
 - **Storage**: MinIO (S3 Compatible) — Port 9000
 - **Identity**: Keycloak — Port 8080/auth
 - **Gateway**: Nginx (with ModSecurity WAF) — Ports 80/443
@@ -23,6 +24,7 @@ graph TD
     NG --> API[Spring Boot Backend]
     API --> DB[MariaDB]
     API --> RD[Redis]
+    API --> ES[Elasticsearch 8.17]
     API --> S3[MinIO Storage]
     NG --> KC[Keycloak (Auth)]
     API --> MQ[RabbitMQ]
@@ -44,6 +46,14 @@ graph TD
     G --> A
     API --> BU[Backup Service]
 ```
+
+### Startup Orchestration (Critical)
+To ensure zero connection errors during the Java application's boot sequence (approx. 113 seconds), the architecture enforces strict dependency chains:
+
+1.  **Backend Wait**: The Backend container waits for `elasticsearch`, `mariadb`, and `redis` to be healthy before attempting to start the Spring context.
+2.  **Nginx Pause**: Nginx is configured with `depends_on: condition: service_healthy` linked to the Backend.
+    * **Behavior**: Nginx will **NOT** start (status: `Created`) until the Backend reports itself as `healthy`.
+    * **Result**: This prevents "502 Bad Gateway" loops during startup. Once the Backend is ready (~2.5 mins), Nginx starts automatically. **No manual Nginx restart is required.**
 
 ### Request Flow
 **External Request:** A client request arrives at `backend.treishvaamgroup.com` and is routed securely through the Cloudflare Tunnel.

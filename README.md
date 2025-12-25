@@ -8,10 +8,10 @@ The Treishvaam Finance API is an enterprise-grade backend service built with Spr
 * **Language**: Java 21 (Eclipse Temurin)
 * **Database**: MariaDB 10.6
 * **Caching**: Redis (Cluster-ready)
-* **Search Engine**: Elasticsearch
+* **Search Engine**: Elasticsearch 8.17.0 (Matching Spring Data ES 5.x)
 * **Object Storage**: MinIO (S3 Compatible)
 * **Identity Management**: Keycloak (OAuth2 / OIDC)
-* **Secret Management**: Infisical (Zero-Trust / Orchestrator Injection)
+* **Secret Management**: Infisical (Zero-Trust / Flash & Wipe Injection)
 
 ## Quick Start Guide
 
@@ -34,12 +34,18 @@ To compile the project and run unit tests:
 mvn clean package
 ```
 
-### Running Locally (Enterprise Mode)
-We use **Orchestrator Injection**. You do not need to configure `.env` files for application secrets. Infisical injects them directly into the Docker process from the host.
+### Running Locally (Manual Secret Injection)
+For local debugging where you need secrets in the `.env` file temporarily:
 
 ```bash
-# This fetches secrets and starts the entire stack (DB, Cache, Backend)
-infisical run --env dev -- docker-compose up -d
+# 1. Inject secrets into .env (Flash)
+./scripts/load_secrets.sh
+
+# 2. Run Docker
+docker compose up -d
+
+# 3. Wipe secrets manually when done (Wipe)
+cp .env.template .env
 ```
 
 ## Architecture and Design
@@ -62,7 +68,9 @@ Deployment is fully automated using a GitOps workflow with a custom Orchestrator
 
 * **Trigger**: Push to `main` or `develop`.
 * **Orchestrator**: `scripts/auto_deploy.sh`
-* **Mechanism**: The script authenticates with Infisical using Machine Identity and performs a secure, secret-injected `docker-compose` restart.
+* **Mechanism**: The script implements the **"Flash & Wipe"** strategy. It momentarily injects secrets into the environment to start Docker, pauses to allow initialization, and immediately wipes them from the disk.
+
+**Note on Startup**: Nginx is configured to wait until the Backend is fully healthy (approx. 2.5 minutes) before starting. No manual restart is required.
 
 For detailed deployment procedures, refer to:
 `docs/09-DEPLOYMENT-OPS.md`

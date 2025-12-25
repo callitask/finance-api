@@ -4,7 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.5.0] - Phase 7: Orchestrator Injection & Final Stabilization (Current)
+## [2.5.1] - Phase 8: Stable Orchestration & Elastic Upgrade (Current)
+### Infrastructure & Stability
+- **Fix**: Upgraded **Elasticsearch Docker Image** to `8.17.0` to resolve `Failed to decode response` error caused by version mismatch with Spring Boot 3.4 client.
+- **Fix**: Implemented **Smart Orchestration** for Nginx. Nginx now waits (`depends_on: service_healthy`) for the Backend to be fully ready before starting. This eliminates "502 Bad Gateway" errors during the 2-minute startup window.
+- **Config**: Increased Backend Healthcheck `start_period` to **160s** to accommodate Java/Hibernate initialization time (~113s).
+- **Ops**: Refined `auto_deploy.sh` with a **10s Safety Buffer** between secret injection and secret wiping to ensure Docker processes read the configuration reliably.
+- **Ops**: Added `scripts/load_secrets.sh` for manual debugging scenarios.
+
+## [2.5.0] - Phase 7: Orchestrator Injection
 ### Infrastructure & Security (Host-Level)
 - **Arch**: Transitioned to **Orchestrator Injection Pattern**. Secrets are now fetched by the host and injected into standard Docker containers, removing all secret-fetching logic from the images.
 - **Sec**: Moved `CLOUDFLARE_TUNNEL_TOKEN` to Infisical, achieving 100% Zero-Secrets-on-Disk (except for Identity tokens).

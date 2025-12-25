@@ -1,47 +1,41 @@
 # Secret Management Protocol
 
-This project utilizes Infisical for enterprise-grade secret management, strictly adhering to a **Zero-Secrets-on-Disk** policy.
+This project utilizes Infisical for enterprise-grade secret management, strictly adhering to a **Zero-Secrets-on-Disk** policy via the **Flash & Wipe** strategy.
 
 ## 1. Security Policies
-* **No .env Files**: Confidential configuration files must never be committed to version control or stored unencrypted on the disk (except for the strictly limited machine authentication tokens).
-* **No Hardcoded Secrets**: Passwords, API keys, and tokens must never be embedded in source code, properties files, or Dockerfiles.
+* **No .env Files**: Confidential configuration files must never be committed to version control. The `.env` file on disk must ONLY contain machine authentication tokens.
+* **Flash & Wipe**: Actual application secrets (Database URLs, API Keys) exist on the disk only for the few seconds required to start Docker, after which they are aggressively wiped.
 * **Least Privilege**: Application services use restricted Machine Identities (Robots) with read-only access to specific environments.
 
-## 2. Architecture Overview: Orchestrator Injection
-We utilize the **Host-Level Injection** pattern. The application containers (Backend, Database, Keycloak) are standard Docker images and contain **no secret-fetching logic**.
-
-Instead, the Host (Orchestrator) is responsible for fetching secrets and passing them into the container runtime memory.
+## 2. Architecture Overview: Flash & Wipe Injection
+We utilize a dynamic injection pattern orchestrated by `auto_deploy.sh`.
 
 ### Injection Workflow
-1.  **Deployment Trigger**: The `auto_deploy.sh` script is triggered.
-2.  **Host Authentication**: The host authenticates with Infisical using the Machine Identity tokens stored in `/opt/treishvaam/.env`.
-3.  **Secure Expansion**: The command `infisical run -- docker-compose up` is executed.
-4.  **Runtime Injection**:
-    * Infisical fetches secrets into the Host's RAM.
-    * It populates the environment variables for the `docker-compose` process.
-    * Docker Compose maps these variables to the containers via the `environment` blocks in `docker-compose.yml` (e.g., `MYSQL_ROOT_PASSWORD: ${PROD_DB_PASSWORD}`).
-5.  **Result**: Containers start with full access to secrets, but **no secrets ever touch the server's disk**.
+1.  **Trigger**: Deployment starts. The `.env` file currently contains only `INFISICAL_CLIENT_ID` and `SECRET`.
+2.  **Flash (Inject)**: The script authenticates with Infisical and appends the production secrets (e.g., `PROD_DB_URL`, `JWT_SECRET`) to the `.env` file on disk.
+3.  **Consumption**: `docker compose up` is executed. Docker reads the `.env` file and passes variables into the container runtime.
+4.  **Wipe (Secure)**: Immediately after Docker initialization (and a 10s safety buffer), the script overwrites `.env` with `.env.template`.
+5.  **Result**: The secrets are now in the RAM of the running containers, but the file on disk is clean. If the server is inspected 20 seconds later, no secrets are found.
 
-## 3. Local Development Setup
-Developers must install the Infisical CLI to run the backend locally. This ensures development environments mirror production security standards.
+## 3. Local Development & Debugging
+Since secrets are not persistent, you must manually inject them if you need to run debug commands or restart specific containers manually.
 
-### Installation
-* **MacOS**: `brew install infisical/tap/infisical`
-* **Windows**: `winget install Infisical.Infisical`
-* **Linux (Ubuntu/Debian)**:
-    ```bash
-    curl -1sLf '[https://artifacts-cli.infisical.com/setup.deb.sh](https://artifacts-cli.infisical.com/setup.deb.sh)' | sudo -E bash
-    sudo apt-get update && sudo apt-get install -y infisical
-    ```
+### Manual Injection Script (`scripts/load_secrets.sh`)
+We have created a dedicated utility for this.
 
-### Running the Application
-1.  **Authenticate**: Run `infisical login` in your terminal.
-2.  **Select Project**: Choose 'Treishvaam Finance'.
-3.  **Execute**:
-    ```bash
-    # Runs the full stack with injected secrets
-    infisical run -- docker-compose up
-    ```
+**To Load Secrets:**
+```bash
+cd /opt/treishvaam
+./scripts/load_secrets.sh
+```
+* This will restore auth keys and fetch live secrets into `.env`.
+* **Warning**: Your `.env` file is now "Hot" (contains secrets).
+
+**To Secure (Wipe) Secrets:**
+After you finish your manual debugging (e.g., running `docker compose up`), you **MUST** wipe the file manually to maintain security standards.
+```bash
+cp .env.template .env
+```
 
 ## 4. Production Configuration
 The production environment uses a Machine Identity for authentication.
@@ -62,12 +56,4 @@ The production environment uses a Machine Identity for authentication.
 To rotate a database password, API key, or internal secret:
 
 1.  **Update**: Change the secret value in the Infisical Dashboard (Production Environment).
-2.  **Restart**: Run the secure restart command on the server:
-    ```bash
-    cd /opt/treishvaam
-    # Load Auth
-    export $(grep -v '^#' .env | xargs)
-    # Restart
-    infisical run --projectId "$INFISICAL_PROJECT_ID" --env prod -- docker-compose up -d --force-recreate
-    ```
-3.  **Verify**: The application will fetch the new value immediately upon startup. No code changes or commits are required.
+2.  **Restart**: Simply trigger the `auto_deploy.sh` script (or push a commit). The Flash & Wipe process will pick up the new values automatically during the next boot.

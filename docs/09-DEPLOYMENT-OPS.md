@@ -1,18 +1,17 @@
 # Deployment & Operations Guide
 
 ## 1. Deployment Pipeline (GitOps Automation)
-The platform utilizes a fully automated **GitOps** deployment strategy. Deployments are managed by a smart orchestration script that handles secret injection.
+The platform utilizes a fully automated **GitOps** deployment strategy. Deployments are managed by a smart orchestration script that handles secret injection, service dependencies, and security wiping.
 
-### The Workflow
+### The Workflow (`auto_deploy.sh`)
 1.  **Trigger**: A push to the `main` or `develop` branch on GitHub.
 2.  **Runner Execution**: The self-hosted Git Runner on the Ubuntu Server detects the change.
-3.  **Orchestration**: The runner invokes `scripts/auto_deploy.sh`.
-    * This script checks which files changed (Backend, Infrastructure, or Nginx).
-    * It intelligently decides which services to restart.
-4.  **Secure Deployment Phase**:
-    * The script executes `infisical run --env prod -- docker-compose up -d ...`.
-    * Secrets are injected into the deployment process in real-time.
-    * **Zero-Downtime**: Nginx remains active while the backend containers are recreated.
+3.  **Branch Logic**: The script intelligently compares timestamps between `main` and `develop` to deploy the most recently active branch.
+4.  **Secure Deployment Phase (Flash & Wipe)**:
+    * **Inject**: Authenticates with Infisical and appends secrets to `.env`.
+    * **Docker Up**: Executes `docker compose up -d --build --force-recreate`.
+    * **Wait**: Pauses for **10 seconds** to ensure Docker has fully read the configuration.
+    * **Wipe**: Overwrites `.env` with `.env.template`, removing all secrets from the disk.
 
 ### Manual Deployment (Emergency Only)
 If you need to force a restart manually:
@@ -23,31 +22,38 @@ cd /opt/treishvaam
 
 ---
 
-## 2. Secret Management (Infisical)
-**Status**: Active (Enterprise Orchestrator Mode)
-**Policy**: **Zero-Secrets-on-Disk**
+## 2. Startup Order & Healthchecks (The "2-Minute Rule")
+The Backend (Spring Boot) takes approximately **113 seconds** to initialize its connection pool and Elasticsearch client. To prevent "502 Bad Gateway" loops or manual restart requirements, we enforce the following:
 
-We use **Host-Level Injection**. The `docker-compose.yml` file maps environment variables (e.g., `${PROD_DB_PASSWORD}`) to the containers. These variables are populated by the `infisical run` wrapper command on the host.
-
-### Server Configuration (`.env`)
-The server contains only **one** configuration file at `/opt/treishvaam/.env`. It holds **only** the Machine Identity tokens.
-
-| Variable | Description |
-|----------|-------------|
-| `INFISICAL_PROJECT_ID` | The Treishvaam Finance Project ID. |
-| `INFISICAL_CLIENT_ID` | The Machine Identity (Robot) ID. |
-| `INFISICAL_CLIENT_SECRET` | The Robot's Secret Key. |
-
-**Note:** The `CLOUDFLARE_TUNNEL_TOKEN` is also managed inside Infisical and injected via the wrapper. It should **not** be in the `.env` file.
+1.  **Backend Start Period**: Configured with `start_period: 160s`. Docker will not mark the container as "Unhealthy" during this boot window.
+2.  **Nginx Dependency**: Nginx is configured with `depends_on: backend: condition: service_healthy`.
+    * **Effect**: When deployment starts, Nginx will stay in the `Created` state (Stopped) for about 2 minutes.
+    * **Auto-Start**: Once the Backend logs "Started FinanceApiApplication", it becomes `healthy`. Docker then **automatically** starts Nginx.
+    * **No Manual Action**: You do not need to manually `docker start nginx`. Just wait for the sequence to complete.
 
 ---
 
-## 3. Startup Order & Healthchecks
-To prevent deployment loops and service failures:
+## 3. Secret Management (Infisical)
+**Status**: Active (Flash & Wipe Mode)
+**Policy**: **Zero-Secrets-on-Disk**
 
-1.  **Backend Dependency**: The backend waits for `keycloak`, `mariadb`, and `redis` to be healthy before starting (`condition: service_healthy`).
-2.  **Keycloak Latency**: Keycloak takes ~30-60s to start. Nginx may return `502 Bad Gateway` during this window. This is normal behavior during a full restart.
-3.  **Database URL**: The JDBC URL is constructed securely in Infisical (e.g., `jdbc:mariadb://treishvaam-db:3306/...`) to ensure correct internal routing.
+We use **Host-Level Injection**. The `docker-compose.yml` file maps environment variables (e.g., `${PROD_DB_PASSWORD}`) to the containers.
+
+### Manual Debugging
+If you need to run docker commands manually (e.g., to debug a specific container crash), you must manually inject the secrets first.
+
+1.  **Load Secrets**:
+    ```bash
+    ./scripts/load_secrets.sh
+    ```
+2.  **Run Commands**:
+    ```bash
+    docker compose up -d ...
+    ```
+3.  **Wipe Secrets (Mandatory)**:
+    ```bash
+    cp .env.template .env
+    ```
 
 ---
 
