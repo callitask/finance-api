@@ -1,100 +1,93 @@
 #!/bin/bash
 
-# ==========================================
-# TREISHVAAM FINANCE - ENTERPRISE AUTO DEPLOY
-# ==========================================
-# FIX: 'Brute Force' .env Rewrite.
-# We completely rebuild the .env file from Infisical before every deploy.
+# ==============================================================================
+# TREISHVAAM FINANCE - AUTO DEPLOYMENT SCRIPT
+# ==============================================================================
+# Role: Updates code, fetches secrets (Infisical), and restarts Docker services.
+# Strategy: "Template & Append" to prevent secret loss during failures.
+# ==============================================================================
 
-# --- CONFIGURATION ---
+# --- Configuration ---
 PROJECT_DIR="/opt/treishvaam"
-LOG_FILE="/var/log/treishvaam_deploy.log"
-ENV_FILE="$PROJECT_DIR/.env"
+ENV_FILE=".env"
+TEMPLATE_FILE=".env.template"
+LOG_FILE="deploy.log"
+APP_USER="vboxuser"
 
-# --- 1. IDENTITY CHECK ---
-if [ "$(whoami)" != "vboxuser" ]; then
-    echo "⚠️ Switching to vboxuser..."
-    exec su - vboxuser -c "$0"
-    exit
-fi
+# Ensure we are in the project directory
+cd "$PROJECT_DIR" || { echo "CRITICAL: Could not find project directory $PROJECT_DIR"; exit 1; }
 
-# --- 2. LOGGING SETUP ---
+# Start Logging
 exec > >(tee -a "$LOG_FILE") 2>&1
-cd "$PROJECT_DIR" || { echo "❌ Critical: Project directory not found!"; exit 1; }
+echo "=========================================="
+echo "DEPLOYMENT STARTED: $(date)"
+echo "=========================================="
 
-# --- 3. GIT RACE CHECK ---
-git fetch --all -q
-TS_MAIN=$(git show -s --format=%ct origin/main)
-TS_DEVELOP=$(git show -s --format=%ct origin/develop)
+# --- 1. Fix Permissions (Crucial Step) ---
+# Ensure vboxuser owns the directory to prevent permission lockouts from previous sudo runs
+echo "[1/6] Fixing permissions..."
+sudo chown -R $APP_USER:$APP_USER "$PROJECT_DIR"
 
-TARGET_BRANCH="main"
-if [ "$TS_DEVELOP" -gt "$TS_MAIN" ]; then
-    TARGET_BRANCH="develop"
-fi
+# --- 2. Update Codebase ---
+echo "[2/6] Pulling latest code from Git..."
+git reset --hard
+git pull origin main
 
-CURRENT_HASH=$(git rev-parse HEAD)
-TARGET_HASH=$(git rev-parse "origin/$TARGET_BRANCH")
-
-if [ "$CURRENT_HASH" != "$TARGET_HASH" ]; then
-    echo "----------------------------------------------------------------"
-    echo "[$(date)] 🚀 Update detected on $TARGET_BRANCH! Syncing..."
-    git checkout "$TARGET_BRANCH"
-    git reset --hard "origin/$TARGET_BRANCH"
-    
-    # SELF-HEALING
-    find . -path ./data -prune -o -name "*.sh" -type f -exec sed -i 's/\r$//' {} +
-    chmod +x scripts/*.sh
-else
-    # EXIT if no changes
-    exit 0
-fi
-
-# ==============================================================================
-# DEPLOYMENT LOGIC (Brute Force Rewrite)
-# ==============================================================================
-
-echo "🔐 Authenticating..."
-
-# We need the Client ID/Secret to talk to Infisical.
-# We assume these are ALREADY in the current .env or shell.
-# If .env exists, source it strictly for the Infisical CLI auth.
-if [ -f "$ENV_FILE" ]; then
-    set -a
-    source "$ENV_FILE"
-    set +a
-fi
-
-export PATH=$PATH:/usr/local/bin:/usr/bin
-
-echo "📥 Rebuilding .env file from Secrets..."
-
-# 1. FETCH ALL SECRETS (Config + Secrets)
-# We fetch the ENTIRE environment from Infisical and overwrite .env
-# This ensures .env is always fresh and correct.
-infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$ENV_FILE"
-
-# 2. VALIDATE
-if ! grep -q "PROD_DB_URL" "$ENV_FILE"; then
-    echo "❌ Critical: Infisical failed to write secrets to .env!"
+if [ $? -ne 0 ]; then
+    echo "CRITICAL: Git pull failed. Aborting."
     exit 1
 fi
 
-echo "✅ .env file rebuilt successfully."
+# Make sure this script is executable for next time
+chmod +x scripts/auto_deploy.sh
 
-echo "⏳ Checking Database Health..."
-until docker inspect --format '{{.State.Health.Status}}' treishvaam-db | grep -q "healthy"; do
-    echo "   ...waiting for DB"
-    sleep 3
-done
+# --- 3. Prepare Environment (.env) ---
+echo "[3/6] Preparing environment variables..."
 
-echo "🚀 Restarting Backend..."
+# Check if template exists (The source of truth for Auth Keys)
+if [ ! -f "$TEMPLATE_FILE" ]; then
+    echo "CRITICAL: $TEMPLATE_FILE missing! Cannot restore Auth Keys."
+    echo "ACTION REQUIRED: Create .env.template with INFISICAL_CLIENT_ID/SECRET manually."
+    exit 1
+fi
 
-# 3. RUN DOCKER
-# Docker will read the freshly written .env file automatically.
-docker-compose up -d --force-recreate backend
+# Reset .env from Template (This restores the Infisical Auth Keys)
+cp "$TEMPLATE_FILE" "$ENV_FILE"
+echo "  > Restored .env from template (Auth keys loaded)."
 
-# Prune old images
-docker image prune -f
+# Load Auth Keys into Shell for Infisical CLI
+set -a
+source "$ENV_FILE"
+set +a
 
-echo "[$(date)] ✅ Deployment Complete."
-echo "----------------------------------------------------------------"
+# --- 4. Fetch Secrets (Infisical) ---
+echo "[4/6] Fetching secrets from Infisical..."
+
+# Append secrets to .env
+# We use >> to append, keeping the Auth Keys at the top
+if infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv >> "$ENV_FILE"; then
+    echo "  > Secrets successfully injected into $ENV_FILE."
+else
+    echo "CRITICAL: Infisical fetch failed. Check Client ID/Secret."
+    # We do NOT exit here. We try to deploy. 
+    # If secrets are missing, Spring Boot will fail fast, which is better than hanging.
+fi
+
+# --- 5. Restart Services ---
+echo "[5/6] Restarting Docker Services..."
+
+# Force recreation of containers to pick up new Env Vars and Code
+# We use 'sudo' for Docker, but we point to the .env file we just built
+sudo docker compose down --remove-orphans
+sudo docker compose up -d --build --force-recreate
+
+# --- 6. Verification ---
+echo "[6/6] Verifying deployment..."
+sleep 10
+if sudo docker ps | grep -q "finance-api"; then
+    echo "SUCCESS: Backend container is running."
+    echo "DEPLOYMENT COMPLETE: $(date)"
+else
+    echo "WARNING: Backend container is NOT running. Check 'docker logs finance-api'."
+    exit 1
+fi
