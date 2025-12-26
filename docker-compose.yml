@@ -17,8 +17,7 @@ services:
     volumes:
       - ./data/mariadb:/var/lib/mysql
       - ./config/mariadb:/etc/mysql/conf.d
-    ports:
-      - "3306:3306"
+    # ports: Removed for Security (Access via internal network only)
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1"]
       interval: 10s
@@ -83,8 +82,7 @@ services:
     restart: always
     networks:
       - treish_net
-    ports:
-      - "6379:6379"
+    # ports: Removed for Security (Access via internal network only)
     volumes:
       - ./data/redis:/data
     command: redis-server --save 60 1 --loglevel warning --stop-writes-on-bgsave-error no
@@ -100,9 +98,7 @@ services:
     restart: always
     networks:
       - treish_net
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+    # ports: Removed for Security (Access via internal network only)
     environment:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -128,8 +124,7 @@ services:
       - xpack.security.enrollment.enabled=false
       - xpack.security.http.ssl.enabled=false
       - xpack.security.transport.ssl.enabled=false
-    ports:
-      - "9200:9200"
+    # ports: Removed for Security (Access via internal network only)
     volumes:
       - ./data/elastic:/usr/share/elasticsearch/data
     healthcheck:
@@ -239,8 +234,7 @@ services:
       - treish_net
     volumes:
       - ./config/loki-config.yml:/etc/loki/local-config.yaml
-    ports:
-      - "3100:3100"
+    # ports: Removed for Security (Access via internal network only)
     command: -config.file=/etc/loki/local-config.yaml
 
   promtail:
@@ -262,8 +256,7 @@ services:
       - treish_net
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
-    ports:
-      - "9090:9090"
+    # ports: Removed for Security (Access via internal network only)
 
   grafana:
     image: grafana/grafana:latest
@@ -271,8 +264,7 @@ services:
     restart: always
     networks:
       - treish_net
-    ports:
-      - "3001:3000"
+    # ports: Removed for Security (Access via internal network only)
     user: "0" 
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
@@ -298,11 +290,7 @@ services:
     volumes:
       - ./config/tempo.yaml:/etc/tempo.yaml
       - ./data/tempo:/tmp/tempo
-    ports:
-      - "3200:3200"
-      - "4317:4317"
-      - "4318:4318"
-      - "9411:9411"
+    # ports: Removed for Security (Access via internal network only)
 
   rabbitmq:
     image: rabbitmq:3.12-management
@@ -310,9 +298,7 @@ services:
     restart: always
     networks:
       - treish_net
-    ports:
-      - "5672:5672"
-      - "15672:15672"
+    # ports: Removed for Security (Access via internal network only)
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
