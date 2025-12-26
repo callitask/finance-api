@@ -3,57 +3,50 @@
 ## System Overview
 Treishvaam Finance is deployed on an Ubuntu Server (VirtualBox) using Docker Compose to orchestrate all core services. The system is designed for high availability, security, and observability, leveraging modern open-source technologies.
 
-## Infrastructure & Services
-- **Backend**: Spring Boot 3.4 (Java 21) — Port 8080
-- **Database**: MariaDB — Port 3306
-- **Cache**: Redis — Port 6379 (Configured for Resilience/Fail-Open)
-- **Search**: Elasticsearch 8.17.0 (Configured for HTTP/No-SSL to match Backend Client)
-- **Storage**: MinIO (S3 Compatible) — Port 9000
-- **Identity**: Keycloak — Port 8080/auth
-- **Gateway**: Nginx (with ModSecurity WAF) — Ports 80/443
-- **Tunnel**: Cloudflare Tunnel (cloudflared) — Exposes Nginx to `backend.treishvaamgroup.com` securely via Token authentication.
-- **Observability**: Grafana, Prometheus, Loki, Tempo, Alloy (LGTM Stack).
-- **SEO Edge Logic**: Cloudflare Worker handles SEO, robots.txt, sitemaps, and meta/schema injection at the edge.
-- **Messaging**: RabbitMQ with Dead Letter Exchange (DLX) for message reliability.
-- **Backup Service**: Dedicated container for automated encrypted database backups and PITR.
+## System Components
+* **Application Layer**:
+    * **Backend**: Spring Boot 3.4 (Java 21) — Port 8080.
+    * **Worker**: Cloudflare Worker (Edge Logic for SEO/Routing).
+* **Data Layer**:
+    * **Database**: MariaDB — Port 3306.
+    * **Cache**: Redis — Port 6379 (Fail-Open Config).
+    * **Storage**: MinIO (S3 Compatible) — Port 9000.
+* **Security Layer**:
+    * **Identity**: Keycloak — Port 8080/auth.
+    * **WAF**: Nginx + ModSecurity (OWASP Rules).
+    * **Tunnel**: Cloudflare Tunnel (Zero-Trust Access).
+* **Automation Layer**:
+    * **Build**: GitHub Actions (Runner).
+    * **Watchdog**: Bash Script (`auto_deploy.sh`) for branch monitoring and self-healing.
 
 ## Architecture Diagram
 ```mermaid
 graph TD
-    CF[Cloudflare Tunnel] --> NG[Nginx (Reverse Proxy + WAF/ModSecurity)]
-    NG --> API[Spring Boot Backend]
-    API --> DB[MariaDB]
-    API --> RD[Redis]
-    API --> ES[Elasticsearch 8.17]
-    API --> S3[MinIO Storage]
-    NG --> KC[Keycloak (Auth)]
-    API --> MQ[RabbitMQ]
-    MQ --> DLX[DLX (Dead Letter Exchange)]
-    subgraph Observability
-        G[Grafana]
-        P[Prometheus]
-        L[Loki]
-        T[Tempo]
-        A[Alloy]
+    subgraph Edge
+        CF[Cloudflare Tunnel] --> Worker[CF Worker (SEO)]
+        Worker --> NG[Nginx (Reverse Proxy + WAF)]
     end
-    API --> P
-    API --> L
-    API --> T
-    API --> A
-    G --> P
-    G --> L
-    G --> T
-    G --> A
-    API --> BU[Backup Service]
+
+    subgraph Server_Core
+        NG --> API[Spring Boot Backend]
+        API --> DB[MariaDB]
+        API --> RD[Redis]
+        API --> S3[MinIO Storage]
+        NG --> KC[Keycloak (Auth)]
+        API --> MQ[RabbitMQ]
+    end
+
+    subgraph Automation
+        Git[GitHub Repo] -- Push --> Action[GitHub Action (Build WAR)]
+        Action -- Runner --> Server
+        WD[Watchdog Script] -- Polls --> Git
+        WD -- Updates --> Server_Core
+    end
+
+    subgraph Observability
+        API --> LGTM[LGTM Stack (Loki/Grafana/Tempo)]
+    end
 ```
-
-### Startup Orchestration (Critical)
-To ensure zero connection errors during the Java application's boot sequence (approx. 113 seconds), the architecture enforces strict dependency chains:
-
-1.  **Backend Wait**: The Backend container waits for `elasticsearch`, `mariadb`, and `redis` to be healthy before attempting to start the Spring context.
-2.  **Nginx Pause**: Nginx is configured with `depends_on: condition: service_healthy` linked to the Backend.
-    * **Behavior**: Nginx will **NOT** start (status: `Created`) until the Backend reports itself as `healthy`.
-    * **Result**: This prevents "502 Bad Gateway" loops during startup. Once the Backend is ready (~2.5 mins), Nginx starts automatically. **No manual Nginx restart is required.**
 
 ### Request Flow
 **External Request:** A client request arrives at `backend.treishvaamgroup.com` and is routed securely through the Cloudflare Tunnel.

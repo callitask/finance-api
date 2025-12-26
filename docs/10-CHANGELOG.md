@@ -4,19 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.5.1] - Phase 8: Stable Orchestration & Elastic Upgrade (Current)
-### Infrastructure & Stability
-- **Fix**: Upgraded **Elasticsearch Docker Image** to `8.17.0` to resolve `Failed to decode response` error caused by version mismatch with Spring Boot 3.4 client.
-- **Fix**: Implemented **Smart Orchestration** for Nginx. Nginx now waits (`depends_on: service_healthy`) for the Backend to be fully ready before starting. This eliminates "502 Bad Gateway" errors during the 2-minute startup window.
-- **Config**: Increased Backend Healthcheck `start_period` to **160s** to accommodate Java/Hibernate initialization time (~113s).
-- **Ops**: Refined `auto_deploy.sh` with a **10s Safety Buffer** between secret injection and secret wiping to ensure Docker processes read the configuration reliably.
-- **Ops**: Added `scripts/load_secrets.sh` for manual debugging scenarios.
+## [0.9.0] - Infrastructure Update: Multi-Branch & Automation
+### Deployment & Ops
+- **Feat**: Implemented **Multi-Branch Deployment Strategy**.
+    - **Develop**: Daily active development branch.
+    - **Staging**: Stable restore point and feature-complete branch.
+    - **Main**: Production lock.
+- **Feat**: Upgraded **Watchdog Script (`auto_deploy.sh`)**.
+    - It now intelligently polls all 3 branches (`develop`, `staging`, `main`).
+    - Automatically switches the server's Git context to the branch with the latest timestamp.
+    - "Self-Healing" logic creates local branches if they are missing.
+- **Feat**: Updated **GitHub Actions (`deploy.yml`)** to trigger builds on `staging` and `develop` pushes.
+- **Docs**: Complete overhaul of `09-DEPLOYMENT-OPS.md` to reflect the Dual-Engine architecture (Builder vs. Watchdog).
 
-## [2.5.0] - Phase 7: Orchestrator Injection
+## [2.5.0] - Phase 7: Orchestrator Injection & Final Stabilization
 ### Infrastructure & Security (Host-Level)
 - **Arch**: Transitioned to **Orchestrator Injection Pattern**. Secrets are now fetched by the host and injected into standard Docker containers, removing all secret-fetching logic from the images.
 - **Sec**: Moved `CLOUDFLARE_TUNNEL_TOKEN` to Infisical, achieving 100% Zero-Secrets-on-Disk (except for Identity tokens).
-- **Ops**: Validated Infisical CLI v0.43+ as the standard stable release for Machine Identity authentication on Ubuntu.
+- **Ops**: Upgraded Infisical CLI to `v0.154+` via official artifact repository to support modern Machine Identity authentication.
 - **Fix**: Resolved "Zombie Token" conflict in Cloudflare Tunnel (`TUNNEL_TOKEN` vs `CLOUDFLARE_TUNNEL_TOKEN`).
 - **Fix**: Corrected malformed `PROD_DB_URL` injection that caused JDBC driver crashes.
 
