@@ -44,15 +44,16 @@ for branch in "${MONITORED_BRANCHES[@]}"; do
         LATEST_TIMESTAMP=$TS
         TARGET_BRANCH="$branch"
     fi
-    # Optional debug log
-    # echo "  > Branch: $branch | TS: $TS"
 done
 
 # --- 2. DETECT CHANGES ---
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse "origin/$TARGET_BRANCH")
 
-if [ "$LOCAL" != "$REMOTE" ]; then
+# NOTE: We force update if the branches differ OR if we are on the wrong branch
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     echo "================================================================"
     echo "[$(date)] 🚀 New activity detected. Winning Branch: [$TARGET_BRANCH]"
     echo "  > Timestamp: $LATEST_TIMESTAMP"
@@ -63,8 +64,16 @@ if [ "$LOCAL" != "$REMOTE" ]; then
     # --- 3. SELF-HEALING UPDATE ---
     echo "[System] Syncing files with origin/$TARGET_BRANCH..."
     
-    # Switch to the target branch and hard reset to match remote state
-    git checkout "$TARGET_BRANCH"
+    # ROBUST SWITCHING: Create branch if missing, or force switch
+    # This fixes the issue where 'checkout' fails and 'reset' corrupts the current branch
+    if git rev-parse --verify "$TARGET_BRANCH" >/dev/null 2>&1; then
+        git checkout "$TARGET_BRANCH"
+    else
+        echo "[System] Branch $TARGET_BRANCH does not exist locally. Creating it..."
+        git checkout -b "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+    fi
+
+    # Hard reset to match remote state exactly
     git reset --hard "origin/$TARGET_BRANCH"
     
     chmod +x scripts/*.sh backup/*.sh
