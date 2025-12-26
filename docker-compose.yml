@@ -35,7 +35,7 @@ services:
       MYSQL_ROOT_PASSWORD: ${PROD_DB_PASSWORD}
       MYSQL_DATABASE: keycloak
       MYSQL_USER: keycloak
-      MYSQL_PASSWORD: keycloak_password
+      MYSQL_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
     volumes:
       - ./data/keycloak-db:/var/lib/mysql
     healthcheck:
@@ -54,7 +54,7 @@ services:
       KC_DB: mariadb
       KC_DB_URL: jdbc:mariadb://keycloak-db/keycloak
       KC_DB_USERNAME: keycloak
-      KC_DB_PASSWORD: keycloak_password
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
       KC_HTTP_RELATIVE_PATH: /auth
       KC_HOSTNAME_URL: https://backend.treishvaamgroup.com/auth
       KC_HOSTNAME_ADMIN_URL: https://backend.treishvaamgroup.com/auth
@@ -105,7 +105,7 @@ services:
       - "9001:9001"
     environment:
       MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: treishvaam_storage_secret
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - ./data/minio:/data
     command: server /data --console-address ":9001"
@@ -174,6 +174,8 @@ services:
       - SPRING_ELASTICSEARCH_URIS=http://treishvaam-elastic:9200
       - STORAGE_S3_ENDPOINT=http://treishvaam-minio:9000
       - SPRING_RABBITMQ_HOST=treishvaam-rabbitmq
+      - SPRING_RABBITMQ_USERNAME=${RABBITMQ_DEFAULT_USER}
+      - SPRING_RABBITMQ_PASSWORD=${RABBITMQ_DEFAULT_PASS}
       - APP_PYTHON_SCRIPT_PATH=/app/scripts/market_data_updater.py
       - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://tempo:9411/api/v2/spans
       - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=https://backend.treishvaamgroup.com/auth/realms/treishvaam
@@ -273,7 +275,7 @@ services:
       - "3001:3000"
     user: "0" 
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=%getrichsoon1954
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - ./data/grafana:/var/lib/grafana
@@ -312,8 +314,8 @@ services:
       - "5672:5672"
       - "15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
 
   backup-service:
     build: ./backup
@@ -328,8 +330,8 @@ services:
       DB_NAME: finance_db
       S3_ENDPOINT: http://treishvaam-minio:9000
       S3_BUCKET: treishvaam-backups
-      MINIO_ACCESS_KEY: admin
-      MINIO_SECRET_KEY: treishvaam_storage_secret
+      MINIO_ACCESS_KEY: ${BACKUP_MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
     depends_on:
       treishvaam-db:
         condition: service_healthy
