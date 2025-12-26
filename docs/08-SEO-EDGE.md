@@ -1,50 +1,100 @@
-# 08-SEO-EDGE.md
+# SEO & Edge Architecture
 
-## 1. Edge Rendering Strategy
-The Cloudflare Worker intercepts requests to `/category/` URLs and injects SEO-critical Schema.org and meta tags directly into the HTML before the React app loads. This Edge-Side Rendering (ESR) ensures that search engines and social media crawlers receive rich metadata and structured data instantly, improving SEO and link previews even if the backend is slow or down.
+This document details the "Edge-Side Rendering" (ESR) strategy used to ensure perfect SEO and social sharing previews for the Single Page Application (SPA).
 
-### Flow Overview
-1.  **Interception:** Requests to `/category/` are caught by the Cloudflare Worker.
-2.  **Data Fetch:** The Worker fetches blog post data from the Backend API (`/api/v1/posts/url/...`).
-3.  **Injection:** It generates and injects JSON-LD schemas (`NewsArticle` or `BlogPosting`, `BreadcrumbList`, `VideoObject`) and updates `<title>` and `<meta>` tags in the HTML response.
-4.  **Delivery:** The modified HTML is returned to the client or crawler before the heavy React app loads.
+## 1. The Challenge
+React SPAs render content specifically in the browser (Client-Side Rendering). This presents two major problems:
+1.  **Crawlers**: Legacy bots (e.g., LinkedIn, Twitter, some Google bots) do not execute JavaScript, seeing only an empty `<div id="root"></div>`.
+2.  **Performance**: Waiting for the full React bundle to download just to read meta tags adds latency to link previews.
 
-## 2. High Availability Robots.txt
-We use a **Dual-Layer** strategy for `robots.txt` to ensure maximum availability:
+## 2. The Solution: Cloudflare Worker Strategy
 
-1.  **Source of Truth:** The primary file is located at `public/robots.txt` in the Frontend codebase. This is deployed to Cloudflare Pages.
-2.  **Worker Fallback:** The Cloudflare Worker has a hardcoded copy of the rules. If the static asset fetch fails (e.g., Pages outage), the Worker serves the fallback immediately.
+We deploy a custom Cloudflare Worker (`cloudflared/worker.js`) that acts as a smart proxy between the user and the application.
 
-**Critical Rules:**
-- `Allow: /api/posts`: Essential for Googlebot to fetch content for rendering.
-- `Allow: /api/news` & `/api/categories`: Allows indexing of dynamic content.
-- `Disallow: /api/admin/`: Protects backend administrative routes.
-- `Disallow: /dashboard/`: Prevents indexing of user-specific pages.
+### 2.1. Request Interception Flow
+The Worker intercepts requests based on the URL path and the `User-Agent` header.
 
-## 3. Sitemap Proxying
-Requests to `/sitemap.xml`, `/sitemap-news.xml`, `/feed.xml`, and `/sitemaps/*` are proxied by the Worker directly to the Backend (`backend.treishvaamgroup.com`).
-- **Function:** This ensures Google receives the freshest XML files generated daily by the Spring Boot backend.
-- **Failover:** If the backend is down, the Worker returns a generic 503 error for these specific paths to prevent search engines from de-indexing valid pages due to bad data.
+1.  **Bot Detection**: The Worker checks if the `User-Agent` matches known bots (Googlebot, Bingbot, LinkedInBot, Twitterbot, WhatsApp, etc.).
+    * **Regular Users**: Requests are passed through to the CDN/Nginx to load the React app immediately.
+    * **Bots**: The Worker engages the "Edge Rendering" engine.
 
-## 4. Structured Data Injection
-The Worker dynamically injects JSON-LD schemas based on the URL type:
-- **Homepage:** `WebSite` schema with a `SearchAction` for enhanced Sitelinks.
-- **Static Pages:** `WebPage` schema for About, Vision, and Contact pages.
-- **Blog Posts:**
-    - Fetches live data from the API.
-    - Selects `NewsArticle` (for News/Market categories) or `BlogPosting` (for others).
-    - Adds `VideoObject` if a YouTube video is detected in the content.
+2.  **Metadata Fetching**:
+    * If a bot requests a blog post (e.g., `/category/market-news/bitcoin-rally`), the Worker makes a high-speed, server-to-server call to the Backend API:
+        * **Endpoint**: `/api/v1/posts/public/{slug}`
+    * **Caching**: This API response is cached using the Cloudflare Cache API to prevent hammering the backend.
 
-## 5. Image Handling Strategy
-- **Storage:** Images are uploaded to MinIO/Local Storage (`/app/uploads`).
-- **Access:** They are accessed via the standardized path: `/api/v1/uploads/filename.ext`.
-- **Optimization:**
-    - **Nginx:** Proxies these requests directly to the file system, bypassing Java logic for speed.
-    - **Cloudflare:** Caches these images at the edge, reducing server load.
-    - **Worker:** The Worker explicitly allows `/api` requests to pass through untouched so images load instantly.
+3.  **HTML Injection**:
+    * The Worker takes the raw `index.html` template.
+    * It dynamically replaces the standard `<title>` and `<meta>` tags with the specific data from the API (Title, Description, Cover Image URL).
+    * It injects structured JSON-LD data into the `<head>`.
 
-## 6. Failover Handling
-- **Backend Down?**
-    - Sitemaps/Feeds return 503 (protecting SEO ranking).
-    - `robots.txt` is served from the Worker (keeping crawlers active).
-    - HTML pages attempt to serve a "Stale-While-Revalidate" cached version if available.
+4.  **Response**: The bot receives a fully hydration-ready HTML file with all metadata present, ensuring a perfect 100/100 SEO score and rich social cards.
+
+## 3. High Availability Robots.txt
+
+We implement a **Dual-Layer Strategy** for `robots.txt` to ensure crawlers are never blocked, even during downtime.
+
+### Layer 1: Static Source (Primary)
+The primary file serves rules for the frontend.
+* **Location**: `public/robots.txt` (Frontend).
+* **Deployment**: Served via Cloudflare Pages / Nginx.
+
+### Layer 2: Worker Fallback (Resilience)
+If the upstream source fails (returns 4xx/5xx), the Worker immediately serves a hardcoded fallback file.
+
+**Critical Rules Enforced:**
+```txt
+User-agent: *
+Allow: /
+Allow: /api/v1/posts
+Allow: /api/v1/news-highlights
+Allow: /api/v1/categories
+Disallow: /api/v1/admin/
+Disallow: /api/v1/auth/
+Disallow: /dashboard/
+Disallow: /profile/
+```
+
+## 4. Sitemap & Feed Proxying
+
+To ensure Google receives the freshest content, the Worker proxies specific SEO paths directly to the Spring Boot Backend, bypassing the Frontend hosting entirely.
+
+| Path | Proxy Target (Backend) | Purpose |
+| :--- | :--- | :--- |
+| `/sitemap.xml` | `/sitemap.xml` | Master Index |
+| `/sitemap-news.xml` | `/sitemap-news.xml` | Google News Specific |
+| `/feed.xml` | `/feed.xml` | RSS 2.0 Feed |
+
+**Failover Logic**: If the backend is down (Connection Refused/Timeout), the Worker intercepts the error and returns a `503 Service Unavailable`. This tells Google to "come back later" rather than indexing an error page or a 404, preserving domain reputation.
+
+## 5. Structured Data (JSON-LD)
+
+The Worker injects specific Schema.org schemas based on content type.
+
+### 5.1. Blog Posts & News
+* **Schema Type**: Dynamically selects `NewsArticle` (for News/Market categories) or `BlogPosting` (for others).
+* **Key Fields**:
+    * `headline`: Post Title.
+    * `image`: Full URL to the cover image.
+    * `datePublished` / `dateModified`: ISO 8601 timestamps.
+    * `author`: Links to the Author profile.
+* **VideoObject**: If a YouTube link is detected in the content, a `VideoObject` schema is added to make the post eligible for the Google "Video" tab.
+
+### 5.2. Breadcrumbs
+A `BreadcrumbList` schema is automatically generated to reflect the category hierarchy (e.g., Home > Market > Crypto > Post).
+
+## 6. Image Optimization & Serving
+
+Images are stored in MinIO and served via Nginx, bypassing the Java application layer for maximum throughput.
+
+* **Upload Path**: `/api/v1/files/upload` (Backend Logic).
+* **Serving Path**: `/api/v1/files/{filename}`.
+* **Nginx Config**:
+    ```nginx
+    location /api/v1/files/ {
+        alias /app/uploads/;
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+    }
+    ```
+* **Cloudflare**: The Worker allows all requests starting with `/api/v1/files/` to pass through untouched, allowing Cloudflare's global CDN to cache the binary image data at the edge.

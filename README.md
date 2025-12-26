@@ -1,98 +1,67 @@
----
-root: true
-project: Treishvaam Finance API
-stack: [Java 21, Spring Boot 3.4, React, Docker, Nginx]
-entry_points: [Main Class, Docker Compose, Auto Deploy Script]
-status: Active
----
+# Treishvaam Finance Platform - Enterprise Edition
 
-# Treishvaam Finance API
+## Project Overview
 
-The Treishvaam Finance API is an enterprise-grade backend service built with Spring Boot 3.4 and Java 21. It serves as the core processing unit for the Treishvaam Finance Platform, handling market data aggregation, content management, and user authentication.
+The Treishvaam Finance Platform is a high-performance, enterprise-grade financial analytics and content delivery system. It is designed as a modular, microservices-ready monolith using Spring Boot 3.4 (Java 21) for the backend and React for the frontend, served via Cloudflare Edge.
 
-## Development Status & Branching Strategy
+The infrastructure is built on a Zero-Trust security model, utilizing Keycloak for Identity and Access Management (IAM), Infisical for secret management, and a self-healing Watchdog automation system for deployment.
 
-The project follows a strict **GitFlow-inspired** branching strategy to ensure stability and rapid development.
+## Technology Stack
 
-| Branch | Role | Deployment Policy |
-| :--- | :--- | :--- |
-| **`main`** | **Production** | Protected. Represents the live, customer-facing code. Only stable releases are merged here. |
-| **`staging`** | **Stable / Restore Point** | The "Golden Copy". Features are merged here when 100% complete. Acts as a fallback restore point if `develop` breaks. |
-| **`develop`** | **Active Development** | Daily work happens here. Code is pushed frequently. The server automatically deploys this branch if it has the latest activity. |
+### Backend Core
+- **Language**: Java 21 (LTS)
+- **Framework**: Spring Boot 3.4.0
+- **Build Tool**: Maven
+- **Database**: MariaDB 10.6
+- **Caching**: Redis (Alpine)
+- **Messaging**: RabbitMQ (3.12 Management)
+- **Search Engine**: Elasticsearch 8.17.0
+- **Object Storage**: MinIO (S3 Compatible)
 
-## System Overview
+### Frontend & Edge
+- **Framework**: React 18
+- **Styling**: Tailwind CSS
+- **Edge Runtime**: Cloudflare Workers (V8 Isolate)
+- **CDN**: Cloudflare Network
 
-* **Framework**: Spring Boot 3.4
-* **Language**: Java 21 (Eclipse Temurin)
-* **Database**: MariaDB 10.6
-* **Caching**: Redis (Cluster-ready)
-* **Search Engine**: Elasticsearch
-* **Object Storage**: MinIO (S3 Compatible)
-* **Identity Management**: Keycloak (OAuth2 / OIDC)
-* **Secret Management**: Infisical (Zero-Trust / Orchestrator Injection)
+### Infrastructure & DevOps
+- **Containerization**: Docker & Docker Compose
+- **Orchestration**: Self-Healing Watchdog Script (Bash)
+- **Reverse Proxy**: Nginx + OWASP ModSecurity (WAF)
+- **Secret Management**: Infisical (End-to-End Encryption)
+- **Observability**: Grafana, Prometheus, Loki, Tempo, Zipkin
 
-## Quick Start Guide
+## Architecture Highlights
+
+1.  **Secure Identity**: All authentication is handled by Keycloak via OpenID Connect (OIDC). The backend acts as an OAuth2 Resource Server.
+2.  **Flash & Wipe Deployment**: The deployment script injects secrets into memory during startup and immediately wipes them from the disk to prevent leakage.
+3.  **SEO at the Edge**: A custom Cloudflare Worker intercepts crawler requests and dynamically injects meta tags before the React app loads, ensuring perfect SEO scoring.
+4.  **Resilience**: Circuit Breakers (Resilience4j) are implemented for all external market data APIs (AlphaVantage, Finnhub, etc.).
+
+## Quick Start (Local & Server)
 
 ### Prerequisites
-* Java Development Kit (JDK) 21
-* Docker and Docker Compose
-* Maven 3.9+
-* Infisical CLI (v0.154+ via official repository)
+- Docker Engine & Docker Compose
+- Java 21 SDK
+- Maven
+- Infisical CLI (for secret injection)
 
-### Configuration
-This project adheres to strict security standards and does not use local configuration files for sensitive data. All secrets are managed via Infisical.
-
-1.  **Install CLI**: Install the Infisical CLI tool using the official artifacts repository.
-2.  **Authenticate**: Run `infisical login` and authenticate using your organization credentials.
-3.  **Link Project**: Link your local repository to the 'Treishvaam Finance' workspace.
-
-### Building the Application
-To compile the project and run unit tests:
-```bash
-mvn clean package
-```
-
-### Running Locally (Enterprise Mode)
-We use **Orchestrator Injection**. You do not need to configure `.env` files for application secrets. Infisical injects them directly into the Docker process from the host.
+### Deployment
+To deploy the full stack, use the automated watchdog script which handles branch selection, secret injection, and container orchestration.
 
 ```bash
-# This fetches secrets and starts the entire stack (DB, Cache, Backend)
-infisical run --env dev -- docker-compose up -d
+chmod +x scripts/auto_deploy.sh
+./scripts/auto_deploy.sh
 ```
 
-## Architecture and Design
-The system follows a microservices-ready monolithic architecture, designed for scalability and resilience.
+## Repository Structure
 
-### Core Modules
-* **Market Data Engine**: Ingests and normalizes real-time financial data from multiple providers.
-* **Content Management System**: Handles blog posts, editorial workflows, and media assets.
-* **Analytics Engine**: Processes telemetry and user engagement metrics.
-* **Security Layer**: Enforces authentication and authorization policies via Keycloak.
+- `src/main/java`: Backend source code.
+- `src/main/resources`: Configuration and Database migrations (Liquibase).
+- `nginx/`: Web Application Firewall configurations.
+- `scripts/`: Automation and maintenance scripts.
+- `backup/`: Database and Object Storage backup logic.
+- `docs/`: Detailed architectural documentation.
 
-### Observability
-The platform integrates with the LGTM stack (Loki, Grafana, Tempo, Mimir) for comprehensive monitoring.
-* **Metrics**: Prometheus endpoints exposed at `/actuator/prometheus`.
-* **Logs**: Structured JSON logging with correlation IDs.
-* **Tracing**: Distributed tracing via Zipkin/Tempo protocols.
-
-## CI/CD Automation (Dual-Engine)
-We utilize a two-part automation engine to handle builds and deployments independently.
-
-1.  **Build Engine (GitHub Actions)**:
-    * **File**: `.github/workflows/deploy.yml`
-    * **Role**: Compiles the Java code (`mvn package`), runs tests, and transfers the `WAR` file to the server.
-    * **Triggers**: Pushes to `main`, `staging`, or `develop`.
-
-2.  **State Engine (Watchdog Script)**:
-    * **File**: `scripts/auto_deploy.sh`
-    * **Role**: Runs on the Ubuntu Server. Watches for changes in infrastructure files (Nginx, Configs, Python Scripts).
-    * **Intelligence**: It automatically detects which branch (`main`, `staging`, `develop`) has the latest code and updates the server's local Git repository to match.
-
-For detailed deployment procedures, refer to:
-`docs/09-DEPLOYMENT-OPS.md`
-
-## Documentation
-* **Architecture**: `docs/01-ARCHITECTURE.md`
-* **API Reference**: `docs/03-BACKEND-API.md`
-* **Database Schema**: `docs/05-DATABASE-SCHEMA.md`
-* **Security Protocols**: `SECRETS.md`
+## License
+Proprietary software. All rights reserved by Treishvaam Group.

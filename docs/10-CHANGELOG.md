@@ -4,18 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.0] - Infrastructure Update: Multi-Branch & Automation
-### Deployment & Ops
-- **Feat**: Implemented **Multi-Branch Deployment Strategy**.
-    - **Develop**: Daily active development branch.
-    - **Staging**: Stable restore point and feature-complete branch.
-    - **Main**: Production lock.
-- **Feat**: Upgraded **Watchdog Script (`auto_deploy.sh`)**.
-    - It now intelligently polls all 3 branches (`develop`, `staging`, `main`).
-    - Automatically switches the server's Git context to the branch with the latest timestamp.
-    - "Self-Healing" logic creates local branches if they are missing.
-- **Feat**: Updated **GitHub Actions (`deploy.yml`)** to trigger builds on `staging` and `develop` pushes.
-- **Docs**: Complete overhaul of `09-DEPLOYMENT-OPS.md` to reflect the Dual-Engine architecture (Builder vs. Watchdog).
+## [2.6.0] - Enterprise Security Hardening (Flash & Wipe)
+### Infrastructure & Security
+- **Sec**: Implemented **Flash & Wipe** secret injection strategy. Secrets are injected into memory during Docker startup and immediately wiped from disk (`auto_deploy.sh`), leaving only Identity tokens.
+- **Infra**: Fully parameterized `docker-compose.yml` to remove **all** hardcoded credentials.
+    - **RabbitMQ**: Replaced default `guest`/`guest` with `${RABBITMQ_DEFAULT_USER}` and `${RABBITMQ_DEFAULT_PASS}`.
+    - **MinIO**: Replaced root credentials with `${MINIO_ROOT_PASSWORD}`.
+    - **Grafana**: Secured Admin access with `${GRAFANA_ADMIN_PASSWORD}`.
+    - **Keycloak**: Database and Admin passwords are now injected via Infisical.
+- **Ops**: Updated `auto_deploy.sh` to support the new variable injection flow for the Backup Service and RabbitMQ.
+- **Docs**: Comprehensive update of `SECRETS.md`, `09-DEPLOYMENT-OPS.md`, and `01-ARCHITECTURE.md` to reflect the Zero-Trust model.
 
 ## [2.5.0] - Phase 7: Orchestrator Injection & Final Stabilization
 ### Infrastructure & Security (Host-Level)
@@ -137,3 +135,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Spring Boot 3.4 Backend setup.
 - Circuit Breakers (Resilience4j) and Rate Limiting (Bucket4j).
 - Liquibase database migrations (V1 to V39).
+
+## [0.9.0] - Infrastructure Update: Multi-Branch & Automation
+### Deployment & Ops
+- **Feat**: Implemented **Multi-Branch Deployment Strategy**.
+    - **Develop**: Daily active development branch.
+    - **Staging**: Stable restore point and feature-complete branch.
+    - **Main**: Production lock.
+- **Feat**: Upgraded **Watchdog Script (`auto_deploy.sh`)**.
+    - It now intelligently polls all 3 branches (`develop`, `staging`, `main`).
+    - Automatically switches the server's Git context to the branch with the latest timestamp.
+    - "Self-Healing" logic creates local branches if they are missing.
+- **Feat**: Updated **GitHub Actions (`deploy.yml`)** to trigger builds on `staging` and `develop` pushes.
+- **Docs**: Complete overhaul of `09-DEPLOYMENT-OPS.md` to reflect the Dual-Engine architecture (Builder vs. Watchdog).

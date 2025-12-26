@@ -1,59 +1,67 @@
-# Secret Management Protocol
+# Security & Secret Management Policy
 
-This project utilizes Infisical for enterprise-grade secret management, strictly adhering to a **Zero-Secrets-on-Disk** policy via the **Flash & Wipe** strategy.
+## Overview
 
-## 1. Security Policies
-* **No .env Files**: Confidential configuration files must never be committed to version control. The `.env` file on disk must ONLY contain machine authentication tokens.
-* **Flash & Wipe**: Actual application secrets (Database URLs, API Keys) exist on the disk only for the few seconds required to start Docker, after which they are aggressively wiped.
-* **Least Privilege**: Application services use restricted Machine Identities (Robots) with read-only access to specific environments.
+This project adheres to a strict Zero-Trust security model. Hardcoded secrets are strictly prohibited in the codebase. All sensitive credentials are managed externally via **Infisical** and injected into the application runtime environment securely.
 
-## 2. Architecture Overview: Flash & Wipe Injection
-We utilize a dynamic injection pattern orchestrated by `auto_deploy.sh`.
+## Secret Injection Process (Flash & Wipe)
 
-### Injection Workflow
-1.  **Trigger**: Deployment starts. The `.env` file currently contains only `INFISICAL_CLIENT_ID` and `SECRET`.
-2.  **Flash (Inject)**: The script authenticates with Infisical and appends the production secrets (e.g., `PROD_DB_URL`, `JWT_SECRET`) to the `.env` file on disk.
-3.  **Consumption**: `docker compose up` is executed. Docker reads the `.env` file and passes variables into the container runtime.
-4.  **Wipe (Secure)**: Immediately after Docker initialization (and a 10s safety buffer), the script overwrites `.env` with `.env.template`.
-5.  **Result**: The secrets are now in the RAM of the running containers, but the file on disk is clean. If the server is inspected 20 seconds later, no secrets are found.
+We utilize a "Flash & Wipe" strategy to ensure secrets never persist on the disk.
 
-## 3. Local Development & Debugging
-Since secrets are not persistent, you must manually inject them if you need to run debug commands or restart specific containers manually.
+1.  **Storage**: Secrets are stored encrypted in the Infisical Vault (Production Environment).
+2.  **Retrieval**: The `auto_deploy.sh` script authenticates with Infisical using a Machine Identity Token.
+3.  **Injection**: Secrets are exported to a temporary `.env` file solely for the duration of the `docker compose up` command.
+4.  **Wipe**: Immediately after container startup, the `.env` file is sanitized, removing all high-value secrets and leaving only the Machine Identity tokens.
 
-### Manual Injection Script (`scripts/load_secrets.sh`)
-We have created a dedicated utility for this.
+## Required Environment Variables
 
-**To Load Secrets:**
-```bash
-cd /opt/treishvaam
-./scripts/load_secrets.sh
-```
-* This will restore auth keys and fetch live secrets into `.env`.
-* **Warning**: Your `.env` file is now "Hot" (contains secrets).
+The following variables must be present in the Infisical Project. These keys map directly to the interpolated values in `docker-compose.yml`.
 
-**To Secure (Wipe) Secrets:**
-After you finish your manual debugging (e.g., running `docker compose up`), you **MUST** wipe the file manually to maintain security standards.
-```bash
-cp .env.template .env
-```
+### Infrastructure Secrets
+| Variable Name | Description | Service(s) |
+| :--- | :--- | :--- |
+| `MINIO_ROOT_PASSWORD` | Root password for Object Storage. | MinIO, Backup Service |
+| `GRAFANA_ADMIN_PASSWORD` | Admin password for Observability dashboards. | Grafana |
+| `KEYCLOAK_DB_PASSWORD` | Password for the Identity Database. | Keycloak, Keycloak DB |
+| `RABBITMQ_DEFAULT_USER` | Admin username for the Message Broker. | RabbitMQ, Backend |
+| `RABBITMQ_DEFAULT_PASS` | Admin password for the Message Broker. | RabbitMQ, Backend |
+| `BACKUP_MINIO_ACCESS_KEY` | Access key for Backup Service to talk to MinIO. | Backup Service |
+| `CLOUDFLARE_TUNNEL_TOKEN` | Token for Zero Trust Tunnel connection. | Cloudflared |
 
-## 4. Production Configuration
-The production environment uses a Machine Identity for authentication.
+### Application Secrets
+| Variable Name | Description | Service(s) |
+| :--- | :--- | :--- |
+| `PROD_DB_URL` | JDBC URL for the main application database. | Backend |
+| `PROD_DB_USERNAME` | Username for the main application database. | Backend |
+| `PROD_DB_PASSWORD` | Password for the main application database. | Backend |
+| `JWT_SECRET_KEY` | Secret for legacy token signing (if applicable). | Backend |
+| `APP_ADMIN_EMAIL` | Email for the bootstrapped Admin user. | Backend |
+| `APP_ADMIN_PASSWORD` | Password for the bootstrapped Admin user. | Backend, Keycloak |
 
-### Server-Side Configuration
-* **File Location**: `/opt/treishvaam/.env`
-* **Permissions**: `600` (Read/Write by Owner only)
-* **Contents**: Only authentication tokens. No actual application secrets.
+### External API Keys
+| Variable Name | Description | Service(s) |
+| :--- | :--- | :--- |
+| `MARKET_DATA_API_KEY` | Generic key for market data providers. | Backend |
+| `ALPHAVANTAGE_API_KEY` | API Key for AlphaVantage. | Backend |
+| `FINNHUB_API_KEY` | API Key for Finnhub. | Backend |
+| `NEWS_API_KEY` | API Key for NewsAPI. | Backend |
+| `GA4_PROPERTY_ID` | Google Analytics 4 Property ID. | Backend |
 
-### Required Variables (Identity Only)
-| Variable | Description |
-| :--- | :--- |
-| `INFISICAL_PROJECT_ID` | The unique identifier for the Treishvaam Finance project. |
-| `INFISICAL_CLIENT_ID` | The Machine Identity Client ID. |
-| `INFISICAL_CLIENT_SECRET` | The Machine Identity Client Secret. |
+## Local Development
 
-## 5. Secret Rotation Policy
-To rotate a database password, API key, or internal secret:
+For local development, developers must have the Infisical CLI installed.
 
-1.  **Update**: Change the secret value in the Infisical Dashboard (Production Environment).
-2.  **Restart**: Simply trigger the `auto_deploy.sh` script (or push a commit). The Flash & Wipe process will pick up the new values automatically during the next boot.
+1.  **Login**: `infisical login`
+2.  **Run**: `infisical run --env dev -- docker-compose up`
+
+This command injects the development secrets directly into the process without creating a physical `.env` file.
+
+## Rotation Policy
+
+* **Database Passwords**: Rotate every 90 days. Requires full stack restart (`auto_deploy.sh`).
+* **API Keys**: Rotate immediately upon vendor notification or suspected breach.
+* **JWT Keys**: Rotate annually. Requires valid token invalidation.
+
+## Access Control
+
+Access to the Production Infisical environment is restricted to the DevOps Lead and CTO. Developers use the Development environment which contains separate, non-sensitive credentials.

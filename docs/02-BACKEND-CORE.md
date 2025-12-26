@@ -1,62 +1,110 @@
-# 02-BACKEND-CORE.md
+# Backend Core Architecture
 
-## Backend Core & Security (Production)
+## 1. Runtime Environment
+* **Language**: Java 21 LTS (Temurin Distribution)
+* **Framework**: Spring Boot 3.4.0
+* **Build System**: Maven 3.9+
+* **Container**: Docker (Distroless or Alpine-based OpenJDK 21)
 
-### 1. Security Architecture
-The application now uses **Keycloak (OIDC/OAuth2)** for authentication and authorization, replacing the legacy custom JWT filter. All authentication flows are handled via Keycloak, and user roles are mapped using a `KeycloakRealmRoleConverter` for Spring Security RBAC. The custom JWT filter has been fully removed.
-- **Public Endpoints**: No authentication required for:
-  - `/actuator/**`, `/health` (metrics/health)
-  - `GET` requests to `/api/v1/posts`, `/api/v1/posts/public/**`, `/api/v1/posts/url/**`, `/api/v1/categories`, `/api/v1/uploads/**`, `/api/v1/market/**`, `/api/v1/news/**`, `/api/v1/search/**`, `/sitemap.xml`, `/sitemap-news.xml`, `/feed.xml`, `/sitemaps/**`, `/favicon.ico`
-  - All requests to `/api/v1/auth/**`, `/api/v1/contact/**`, `/api/v1/market/quotes/batch`, `/api/v1/market/widget`, `/swagger-ui/**`, `/v3/api-docs/**`, `/error`
-- **Role-Based Endpoints**:
-  - `/api/v1/analytics/**`: Requires `ANALYST` or `ADMIN` role
-  - `/api/v1/posts/admin/publish/**`, `/api/v1/posts/admin/delete/**`, `/api/v1/market/admin/**`, `/api/v1/status/**`, `/api/v1/admin/actions/**`, `/api/v1/files/upload`: Requires `PUBLISHER` or `ADMIN` role
-  - `/api/v1/posts/draft`, `/api/v1/posts/draft/**`, `/api/v1/posts/admin/**`: Requires `EDITOR`, `PUBLISHER`, or `ADMIN` role
-- **All other endpoints** require authentication.
+## 2. Security Architecture (Zero-Trust)
 
-### 2. Authentication Flow
-- The backend uses `oauth2ResourceServer` with JWT support, fully integrated with Keycloak.
-- JWTs are validated and authorities are mapped using a custom `KeycloakRealmRoleConverter`, which translates Keycloak roles into Spring Security authorities for RBAC.
+The security layer is designed around the **OAuth2 Resource Server** pattern. The backend is stateless and delegates all identity management to **Keycloak**.
 
-### 3. Rate Limiting (Bucket4j)
-- **Bucket4j** is used to enforce API rate limits per IP and/or user, protecting against brute-force and abuse.
-- **Client Feedback**: The API now includes standard RFC-compliant headers to help clients manage backpressure:
-  - `X-RateLimit-Remaining`: The number of tokens left in the current bucket.
-  - `X-RateLimit-Retry-After`: The number of seconds to wait before retrying (provided when a 429 is returned).
-- Rate limits are configured in application properties and can be adjusted per endpoint or user role.
+### 2.1. Authentication Flow
+1.  **Frontend Login**: User logs in via the React frontend (using the Keycloak JS adapter).
+2.  **Token Issuance**: Keycloak issues a JWT (Access Token).
+3.  **API Request**: Frontend attaches the JWT in the `Authorization: Bearer <token>` header.
+4.  **Validation**:
+    * The Spring Boot backend validates the JWT signature against the Keycloak JWK Set (cached locally).
+    * The `Issuer` claim (`iss`) is verified to ensure it matches the `treishvaam` realm.
 
-### 4. Circuit Breakers (Resilience4j)
-- **Resilience4j** is used for circuit breaking, retries, and bulkheading on all external API calls (e.g., market data, news, email).
-- Circuit breaker configs are set in `application-prod.properties` and monitored via Actuator endpoints.
+### 2.2. Role-Based Access Control (RBAC)
+We map Keycloak Realm Roles to Spring Security Authorities using a custom converter.
 
-### 5. CORS Configuration
-- Allowed origins: `https://treishfin.treishvaamgroup.com`, `http://localhost:3000`
-- Allowed methods: `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`, `HEAD`, `PATCH`
-- All headers and credentials are permitted; CORS is applied globally.
+* **Converter Class**: `KeycloakRealmRoleConverter`
+* **Mapping Logic**:
+    * Extracts roles from the `realm_access.roles` claim in the JWT.
+    * Prefixes them with `ROLE_` (e.g., `admin` -> `ROLE_ADMIN`).
+    * Converts them to `SimpleGrantedAuthority` objects.
 
-### 6. Production Configuration (`application-prod.properties`)
-Key configuration groups (secrets/values not shown):
-- **Base URL & Server**: `app.base-url`, `server.port`
-- **Vault Integration**: Loads secrets from HashiCorp Vault
-- **Observability**: Prometheus, health endpoints, tracing (Zipkin/Tempo)
-- **Database**: MariaDB connection URL, username, password, driver
-- **JPA**: Hibernate dialect, DDL mode
-- **Redis**: Host, port, cache TTL
-- **Elasticsearch**: URI, timeouts
-- **RabbitMQ**: Host, port, credentials, exchange, DLX
-- **Logging**: File path for logs
-- **JSON Serialization**: Ensures ISO date strings
+### 2.3. Security Filter Chain (`SecurityConfig.java`)
+The filter chain is configured with strict ordering to ensure safety before any business logic executes.
 
-This file overrides the default `application.properties` for production deployments.
+1.  **CORS Filter**: Applied globally. Allows origins defined in `application-prod.properties` (e.g., `https://treishfin.treishvaamgroup.com`).
+2.  **CSRF**: Disabled (Stateless API does not use session cookies for auth).
+3.  **Session Management**: Set to `STATELESS`.
+4.  **Authorization Rules**:
+    * **Public**: `/actuator/health`, `/api/v1/auth/**`, `/api/v1/posts/public/**`.
+    * **Protected**: All other endpoints require a valid JWT.
+    * **Admin**: Endpoints like `/api/v1/admin/**` require `ROLE_ADMIN`.
 
-### 7. Caching
-- The application uses `@EnableCaching` (in both the main application and a dedicated `CachingConfig` class).
-- **Redis** is configured as the cache provider, with custom serializers and TTLs for different cache groups (e.g., blog posts, market widgets, batch quotes).
+## 3. Multi-Tenancy Architecture
 
-### 8. Audit Logging
-- **Asynchronous Execution**: Critical administrative actions (e.g., flushing cache, manual data refresh) are tracked via the `@LogAudit` annotation.
-- **Performance**: The logging mechanism runs asynchronously (`CompletableFuture`) to ensure that writing to the `audit_logs` database table never impacts the latency of the user's request.
-- **Scope**: Captures Actor, Action, Target Entity, IP Address, and Status.
+The application is built to support multiple sub-brands (tenants) from a single deployment.
 
----
-This configuration ensures secure, scalable, observable, and resilient backend operations in production, with modern IAM, rate limiting, and circuit breaking.
+### 3.1. Tenant Context
+* **Header**: Clients must send the `X-Tenant-ID` header (e.g., `TREISHFIN`, `TREISHAGRO`).
+* **Interceptor**: `TenantInterceptor` captures this header before the controller is reached.
+* **Context Holder**: `TenantContext` uses a `ThreadLocal` variable to store the Tenant ID for the duration of the request.
+* **Data Isolation**: Service layers use the `TenantContext` to filter database queries (e.g., `WHERE tenant_id = ?`), ensuring data segregation.
+
+## 4. Resilience & Reliability
+
+To prevent cascading failures when external APIs (AlphaVantage, Finnhub) go down, we use **Resilience4j**.
+
+### 4.1. Circuit Breakers
+* **Configuration**: Defined in `application-prod.properties`.
+* **Behavior**:
+    * If 50% of requests to an external provider fail within a sliding window, the circuit opens.
+    * **Open State**: Requests are rejected immediately (Fast Fail) without calling the external service.
+    * **Half-Open**: After a wait duration, a few probe requests are allowed to check if the service has recovered.
+
+### 4.2. Rate Limiting (Bucket4j)
+* **Purpose**: Protects the API from abuse and DDoS attempts.
+* **Filter**: `RateLimitingFilter` checks the user's IP or User ID against a token bucket.
+* **Headers**: Returns `X-RateLimit-Remaining` and `X-RateLimit-Retry-After` to the client.
+
+## 5. Async Processing & Event Bus
+
+The application avoids blocking the main HTTP threads for long-running tasks.
+
+### 5.1. Task Execution
+* **Config**: `AsyncConfig.java` defines a `ThreadPoolTaskExecutor`.
+* **Usage**: Methods annotated with `@Async` (e.g., sending emails, generating sitemaps) run in a separate thread pool.
+* **Pool Sizing**:
+    * **Core Pool**: 5 threads (always alive).
+    * **Max Pool**: 10 threads (burst capacity).
+    * **Queue**: 25 tasks (buffer).
+
+### 5.2. Messaging (RabbitMQ)
+* **Publisher**: `MessagePublisher` sends events to the `internal-events` exchange.
+* **Consumer**: `MessageListener` processes events asynchronously (e.g., audit logging, search indexing).
+* **Reliability**: Dead Letter Queues (DLQ) are configured to catch failed messages for later inspection.
+
+## 6. Caching Strategy
+
+**Redis** is the backbone of our performance strategy.
+
+* **Config**: `CachingConfig.java`.
+* **Annotations**:
+    * `@Cacheable`: Caches results of expensive calls (e.g., `getMarketData`).
+    * `@CacheEvict`: Clears cache when data changes (e.g., publishing a new post).
+* **TTL**: Different Time-To-Live values for different data types (e.g., Market Data = 10 mins, Static Content = 24 hours).
+
+## 7. Audit Logging
+
+All critical actions are audited for security and compliance.
+
+* **Aspect**: `AuditAspect.java` uses AOP to intercept methods annotated with `@LogAudit`.
+* **Async Logging**: The actual database write to the `audit_logs` table happens asynchronously to ensure zero latency impact on the user.
+* **Data Captured**:
+    * **Actor**: User ID / Email.
+    * **Action**: Method name (e.g., `DELETE_POST`).
+    * **Resource**: ID of the entity affected.
+    * **Outcome**: SUCCESS or FAILURE.
+
+## 8. Configuration Management (Infisical)
+
+* **No Hardcoded Secrets**: `application-prod.properties` contains placeholders like `${PROD_DB_PASSWORD}`.
+* **Injection**: The `auto_deploy.sh` Watchdog script fetches secrets from Infisical and injects them as environment variables during container startup.
+* **Flash & Wipe**: Secrets exist on disk for less than 5 seconds during deployment.

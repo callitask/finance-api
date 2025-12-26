@@ -1,4 +1,4 @@
-# 01-ARCHITECTURE.md
+# System Architecture
 
 ## System Overview
 Treishvaam Finance is deployed on an Ubuntu Server (VirtualBox) using Docker Compose to orchestrate all core services. The system is designed for high availability, security, and observability, leveraging modern open-source technologies.
@@ -10,14 +10,17 @@ Treishvaam Finance is deployed on an Ubuntu Server (VirtualBox) using Docker Com
 * **Data Layer**:
     * **Database**: MariaDB — Port 3306.
     * **Cache**: Redis — Port 6379 (Fail-Open Config).
-    * **Storage**: MinIO (S3 Compatible) — Port 9000.
+    * **Search**: Elasticsearch 8.17 — Port 9200.
+    * **Storage**: MinIO (S3 Compatible) — Port 9000 (API) / 9001 (Console).
+    * **Messaging**: RabbitMQ — Port 5672 (AMQP) / 15672 (Mgmt).
 * **Security Layer**:
     * **Identity**: Keycloak — Port 8080/auth.
     * **WAF**: Nginx + ModSecurity (OWASP Rules).
     * **Tunnel**: Cloudflare Tunnel (Zero-Trust Access).
+    * **Secrets**: Infisical (Machine Identity Injection).
 * **Automation Layer**:
     * **Build**: GitHub Actions (Runner).
-    * **Watchdog**: Bash Script (`auto_deploy.sh`) for branch monitoring and self-healing.
+    * **Watchdog**: Bash Script (`auto_deploy.sh`) for branch monitoring, self-healing, and "Flash & Wipe" secret injection.
 
 ## Architecture Diagram
 ```mermaid
@@ -31,24 +34,23 @@ graph TD
         NG --> API[Spring Boot Backend]
         API --> DB[MariaDB]
         API --> RD[Redis]
+        API --> ES[Elasticsearch]
         API --> S3[MinIO Storage]
         NG --> KC[Keycloak (Auth)]
         API --> MQ[RabbitMQ]
     end
 
-    subgraph Automation
-        Git[GitHub Repo] -- Push --> Action[GitHub Action (Build WAR)]
-        Action -- Runner --> Server
-        WD[Watchdog Script] -- Polls --> Git
-        WD -- Updates --> Server_Core
+    subgraph Security_Ops
+        INF[Infisical] -- Injects Secrets --> WD[Watchdog Script]
+        WD -- Updates & Restarts --> Server_Core
     end
 
     subgraph Observability
-        API --> LGTM[LGTM Stack (Loki/Grafana/Tempo)]
+        API --> LGTM[LGTM Stack (Loki/Grafana/Tempo/Prometheus)]
     end
 ```
 
-### Request Flow
+## Request Flow
 **External Request:** A client request arrives at `backend.treishvaamgroup.com` and is routed securely through the Cloudflare Tunnel.
 
 **Nginx Gateway:** The request hits Nginx, which acts as a reverse proxy, handles CORS negotiation explicitly, and applies ModSecurity WAF rules.
@@ -58,14 +60,19 @@ graph TD
 - Auth-related requests are routed to Keycloak.
 - Static assets (Images/Sitemaps) are proxied directly from storage paths.
 
-**Backend Processing:** The Spring Boot application processes the request, interacting with MariaDB (data), Redis (cache), MinIO (files), and RabbitMQ.
+**Backend Processing:** The Spring Boot application processes the request, interacting with:
+- **MariaDB**: Core relational data (User profiles, Posts).
+- **Elasticsearch**: High-performance full-text search.
+- **Redis**: Caching for market data and sessions.
+- **MinIO**: File storage for media assets.
+- **RabbitMQ**: Asynchronous event processing (e.g., Audit logs).
 
 **Resilience (Fail-Open):**
-- **Rate Limiting:** The API uses a Redis-backed rate limiter. It is configured to "Fail Open," meaning if Redis encounters disk/permission errors, the site **remains online** and allows traffic instead of crashing.
+- **Rate Limiting**: The API uses a Redis-backed rate limiter. It is configured to "Fail Open," meaning if Redis encounters disk/permission errors, the site **remains online** and allows traffic instead of crashing.
 
-**Observability:** All services emit metrics, logs, and traces to the LGTM stack.
+**Observability:** All services emit metrics, logs, and traces to the LGTM stack (Loki, Grafana, Tempo, Prometheus).
 
-**Backup:** The Backup Service container performs automated encrypted backups to MinIO every 24 hours.
+**Backup:** The Backup Service container performs automated encrypted backups of the Database and MinIO bucket to local storage every 24 hours.
 
 ---
 
@@ -90,4 +97,4 @@ The Cloudflare Worker acts as an edge layer for SEO and high-availability crawli
 - **Bot Detection:** Injects meta/schema tags dynamically if the visitor is a bot (Googlebot, Twitterbot).
 - **High Availability:** Serves a fallback `robots.txt` even if the backend is offline, ensuring crawlers are never blocked by downtime.
 
-See `08-SEO-EDGE.md` for full details.
+See `docs/08-SEO-EDGE.md` for full details.

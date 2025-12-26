@@ -1,154 +1,161 @@
-# 03-BACKEND-API.md
+# Backend API Reference
 
-## BlogPostController
-**Base URL:** `/api/v1/posts`
+This document provides a comprehensive reference for the REST API surface of the Treishvaam Finance Platform.
 
-### Endpoints Table
-| Method | Endpoint | Role Required | Description |
-|--------|----------|--------------|-------------|
-| GET    | `/api/v1/posts` | Public | List published blog posts (paginated) |
-| GET    | `/api/v1/posts/admin/all` | ADMIN | List all posts (admin) |
-| GET    | `/api/v1/posts/{id}` | Public | Get post by ID |
-| GET    | `/api/v1/posts/url/{urlArticleId}` | Public | Get post by URL article ID |
-| GET    | `/api/v1/posts/category/{categorySlug}/{userFriendlySlug}/{id}` | Public | Get post by full slug |
-| POST   | `/api/v1/posts/admin/backfill-slugs` | ADMIN | Backfill slugs for all posts |
-| GET    | `/api/v1/posts/admin/drafts` | ADMIN | List all draft posts |
-| POST   | `/api/v1/posts/draft` | ADMIN | Create a draft post |
-| PUT    | `/api/v1/posts/draft/{id}` | ADMIN | Update a draft post |
-| POST   | `/api/v1/posts` | ADMIN | Create a published post |
-| POST   | `/api/v1/posts/{id}/duplicate` | ADMIN | Duplicate a post |
-| PUT    | `/api/v1/posts/{id}` | ADMIN | Update a published post |
-| DELETE | `/api/v1/posts/{id}` | ADMIN | Delete a post |
-| DELETE | `/api/v1/posts/bulk` | ADMIN | Bulk delete posts |
-| POST   | `/api/v1/posts/{id}/share` | ADMIN | Share post to LinkedIn |
-| GET    | `/api/v1/posts/public/{slug}` | Public | Get post by public slug |
-| GET    | `/api/v1/posts/search` | Public | Search posts by query |
-| GET    | `/api/v1/posts/featured` | Public | List featured posts |
-| GET    | `/api/v1/posts/recent` | Public | List recent posts |
-| GET    | `/api/v1/posts/category/{categorySlug}` | Public | List posts by category |
-| GET    | `/api/v1/posts/tags/{tag}` | Public | List posts by tag |
+**Base URL**: `/api/v1` (unless otherwise noted)
 
-### Key Operations
-- **Create Post**: `POST /api/v1/posts` (ADMIN)
-  - Payload (multipart/form-data):
-    - `title` (String, required)
-    - `content` (String, required)
-    - `userFriendlySlug`, `customSnippet`, `metaDescription`, `keywords`, `seoTitle`, `canonicalUrl`, `focusKeyword`, `displaySection`, `category`, `tags`, `featured`, `scheduledTime`, `newThumbnails`, `thumbnailMetadata`, `thumbnailOrientation`, `coverImage`, `coverImageAltText`, `layoutStyle`, `layoutGroupId` (various, optional)
-  - Returns: Created BlogPost object
-- **Backfill Slugs**: `POST /api/v1/posts/admin/backfill-slugs` (ADMIN)
-  - No payload. Updates all posts with missing slugs. Returns a message with the count of updated posts.
+## 1. Content Management
 
-## AuthController
-**Base URL:** `/api/v1/auth`
+### Blog Post Controller (`BlogPostController`)
+**Base Path**: `/posts`
 
-### Endpoints Table
-| Method | Endpoint | Role Required | Description |
-|--------|----------|--------------|-------------|
-| GET    | `/api/v1/auth/me` | Authenticated | Get current user's username and email |
-| POST   | `/api/v1/auth/login` | Public | Authenticate user and return JWT |
-| POST   | `/api/v1/auth/logout` | Authenticated | Invalidate user session |
-| POST   | `/api/v1/auth/refresh` | Authenticated | Refresh JWT token |
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **GET** | `/` | Public | List published posts with pagination. |
+| **GET** | `/{id}` | Public | Get a single post by its numerical ID. |
+| **GET** | `/public/{slug}` | Public | Get a post by its URL-friendly slug. |
+| **GET** | `/url/{urlArticleId}` | Public | Get a post by its legacy URL Article ID. |
+| **GET** | `/category/{categorySlug}` | Public | List published posts within a specific category. |
+| **GET** | `/tags/{tag}` | Public | List published posts matching a specific tag. |
+| **GET** | `/recent` | Public | Get the most recently published posts (Limit: 5). |
+| **GET** | `/featured` | Public | Get posts marked as 'Featured'. |
+| **GET** | `/search` | Public | (Database) Simple search by title/content keyword. |
+| **POST** | `/draft` | **ADMIN** | Create a new blog post in `DRAFT` status. |
+| **PUT** | `/draft/{id}` | **ADMIN** | Update an existing draft post. |
+| **GET** | `/admin/drafts` | **ADMIN** | List all posts with `DRAFT` status. |
+| **GET** | `/admin/all` | **ADMIN** | List all posts regardless of status (Published/Draft/Archived). |
+| **POST** | `/admin/publish/{id}` | **ADMIN** | Change post status to `PUBLISHED`. |
+| **DELETE** | `/admin/delete/{id}` | **ADMIN** | Permanently delete a post. |
+| **POST** | `/{id}/duplicate` | **ADMIN** | Clone an existing post into a new draft. |
+| **POST** | `/{id}/share` | **ADMIN** | Trigger a LinkedIn share for this post. |
 
-### Key Operations
-- **Get User**: `GET /api/v1/auth/me`
-  - Returns: `{ "username": string, "email": string }` if authenticated, or 401 if not.
+### Category Controller (`CategoryController`)
+**Base Path**: `/categories`
 
-## AdminActionsController
-**Base URL:** `/api/v1/admin-actions`
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **GET** | `/` | Public | List all active categories. |
+| **POST** | `/` | **ADMIN** | Create a new category. |
+| **PUT** | `/{id}` | **ADMIN** | Update an existing category. |
+| **DELETE** | `/{id}` | **ADMIN** | Delete a category. |
 
-### Endpoints Table
-| Method | Endpoint | Role Required | Description |
-|--------|----------|--------------|-------------|
-| POST   | `/api/v1/admin-actions/cache/clear` | ADMIN | Clear application caches |
-| POST   | `/api/v1/admin-actions/reindex` | ADMIN | Trigger search re-indexing |
+### File Controller (`FileController`)
+**Base Path**: `/files`
 
-## AnalyticsController
-**Base URL:** `/api/v1/analytics`
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **POST** | `/upload` | **ADMIN** | Upload an image/file to MinIO storage. Returns the public URL. |
+| **GET** | `/{filename}` | Public | Serve the file content (if not served directly via Nginx). |
 
-### Endpoints Table
-| Method | Endpoint | Role Required | Description |
-|--------|----------|--------------|-------------|
-| GET    | `/api/v1/analytics/visits` | ADMIN | Get audience visit metrics |
-| GET    | `/api/v1/analytics/engagement` | ADMIN | Get engagement metrics |
+## 2. Market Data & News
 
-## ApiStatusController
-**Base URL:** `/api/v1/api-status`
+### Market Data Controller (`MarketDataController`)
+**Base Path**: `/market`
 
-### Endpoints Table
-| Method | Endpoint | Role Required | Description |
-|--------|----------|--------------|-------------|
-| GET    | `/api/v1/api-status` | ADMIN | Check status of external API integrations |
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **GET** | `/indices` | Public | Get summary data for major global indices. |
+| **GET** | `/movers` | Public | Get top gainers, losers, and active stocks. |
+| **GET** | `/quote/{symbol}` | Public | Get real-time quote for a specific symbol. |
+| **GET** | `/history/{symbol}` | Public | Get historical price data (candles) for charts. |
+| **GET** | `/widget` | Public | Get optimized data payload for the frontend market widget. |
+| **POST** | `/admin/refresh` | **ADMIN** | Force a manual refresh of market data from external providers. |
 
-## CategoryController
-**Base URL:** `/api/v1/categories`
+### News Highlight Controller (`NewsHighlightController`)
+**Base Path**: `/news-highlights`
 
-### Endpoints Table
-| Method | Endpoint | Role Required | Description |
-|--------|----------|--------------|-------------|
-| GET    | `/api/v1/categories` | Public | List all categories |
-| POST   | `/api/v1/categories` | ADMIN | Create a new category |
-| PUT    | `/api/v1/categories/{id}` | ADMIN | Update a category |
-| DELETE | `/api/v1/categories/{id}` | ADMIN | Delete a category |
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **GET** | `/ticker` | Public | Get scrolling news ticker items. |
+| **GET** | `/intel` | Public | Get structured news intelligence data. |
+| **GET** | `/top` | Public | Get the top headline news. |
 
-## ContactController
-**Base URL:** `/api/v1/contact`
+## 3. System & Administration
 
-### Endpoints Table
-| Method | Endpoint | Role Required | Description |
-|--------|----------|--------------|-------------|
-| POST   | `/api/v1/contact` | Public | Submit a "Contact Us" form |
+### Admin Actions Controller (`AdminActionsController`)
+**Base Path**: `/admin/actions`
 
-## FaroCollectorController
-**Base URL:** `/faro-collector`
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **POST** | `/cache/clear` | **ADMIN** | Flush all Redis caches immediately. |
+| **GET** | `/system-properties` | **ADMIN** | List dynamic system configuration properties. |
+| **POST** | `/system-properties` | **ADMIN** | Update a system property. |
 
-### Endpoints Table
-| Method | Endpoint | Role Required | Description |
-|--------|----------|--------------|-------------|
-| POST   | `/faro-collector/collect` | Public | Receive Grafana Faro telemetry data |
+### Analytics Controller (`AnalyticsController`)
+**Base Path**: `/analytics`
 
-## FileController
-**Base URL:** `/api/v1/files`
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **GET** | `/visits` | **ADMIN** | Get daily/monthly visit counts. |
+| **GET** | `/posts/top` | **ADMIN** | Get most viewed posts. |
 
-### Endpoints Table
-| Method | Endpoint | Role Required | Description |
-|--------|----------|--------------|-------------|
-| GET    | `/api/v1/files/{filename}` | Public | Serve file/image from MinIO |
+### Health Check Controller (`HealthCheckController`)
+**Base Path**: `/health`
 
-## HealthCheckController
-**Base URL:** `/api/v1/health`
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **GET** | `/` | Public | Simple "UP" status for Docker/Load Balancer probes. |
 
-### Endpoints Table
-| Method | Endpoint | Role Required | Description |
-|--------|----------|--------------|-------------|
-| GET    | `/api/v1/health` | Public | System health probe |
+### API Status Controller (`ApiStatusController`)
+**Base Path**: `/status`
 
-## NewsHighlightController
-**Base URL:** `/api/v1/news-highlights`
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **GET** | `/external-apis` | **ADMIN** | Check quota and health of AlphaVantage, Finnhub, etc. |
 
-### Endpoints Table
-| Method | Endpoint | Role Required | Description |
-|--------|----------|--------------|-------------|
-| GET    | `/api/v1/news-highlights/ticker` | Public | Get news ticker highlights |
-| GET    | `/api/v1/news-highlights/intel` | Public | Get intelligence widget data |
+## 4. Search & SEO
 
-## SearchController
-**Base URL:** `/api/v1/search`
+### Search Controller (`SearchController`)
+**Base Path**: `/search`
 
-### Endpoints Table
-| Method | Endpoint | Role Required | Description |
-|--------|----------|--------------|-------------|
-| GET    | `/api/v1/search` | Public | Search content via Elasticsearch |
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **GET** | `/query` | Public | Full-text search via Elasticsearch (High Performance). |
+| **POST** | `/reindex` | **ADMIN** | Rebuild the Elasticsearch index from the Database. |
 
-## Access Control
-- All admin and draft operations require `ROLE_ADMIN` (checked via `@PreAuthorize`).
-- Public endpoints do not require authentication.
-- The security configuration enforces RBAC for sensitive operations.
+### Sitemap Controller (`SitemapController`)
+**Base Path**: `/sitemaps` (Root level in some configs)
+
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **GET** | `/sitemap.xml` | Public | Main sitemap index. |
+| **GET** | `/posts.xml` | Public | Sitemap for blog posts. |
+| **GET** | `/news.xml` | Public | Google News compatible sitemap. |
+
+## 5. Security & Authentication
+
+### Auth Controller (`AuthController`)
+**Base Path**: `/auth`
+
+*Note: Most authentication logic is handled by Keycloak. These endpoints exist for specific frontend helper flows or legacy support.*
+
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **GET** | `/user/me` | Authenticated | Get details of the currently logged-in user (from JWT). |
+| **POST** | `/logout` | Authenticated | Trigger logout (Frontend should also clear tokens). |
+
+## Request & Response Formats
+
+### Standard Success Response
+```json
+{
+  "status": "SUCCESS",
+  "data": { ... },
+  "timestamp": "2023-10-27T10:00:00Z"
+}
+```
+
+### Standard Error Response
+```json
+{
+  "status": "ERROR",
+  "message": "Resource not found",
+  "errorCode": "NOT_FOUND",
+  "timestamp": "2023-10-27T10:00:00Z"
+}
+```
 
 ## Rate Limiting Headers
-Public endpoints protected by rate limiting (specifically **Auth** and **Contact**) return the following headers:
-- `X-RateLimit-Limit`: The total number of requests allowed in the current time window.
-- `X-RateLimit-Remaining`: The number of requests remaining in the current window.
-- `X-RateLimit-Retry-After`: (On `429 Too Many Requests`) The number of seconds to wait before retrying.
-
----
-This API reference covers the main endpoints and access rules for blog post and authentication operations, now including all implied endpoints.
+For public endpoints protected by `RateLimitingFilter`, the following headers are returned:
+* `X-RateLimit-Remaining`: Requests left in the current window.
+* `X-RateLimit-Retry-After`: Seconds to wait if blocked (HTTP 429).

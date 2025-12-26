@@ -1,102 +1,118 @@
-# 09-DEPLOYMENT-OPS.md
+# Deployment & Operations Manual
 
-## 1. Multi-Branch Deployment Strategy
-We utilize a sophisticated 3-branch strategy to balance rapid development with enterprise stability.
+## 1. Multi-Branch Strategy
 
-### The Branches
-1.  **`develop` (Active Work)**
-    * **Purpose**: Daily development, experimental features, and rapid iteration.
-    * **Behavior**: Code pushed here is immediately picked up by the automation engine.
-    * **Risk**: Moderate. Used for testing new integrations.
-2.  **`staging` (Stable / Restore Point)**
-    * **Purpose**: A clean, stable snapshot of the codebase. Features are only merged here when they are "Done Done".
-    * **Use Case**: If `develop` becomes unstable or corrupt, we can immediately switch the server to `staging` to restore service.
-3.  **`main` (Production)**
-    * **Purpose**: The locked, public-facing release history.
+We utilize a sophisticated 3-branch strategy to balance rapid development with enterprise stability. The "Watchdog" script on the server intelligently switches between these branches based on the latest activity.
+
+### The Branching Model
+| Branch | Role | Automation Behavior |
+| :--- | :--- | :--- |
+| **`develop`** | **Active Development** | Daily work occurs here. Code pushed is immediately deployed to the dev environment. Used for integration testing. |
+| **`staging`** | **Release Candidate** | A "Golden Copy" of the codebase. Features are merged here only when feature-complete and tested. Acts as a stable restore point. |
+| **`main`** | **Production** | The locked, public-facing release history. Represents the currently live, stable version of the platform. |
 
 ---
 
 ## 2. Dual-Engine Automation Architecture
-Our deployment process is split into two distinct engines to separate **Build Logic** from **Server State Logic**.
+
+Our deployment process is decoupled into two distinct engines. This separates the **Build Logic** (Compiling Java) from the **State Logic** (Managing Containers & Secrets).
 
 ### Engine A: The Builder (GitHub Actions)
 * **File**: `.github/workflows/deploy.yml`
-* **Responsibility**:
-    1.  Detects push to `develop`, `staging`, or `main`.
-    2.  Sets up Java 21 environment.
-    3.  Compiles the Backend Code (`mvn clean package`).
-    4.  **Transfers the Artifact**: Copies the generated `WAR` file to the Ubuntu Server.
-    5.  Restarts the Backend Docker Container.
+* **Triggers**: Pushes to `develop`, `staging`, or `main`.
+* **Responsibilities**:
+    1.  **CI**: Sets up Java 21, caches dependencies, and runs Unit Tests (`mvn test`).
+    2.  **Build**: Compiles the Spring Boot application into an executable WAR file (`mvn clean package`).
+    3.  **Artifact Transfer**: Securely copies the `backend-app.war` to the Ubuntu Server using SSH/SCP.
+    4.  **Trigger**: Signals the server to restart the Backend service.
 
 ### Engine B: The Watchdog (Auto-Deploy Script)
 * **File**: `scripts/auto_deploy.sh`
-* **Location**: Runs locally on the Ubuntu Server (via Cron/Runner).
-* **Responsibility**: "Self-Healing" and Infrastructure Sync.
-* **Logic**:
-    1.  **Polls Git**: Checks timestamps of `origin/develop`, `origin/staging`, and `origin/main`.
-    2.  **Winner Takes All**: Determines which branch has the latest activity.
-    3.  **Syncs Infrastructure**: Updates local server files that *aren't* in the WAR (e.g., Nginx configs, Cloudflare Worker scripts, Python updaters).
-    4.  **Restarts Services**: If Nginx or Config files changed, it restarts those specific containers.
+* **Location**: Runs locally on the Ubuntu Server (via Cron/Git Runner).
+* **Responsibilities**: "Self-Healing" and Infrastructure Sync.
+* **Logic Flow**:
+    1.  **Branch Intelligence**: Checks timestamps of `origin/develop`, `origin/staging`, and `origin/main`.
+    2.  **Winner Takes All**: Automatically checks out the branch with the most recent commit.
+    3.  **Infrastructure Sync**: Pulls changes to non-compiled files (Nginx configs, Python scripts, Docker configs).
+    4.  **Secret Injection**: Executes the "Flash & Wipe" security sequence.
+    5.  **Smart Restart**: Rebuilds containers only if configurations have changed.
 
 ---
 
-## 3. Secret Management (Infisical)
-**Status**: ✅ Active (Enterprise Orchestrator Mode)
+## 3. Secret Management (Flash & Wipe)
+
+**Status**: ✅ Active (Enterprise Zero-Trust)
 **Policy**: **Zero-Secrets-on-Disk**
 
-We use **Host-Level Injection**. The `docker-compose.yml` file maps environment variables (e.g., `${PROD_DB_PASSWORD}`) to the containers. These variables are populated by the `infisical run` wrapper command on the host.
+We do not rely on static `.env` files for application secrets. Instead, we use a dynamic injection strategy orchestrated by `auto_deploy.sh`.
 
-### Server Configuration (`.env`)
-The server contains only **one** configuration file at `/opt/treishvaam/.env`. It holds **only** the Machine Identity tokens.
+### The "Flash & Wipe" Sequence
+1.  **State 0 (Resting)**: The `.env` file on disk contains **only** the Infisical Machine Identity tokens (`INFISICAL_CLIENT_ID`, etc.). No DB passwords or API keys are present.
+2.  **State 1 (Flash)**: When deployment starts, the script authenticates with Infisical and exports the full production secret set, appending them to `.env`.
+3.  **State 2 (Consumption)**: `docker compose up` is executed. The Docker daemon reads the secrets from the file and injects them into the container's RAM.
+4.  **State 3 (Stabilization)**: The script waits 10 seconds to ensure containers have initialized.
+5.  **State 4 (Wipe)**: The script immediately overwrites `.env` with a safe template, removing all sensitive data from the disk.
 
-| Variable | Description |
-|----------|-------------|
-| `INFISICAL_PROJECT_ID` | The Treishvaam Finance Project ID. |
-| `INFISICAL_CLIENT_ID` | The Machine Identity (Robot) ID. |
-| `INFISICAL_CLIENT_SECRET` | The Robot's Secret Key. |
+### Managing Secrets
+To add or rotate a secret (e.g., Database Password):
+1.  Log in to the **Infisical Dashboard**.
+2.  Update the variable in the `Prod` environment.
+3.  Trigger a deployment (or wait for the next Watchdog cycle). The new value will be automatically pulled during the "Flash" phase.
 
 ---
 
-## 4. Disaster Recovery (Restore Points)
+## 4. Disaster Recovery (DR)
 
-### Scenario: `develop` is broken/corrupted
-If a bad commit on `develop` crashes the server:
-1.  **Manual Override**: You can force the server to switch to the stable `staging` branch.
-    ```bash
-    # On the Ubuntu Server
-    cd /opt/treishvaam
-    git checkout staging
-    git reset --hard origin/staging
-    ./scripts/auto_deploy.sh
-    ```
-2.  **Automatic Override**: Simply push a new commit to `staging` from your local machine. The Watchdog script will see `staging` has a newer timestamp than `develop` and automatically switch the server to it.
+### Scenario A: Bad Code on `develop`
+If a deployment to `develop` breaks the site:
+1.  **Automatic Rollback**: Push a new commit to the `staging` branch (even an empty commit).
+2.  **Watchdog Action**: The Watchdog will detect that `staging` has a newer timestamp than `develop`.
+3.  **Resolution**: It will automatically check out `staging`, reset the codebase, and redeploy the stable version.
 
-### Database Recovery
-Data safety is guaranteed via an isolated Backup Service container.
-- **Frequency**: Automated daily backups (24h interval).
-- **Destination**: MinIO Bucket (`treishvaam-backups`).
-- **Restore Procedure**:
-  ```bash
-  # 1. List backups
-  docker exec -it treishvaam-minio ls /data/treishvaam-backups
-  
-  # 2. Run restore script
-  docker exec -it treishvaam-backup ./restore.sh <backup_filename.sql.gz>
-  ```
+### Scenario B: Database Corruption
+Database backups are automated via the dedicated `backup-service` container.
+- **Schedule**: Every 24 hours.
+- **Storage**: Encrypted and stored in the local MinIO `treishvaam-backups` bucket.
+
+**Restore Procedure:**
+```bash
+# 1. List available backups in MinIO
+docker exec -it treishvaam-backup ls -lh /data/
+
+# 2. Execute Restore (WARNING: Overwrites current DB)
+# Replace <timestamp>.sql.gz with the actual filename
+docker exec -it treishvaam-backup ./restore.sh <timestamp>.sql.gz
+```
 
 ---
 
 ## 5. Observability (LGTM Stack)
-We use the "Zero-CLI" debugging model via the Grafana LGTM Stack.
 
-### Mission Control
-- **URL**: `http://<YOUR_SERVER_IP>:3001` (Grafana)
-- **Login**: `admin` / (Password in Infisical)
-- **Dashboard**: "Treishvaam Mission Control"
+We utilize the **Grafana LGTM Stack** (Loki, Grafana, Tempo, Mimir) for full-stack observability without needing SSH access.
 
-### Debugging with Loki (Logs)
-Instead of SSH-ing into the server to `tail` logs, use Loki in Grafana:
-1.  Go to **Explore**.
-2.  Select source **Loki**.
-3.  **Query (Errors)**: `{app="finance-api"} |= "ERROR"`
-4.  **Query (Startup)**: `{container="treishvaam-backend-1"}` (To view boot logs).
+### Access
+* **URL**: `http://<SERVER_IP>:3001`
+* **User**: `admin`
+* **Password**: (Managed in Infisical via `GRAFANA_ADMIN_PASSWORD`)
+
+### Debugging Workflows
+
+#### 1. Viewing Logs (Loki)
+Instead of `docker logs`, use Grafana Explore:
+1.  Select Datasource: **Loki**.
+2.  **Backend Logs**: `{container="backend"}`
+3.  **Error Search**: `{container="backend"} |= "ERROR"`
+4.  **Nginx Access Logs**: `{container="nginx"}`
+
+#### 2. Performance Tracing (Tempo)
+To trace a slow request:
+1.  Select Datasource: **Tempo**.
+2.  Find the `traceId` from the Loki logs.
+3.  Paste it into Tempo to visualize the full request path (Nginx -> Backend -> Database/Redis).
+
+#### 3. Infrastructure Health (Prometheus)
+Check the **"Mission Control"** dashboard for:
+* CPU/Memory usage of containers.
+* RabbitMQ Queue depth.
+* JVM Heap memory usage.
+* Circuit Breaker states (Resilience4j).
