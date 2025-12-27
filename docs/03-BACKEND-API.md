@@ -1,5 +1,8 @@
 # Backend API Reference
 
+**Stable Version:** `tfin-financeapi-Develop.0.0.0.1`
+**Security Status:** Fort Knox Security Suite Enabled
+
 This document provides a comprehensive reference for the REST API surface of the Treishvaam Finance Platform.
 
 **Base URL**: `/api/v1` (unless otherwise noted)
@@ -134,6 +137,12 @@ This document provides a comprehensive reference for the REST API surface of the
 | **GET** | `/user/me` | Authenticated | Get details of the currently logged-in user (from JWT). |
 | **POST** | `/logout` | Authenticated | Trigger logout (Frontend should also clear tokens). |
 
+### Internal Lock (The Fort Knox Protocol)
+Certain high-risk internal endpoints (e.g., specific batch operations or inter-service POST requests) are protected by the **Internal Secret Filter**.
+* **Header Required**: `X-Internal-Secret`
+* **Value**: Must match the `APP_SECURITY_INTERNAL_SECRET` injected via Infisical.
+* **Effect**: Requests without this header on protected internal routes will be rejected `403 Forbidden` regardless of the user's JWT roles.
+
 ## Request & Response Formats
 
 ### Standard Success Response
@@ -156,6 +165,8 @@ This document provides a comprehensive reference for the REST API surface of the
 ```
 
 ## Rate Limiting Headers
-For public endpoints protected by `RateLimitingFilter`, the following headers are returned:
+Public endpoints are protected by `RateLimitingFilter`.
+**Note:** In the event of a cache infrastructure outage (e.g., Redis down), the system implements a **"Fail-Open" Strategy** to maintain availability, and these headers may temporarily be omitted.
+
 * `X-RateLimit-Remaining`: Requests left in the current window.
 * `X-RateLimit-Retry-After`: Seconds to wait if blocked (HTTP 429).

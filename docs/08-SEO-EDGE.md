@@ -1,5 +1,7 @@
 # SEO & Edge Security Architecture
 
+**Security Status:** Fort Knox Edge Defense
+
 This document details the "Edge-Side Rendering" (ESR) and "Edge Security" strategy used to ensure perfect SEO, social sharing previews, and banking-grade security headers for the Single Page Application (SPA).
 
 ## 1. The Challenge
@@ -14,7 +16,7 @@ We deploy a custom Cloudflare Worker (`cloudflared/worker.js`) that acts as a sm
 ### 2.1. Request Interception Flow
 The Worker intercepts every request to the domain.
 
-1.  **Configuration Loading**: The Worker loads target URLs from the Cloudflare Vault (Secrets), ensuring zero hardcoded values in the codebase.
+1.  **Configuration Loading (URL Hidden Strategy)**: The Worker loads target URLs from the Cloudflare Vault (Secrets). The source code contains **zero** hardcoded URLs ("URLS HIDDEN"), preventing credential leakage via the repo.
 2.  **Bot Detection**: The Worker checks if the `User-Agent` matches known bots (Googlebot, Bingbot, LinkedInBot, Twitterbot, WhatsApp, etc.).
     * **Regular Users**: Requests are passed to the CDN/Nginx to load the React app.
     * **Bots**: The Worker engages the "Edge Rendering" engine.

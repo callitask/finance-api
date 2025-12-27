@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [tfin-financeapi-Develop.0.0.0.1] - Fort Knox Security Suite
+### Security & Architecture
+- **Fort Knox Protocol**: Fully enabled "Internal Service Locking". Critical write endpoints now require `X-Internal-Secret` validation in addition to JWTs (`InternalSecretFilter`), protecting against internal vector attacks.
+- **IP Defense**: Enabled Application-Level Rate Limiting with a **"Fail-Open" Resilience Strategy**. If the Redis backing store fails, the system now prioritizes availability, allowing traffic to pass rather than causing a denial of service.
+- **URL Hidden Strategy**: Completed the "URLS HIDDEN" initiative. All backend and frontend code now uses strictly injected environment variables. Public repositories contain zero hardcoded URLs or IPs.
+- **Stable Version**: Designated `tfin-financeapi-Develop.0.0.0.1` as the Stable Restore Point for future rollback scenarios.
+
 ## [2.7.0] - Enterprise Zero Trust & Edge Hardening
 ### Security & Networking
 - **Infra (Zero Trust)**: Implemented strict **"Port Lockdown"**. Removed public `ports` binding for all internal services (Redis, Elasticsearch, MariaDB, RabbitMQ, MinIO, Grafana). Access is now strictly internal via Docker network `treish_net`.

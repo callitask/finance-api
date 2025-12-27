@@ -2,6 +2,9 @@
 
 ## Project Overview
 
+**Stable Version:** `tfin-financeapi-Develop.0.0.0.1`
+**Security Status:** Fort Knox Security Suite Enabled
+
 The Treishvaam Finance Platform is a high-performance, enterprise-grade financial analytics and content delivery system. It is designed as a modular, microservices-ready monolith using Spring Boot 3.4 (Java 21) for the backend and React for the frontend, served via Cloudflare Edge.
 
 This index serves as the central navigation map for all architectural, operational, and security documentation.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project adheres to a strict Zero-Trust security model. Hardcoded secrets are strictly prohibited in the codebase. All sensitive credentials are managed externally via **Infisical** and injected into the application runtime environment securely.
+This project adheres to a strict Zero-Trust security model ("Fort Knox Suite"). Hardcoded secrets are strictly prohibited in the codebase. All sensitive credentials are managed externally via **Infisical** and injected into the application runtime environment securely.
 
 ## Secret Injection Process (Flash & Wipe)
 
@@ -19,8 +19,8 @@ We utilize a "Flash & Wipe" strategy to ensure secrets never persist on the disk
 These are configured in the Cloudflare Dashboard -> Workers -> Settings -> Variables.
 | Variable Name | Description |
 | :--- | :--- |
-| `BACKEND_URL` | Origin URL for API calls (e.g., `https://backend.treishvaamgroup.com`). |
-| `FRONTEND_URL` | Public Frontend URL (e.g., `https://treishfin.treishvaamgroup.com`). |
+| `BACKEND_URL` | Origin URL for API calls. |
+| `FRONTEND_URL` | Public Frontend URL. |
 
 ### Frontend Cloudflare Pages Secrets
 These are configured in Cloudflare Pages -> Settings -> Environment Variables.
@@ -49,6 +49,7 @@ These are configured in Cloudflare Pages -> Settings -> Environment Variables.
 | `JWT_SECRET_KEY` | Secret for legacy token signing (if applicable). | Backend |
 | `APP_ADMIN_EMAIL` | Email for the bootstrapped Admin user. | Backend |
 | `APP_ADMIN_PASSWORD` | Password for the bootstrapped Admin user. | Backend, Keycloak |
+| `APP_SECURITY_INTERNAL_SECRET` | **Critical**. Master key for `InternalSecretFilter`. Used to lock down POST endpoints. | Backend |
 
 ### External API Keys (Infisical)
 | Variable Name | Description | Service(s) |
@@ -64,3 +65,4 @@ These are configured in Cloudflare Pages -> Settings -> Environment Variables.
 * **Database Passwords**: Rotate every 90 days. Requires full stack restart (`auto_deploy.sh`).
 * **API Keys**: Rotate immediately upon vendor notification or suspected breach.
 * **Worker Secrets**: Update in Cloudflare Dashboard immediately if domain changes.
+* **Internal Secret**: Rotate manually via Infisical if internal service integrity is compromised.

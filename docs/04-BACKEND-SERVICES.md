@@ -29,7 +29,8 @@ The architecture employs a hybrid approach for robustness:
 * **Redis Caching**: The `MarketDataController` caches the final JSON response for the frontend in Redis to minimize database load.
 
 ### 1.4. Resiliency
-* **Circuit Breakers**: Annotated with `@CircuitBreaker(name = "external-api")`. If a provider fails repeatedly (e.g., 50% failure rate), the system switches to an "Open" state and rejects requests immediately to prevent cascading failures.
+* **Circuit Breakers**: Annotated with `@CircuitBreaker(name = "external-api")`. If a provider fails repeatedly (e.g., 50% failure rate), the system switches to an "Open" state and rejects requests immediately.
+* **Fail-Open Strategy**: For critical read operations, if the Rate Limiting service (Redis) is unreachable, the system is designed to "Fail Open" (Allow Request) rather than blocking legitimate users, ensuring high availability during infrastructure partial outages.
 
 ## 2. Content Management (`BlogPostService`)
 
@@ -98,3 +99,10 @@ The system uses an internal event bus to decouple services.
     * `/sitemap-news.xml`: Google News specific format (includes `<news:publication_date>`).
     * `/feed.xml`: RSS 2.0 feed for aggregators.
 * **Caching**: Results are cached heavily to prevent database load from crawler bots.
+
+## 8. Fort Knox Security Implementation
+
+The Service Layer integrates directly with the Fort Knox Security Suite.
+
+* **Internal Locking**: The `InternalSecretFilter` protects POST services by verifying the `X-Internal-Secret` against the injected environment variable. This ensures that even if an attacker bypasses the frontend, they cannot invoke critical write operations without the key.
+* **Fail-Open Logic**: In `RateLimitingFilter.java`, a `try-catch` block specifically wraps the Redis bucket logic. If Redis throws a connection exception, the filter logs an error but **allows the request to proceed**. This architectural decision favors Platform Availability over Security during catastrophic infrastructure failures.

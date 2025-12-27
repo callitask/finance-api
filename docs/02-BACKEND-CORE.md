@@ -38,6 +38,14 @@ The filter chain is configured with strict ordering to ensure safety before any 
     * **Protected**: All other endpoints require a valid JWT.
     * **Admin**: Endpoints like `/api/v1/admin/**` require `ROLE_ADMIN`.
 
+### 2.4. Internal Service Locking (The Internal Lock)
+To protect sensitive endpoints from internal threats or misconfigured gateways, we implement a secondary authentication layer.
+
+* **Filter**: `InternalSecretFilter`.
+* **Mechanism**: Inspects the `X-Internal-Secret` header on specific POST endpoints (e.g., `/api/v1/posts`).
+* **Validation**: The header value is compared against the `${APP_SECURITY_INTERNAL_SECRET}` injected by Infisical.
+* **Effect**: If valid, the request is granted the `ROLE_INTERNAL` authority, bypassing standard user checks.
+
 ## 3. Multi-Tenancy Architecture
 
 The application is built to support multiple sub-brands (tenants) from a single deployment.
@@ -61,8 +69,11 @@ To prevent cascading failures when external APIs (AlphaVantage, Finnhub) go down
 
 ### 4.2. Rate Limiting (Bucket4j)
 * **Purpose**: Protects the API from abuse and DDoS attempts.
-* **Filter**: `RateLimitingFilter` checks the user's IP or User ID against a token bucket.
+* **Filter**: `RateLimitingFilter` checks the user's IP or User ID against a token bucket backed by **Redis**.
 * **Headers**: Returns `X-RateLimit-Remaining` and `X-RateLimit-Retry-After` to the client.
+* **Fail-Open Strategy (Resilience)**:
+    * In the event of a Redis failure (Connection Refused/Timeout), the filter is designed to **Fail Open**.
+    * **Logic**: We prioritize Application Availability over strict Rate Limiting during infrastructure outages. Errors are logged, but the request is allowed to proceed.
 
 ## 5. Async Processing & Event Bus
 

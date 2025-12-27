@@ -1,5 +1,7 @@
 # Deployment & Operations Manual
 
+**Stable Version:** `tfin-financeapi-Develop.0.0.0.1`
+
 ## 1. Multi-Branch Strategy
 
 We utilize a sophisticated 3-branch strategy to balance rapid development with enterprise stability. The "Watchdog" script on the server intelligently switches between these branches based on the latest activity.
@@ -41,8 +43,7 @@ Our deployment process is decoupled into two distinct engines. This separates th
 
 ## 3. Secret Management (Flash & Wipe)
 
-**Status**: ✅ Active (Enterprise Zero-Trust)
-**Policy**: **Zero-Secrets-on-Disk**
+**Status**: ✅ Active (Fort Knox: Zero-Secrets-on-Disk)
 
 We do not rely on static `.env` files for application secrets. Instead, we use a dynamic injection strategy orchestrated by `auto_deploy.sh`.
 

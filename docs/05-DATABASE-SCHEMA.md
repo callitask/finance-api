@@ -1,5 +1,7 @@
 # Database Schema & Data Model
 
+**Stable Version:** `tfin-financeapi-Develop.0.0.0.1`
+
 The Treishvaam Finance Platform uses **MariaDB 10.6** as its primary relational data store. Schema evolution is strictly managed via **Liquibase**, ensuring deterministic deployments across Development, Staging, and Production environments.
 
 ## 1. Schema Management Strategy
@@ -90,13 +92,13 @@ erDiagram
     * Columns: `id`, `headline`, `summary`, `url`, `image_url`, `source`, `published_at`, `archived`.
 
 ### 3.5. System & Analytics
-* **`audit_logs`**: Security and compliance trail.
+* **`audit_logs`**: Security and compliance trail. Stores the "Fort Knox" audit trail.
     * Columns: `id`, `action`, `actor`, `entity_id`, `entity_type`, `timestamp`, `ip_address`.
 * **`audience_visits`**: Web analytics data.
     * Columns: `id`, `page_path`, `user_agent`, `visit_time`, `ip_hash`.
 * **`contact_messages`**: Inbound user queries.
     * Columns: `id`, `name`, `email`, `subject`, `message`, `created_at`.
-* **`api_fetch_status`**: Operational health of external integrations.
+* **`api_fetch_status`**: Operational health of external integrations. Used by the "Watchdog" to monitor resilience.
     * Columns: `id`, `provider_name`, `status`, `last_success`, `error_message`.
 
 ## 4. Changelog History (Key Migrations)

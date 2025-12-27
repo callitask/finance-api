@@ -8,15 +8,16 @@ Unlike traditional SPAs, this application **does not** hold any API keys or secr
 
 ## Security & Configuration (Zero Trust)
 
-This project strictly follows the **12-Factor App** configuration methodology. We do not hardcode URLs.
+**Fort Knox Security Suite: ENABLED**
+This project strictly follows the **12-Factor App** configuration methodology. All production URLs are hidden from the codebase and injected strictly at runtime.
 
 ### 1. Environment Variables
 The application requires two key variables to function. These tell the frontend where to find the secure API and Authentication server.
 
 | Variable Name | Description | Local Dev Value | Production Value |
 | :--- | :--- | :--- | :--- |
-| `REACT_APP_API_URL` | The URL of the Spring Boot Backend. | `http://localhost:8080` | `https://backend.treishvaamgroup.com` |
-| `REACT_APP_AUTH_URL` | The URL of the Keycloak Server. | `http://localhost:8080/auth` | `https://backend.treishvaamgroup.com/auth` |
+| `REACT_APP_API_URL` | The URL of the Spring Boot Backend. | `http://localhost:8080` | `[REDACTED - INJECTED VIA CLOUDFLARE]` |
+| `REACT_APP_AUTH_URL` | The URL of the Keycloak Server. | `http://localhost:8080/auth` | `[REDACTED - INJECTED VIA CLOUDFLARE]` |
 
 ### 2. Local Development Setup
 To run this project locally, you must create a `.env` file in the root directory (this file is git-ignored for security).
@@ -40,8 +41,8 @@ We use **Cloudflare Pages** for hosting.
 1.  **Push** your code to the `main` branch.
 2.  **Go to Cloudflare Dashboard** -> Pages -> Settings -> Environment Variables.
 3.  **Add the Production Variables** (Mark them as "Encrypted" / "Secret"):
-    * `REACT_APP_API_URL`: `https://backend.treishvaamgroup.com`
-    * `REACT_APP_AUTH_URL`: `https://backend.treishvaamgroup.com/auth`
+    * `REACT_APP_API_URL`: `https://<HIDDEN_DOMAIN_OR_TUNNEL>`
+    * `REACT_APP_AUTH_URL`: `https://<HIDDEN_DOMAIN_OR_TUNNEL>/auth`
 4.  **Redeploy** to apply changes.
 
 ## Architecture Highlights
