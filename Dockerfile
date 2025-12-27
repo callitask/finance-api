@@ -40,16 +40,23 @@ RUN pip3 install --no-cache-dir \
     mysql-connector-python \
     wikipedia-api
 
-# 2. Create necessary directories
-RUN mkdir -p /app/uploads /app/sitemaps /app/logs /app/scripts
+# 2. Create necessary directories and Non-Root User (Fort Knox)
+# We create a system user 'spring' to run the app safely.
+RUN addgroup --system spring && adduser --system --ingroup spring spring
 
-# 3. Copy the compiled WAR file from the 'builder' stage
-COPY --from=builder /build/target/finance-api.war app.war
+RUN mkdir -p /app/uploads /app/sitemaps /app/logs /app/scripts && \
+    chown -R spring:spring /app
+
+# 3. Copy the compiled WAR file from the 'builder' stage with permissions
+COPY --chown=spring:spring --from=builder /build/target/finance-api.war app.war
 
 # 4. Expose Port
 EXPOSE 8080
 
-# 5. Start the App via Infisical
+# 5. Switch to Non-Root User
+USER spring:spring
+
+# 6. Start the App via Infisical
 # "infisical run --" fetches secrets using the ENV vars provided in docker-compose,
 # injects them into the process, and then starts the Java app.
 ENTRYPOINT ["infisical", "run", "--", "java", "-jar", "app.war"]

@@ -117,8 +117,15 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-    // Use Pattern matching to avoid specific domain string issues
-    configuration.setAllowedOriginPatterns(Arrays.asList("*"));
+    
+    // 🔒 STRICT SECURITY: Only allow known domains (Fort Knox)
+    // We explicitly list the Frontend and the Parent Domain.
+    configuration.setAllowedOrigins(Arrays.asList(
+        "https://treishfin.treishvaamgroup.com",
+        "https://treishvaamgroup.com",
+        "https://www.treishvaamgroup.com"
+    ));
+    
     configuration.setAllowedMethods(
         Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
     configuration.setAllowedHeaders(Arrays.asList("*"));
