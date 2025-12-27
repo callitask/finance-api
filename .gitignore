@@ -1,0 +1,50 @@
+/target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/resources/**
+!**/src/test/resources/**
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+bin/
+
+### VS Code ###
+.vscode/
+
+### Mac ###
+.DS_Store
+
+### Logs ###
+logs/
+*.log
+
+### User Specific ###
+uploads/
+sitemaps/
+
+### Secrets & Env ###
+.env
+.env.dev
+.env.prod
+*.key
+*.pem
+secrets.sh

@@ -1,0 +1,74 @@
+name: Treishvaam Enterprise Deploy
+
+on:
+  push:
+    branches: [ "main", "staging", "develop" ]
+  workflow_dispatch:
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: self-hosted
+    
+    steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        # cache: 'maven'  <-- Disabled to prevent 800MB downloads on self-hosted runner
+
+    - name: Log Deployment Branch
+      run: |
+        echo "🚀 DEPLOYING BRANCH: ${{ github.ref_name }}"
+        echo "Server will now be updated with code from ${{ github.ref_name }}..."
+
+    - name: Build with Maven
+      run: |
+        chmod +x mvnw  # <--- CRITICAL FIX: Makes the script executable
+        ./mvnw clean package -DskipTests -B -T 1C
+
+    - name: Deploy to Application Folder
+      run: |
+        echo "--> Stopping Background Services to free RAM..."
+        # docker compose -f /opt/treishvaam/docker-compose.yml stop elasticsearch loki tempo
+
+        echo "--> Copying new WAR file..."
+        cp target/finance-api.war /opt/treishvaam/backend-app.war
+
+        echo "--> Restarting Backend..."
+        cd /opt/treishvaam
+        
+        # --- ENTERPRISE FIX: ROBUST CONTAINER RESTART ---
+        # 1. Force stop the service (ignore errors if already stopped)
+        docker compose stop backend || true
+        
+        # 2. Force remove the container state (fixes "No such container" error)
+        docker compose rm -f -s -v backend || true
+        
+        # 3. Bring up fresh container
+        docker compose up -d --force-recreate --no-deps backend
+        
+        # docker compose start elasticsearch loki tempo
+        
+        echo "--> Pruning unused Docker images..."
+        docker image prune -f
+
+    - name: Verify Deployment
+      run: |
+        echo "Waiting for Backend to initialize..."
+        sleep 15
+        if docker ps | grep -q treishvaam-backend; then
+          echo "✅ Backend Container is Running with version form branch: ${{ github.ref_name }}"
+        else
+          echo "❌ Backend Container failed to start"
+          exit 1
+        fi

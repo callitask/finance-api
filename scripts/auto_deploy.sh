@@ -1,0 +1,148 @@
+#!/bin/bash
+
+# ==============================================================================
+# TREISHVAAM FINANCE - ENTERPRISE WATCHDOG (AUTO DEPLOY)
+# ==============================================================================
+# Role: 
+#   1. Watches Git for infrastructure/config changes.
+#   2. Auto-selects the most recent branch (main vs staging vs develop).
+#   3. Updates the server files (Self-Healing).
+#   4. Injects secrets securely (Flash & Wipe) to restart services if needed.
+# ==============================================================================
+
+# --- Configuration ---
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+PROJECT_DIR="/opt/treishvaam"
+LOG_FILE="deploy.log"
+ENV_FILE=".env"
+TEMPLATE_FILE=".env.template"
+
+# List of branches to monitor for deployment
+MONITORED_BRANCHES=("main" "staging" "develop")
+
+# Ensure we are in the project directory
+cd "$PROJECT_DIR" || { echo "CRITICAL: Could not find project directory $PROJECT_DIR"; exit 1; }
+
+# Start Logging
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+# --- 1. BRANCH INTELLIGENCE ---
+# Objective: Find which branch was updated most recently (highest Unix timestamp)
+git fetch --all
+
+TARGET_BRANCH="main" # Default fallback
+LATEST_TIMESTAMP=0
+
+echo "Checking branch activity..."
+
+for branch in "${MONITORED_BRANCHES[@]}"; do
+    # Get the commit timestamp of the remote branch. Returns 0 if branch doesn't exist.
+    TS=$(git log -1 --format=%ct "origin/$branch" 2>/dev/null || echo 0)
+    
+    # Compare timestamps to find the winner
+    if [ "$TS" -gt "$LATEST_TIMESTAMP" ]; then
+        LATEST_TIMESTAMP=$TS
+        TARGET_BRANCH="$branch"
+    fi
+done
+
+# --- 2. DETECT CHANGES ---
+LOCAL=$(git rev-parse HEAD)
+REMOTE=$(git rev-parse "origin/$TARGET_BRANCH")
+
+# NOTE: We force update if the branches differ OR if we are on the wrong branch
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
+    echo "================================================================"
+    echo "[$(date)] 🚀 New activity detected. Winning Branch: [$TARGET_BRANCH]"
+    echo "  > Timestamp: $LATEST_TIMESTAMP"
+    echo "================================================================"
+
+    CHANGED_FILES=$(git diff --name-only HEAD "origin/$TARGET_BRANCH")
+    
+    # --- 3. SELF-HEALING UPDATE ---
+    echo "[System] Syncing files with origin/$TARGET_BRANCH..."
+    
+    # ROBUST SWITCHING: Create branch if missing, or force switch
+    # This fixes the issue where 'checkout' fails and 'reset' corrupts the current branch
+    if git rev-parse --verify "$TARGET_BRANCH" >/dev/null 2>&1; then
+        git checkout "$TARGET_BRANCH"
+    else
+        echo "[System] Branch $TARGET_BRANCH does not exist locally. Creating it..."
+        git checkout -b "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+    fi
+
+    # Hard reset to match remote state exactly
+    git reset --hard "origin/$TARGET_BRANCH"
+    
+    chmod +x scripts/*.sh backup/*.sh
+    chmod +x scripts/auto_deploy.sh
+
+    # --- 4. SECURE RESTART STRATEGY ---
+    
+    echo "[Security] Preparing Secure Environment..."
+    
+    # A. RESTORE AUTH KEYS
+    if [ ! -f "$TEMPLATE_FILE" ]; then
+        echo "CRITICAL: $TEMPLATE_FILE missing! Cannot fetch secrets."
+        exit 1
+    fi
+    cp "$TEMPLATE_FILE" "$ENV_FILE"
+    
+    # B. INJECT SECRETS
+    set -a; source "$ENV_FILE"; set +a
+    
+    echo "[Security] Fetching live secrets from Infisical..."
+    
+    # Force newline to prevent variable merging
+    echo "" >> "$ENV_FILE"
+
+    if infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv >> "$ENV_FILE"; then
+        echo "  > Secrets injected."
+    else
+        echo "CRITICAL: Infisical fetch failed. Service restart may fail."
+    fi
+
+    # --- 5. PERMISSION REPAIR (CRITICAL FIX FOR NON-ROOT CONTAINER) ---
+    echo "[System] Fixing permissions for Non-Root User..."
+    # We ensure these folders exist and are writable by the container (UID 100/101)
+    mkdir -p logs uploads sitemaps
+    chmod -R 777 logs uploads sitemaps
+    # ------------------------------------------------------------------
+    
+    # C. RESTART SERVICES (Passwordless)
+    echo "[Docker] Rebuilding services..."
+    
+    docker compose down --remove-orphans
+    docker compose up -d --build --force-recreate
+    
+    # --- SAFETY BUFFER ---
+    # Wait for all containers to fully initialize
+    echo "[System] Stabilizing containers (Waiting 10s)..."
+    sleep 10
+    
+    # D. CONDITIONAL RESTARTS
+    if echo "$CHANGED_FILES" | grep -qE "^nginx/"; then
+        echo "[Config] Nginx configuration changed. Restarting..."
+        docker restart treishvaam-nginx
+    fi
+
+    if echo "$CHANGED_FILES" | grep -q "config/"; then
+        echo "[Config] Monitoring stack changed. Restarting..."
+        docker restart treishvaam-prometheus treishvaam-grafana treishvaam-loki
+    fi
+    
+    # E. SECURITY WIPE (Flash & Wipe)
+    echo "[Security] Wiping secrets from disk..."
+    cp "$TEMPLATE_FILE" "$ENV_FILE"
+    echo "  > SECURE WIPE COMPLETE. .env now contains only Auth Keys."
+    
+    docker image prune -f
+    
+    echo "[$(date)] ✅ Update & Deployment Complete for [$TARGET_BRANCH]."
+    echo "================================================================"
+else
+    # echo "[$(date)] System is up to date."
+    :
+fi

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="29-add-static-pages-metadata" author="treishvaam">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="page_content"/>
+        </preConditions>
+        <comment>Insert static content for About, Vision, and Contact pages</comment>
+        
+        <insert tableName="page_content">
+            <column name="page_name" value="about"/>
+            <column name="title" value="About Us | Treishvaam Finance"/>
+            <column name="content" value="Treishvaam Finance is democratizing financial literacy through expert market analysis and education. Meet our founder and discover our mission."/>
+        </insert>
+
+        <insert tableName="page_content">
+            <column name="page_name" value="vision"/>
+            <column name="title" value="Our Vision | Treishvaam Finance"/>
+            <column name="content" value="We envision a world where financial literacy is universal. Explore our roadmap to interactive education and global mentorship."/>
+        </insert>
+
+        <insert tableName="page_content">
+            <column name="page_name" value="contact"/>
+            <column name="title" value="Contact Us | Treishvaam Finance"/>
+            <column name="content" value="Reach out to Treishvaam Finance for expert financial insights, course details, or partnership opportunities. We are here to help."/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>

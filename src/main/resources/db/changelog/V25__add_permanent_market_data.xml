@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="25-add-quote-data-table" author="WEBAPP">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="quote_data"/>
+            </not>
+        </preConditions>
+        <comment>Create quote_data table for permanent market data storage</comment>
+        <createTable tableName="quote_data">
+            <column name="ticker" type="VARCHAR(255)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="current_price" type="DECIMAL(19, 4)"/>
+            <column name="change_amount" type="DECIMAL(19, 4)"/>
+            <column name="change_percent" type="DECIMAL(19, 4)"/>
+            <column name="previous_close" type="DECIMAL(19, 4)"/>
+            <column name="open_price" type="DECIMAL(19, 4)"/>
+            <column name="day_high" type="DECIMAL(19, 4)"/>
+            <column name="day_low" type="DECIMAL(19, 4)"/>
+            <column name="market_cap" type="BIGINT"/>
+            <column name="pe_ratio" type="DECIMAL(19, 4)"/>
+            <column name="dividend_yield" type="DECIMAL(19, 4)"/>
+            <column name="fifty_two_week_high" type="DECIMAL(19, 4)"/>
+            <column name="fifty_two_week_low" type="DECIMAL(19, 4)"/>
+            <column name="last_updated" type="TIMESTAMP"/>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="35-add-editorial-fields" author="treishvaam-enterprise">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="blog_posts"/>
+            <not><columnExists tableName="blog_posts" columnName="display_section"/></not>
+        </preConditions>
+        
+        <addColumn tableName="blog_posts">
+            <column name="display_section" type="VARCHAR(50)" defaultValue="STANDARD">
+                <constraints nullable="false"/>
+            </column>
+            <column name="seo_title" type="VARCHAR(255)"/>
+            <column name="canonical_url" type="VARCHAR(512)"/>
+            <column name="focus_keyword" type="VARCHAR(255)"/>
+        </addColumn>
+        
+        <comment>Adds Editorial Section and Enterprise SEO fields</comment>
+    </changeSet>
+
+</databaseChangeLog>

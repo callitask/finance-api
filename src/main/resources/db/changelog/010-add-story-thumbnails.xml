@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd">
+
+    <changeSet id="10-add-thumbnail-orientation-column" author="gemini-dev">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="blog_posts" columnName="thumbnail_orientation"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="blog_posts">
+            <column name="thumbnail_orientation" type="VARCHAR(20)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="11-create-post-thumbnails-table" author="gemini-dev">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="post_thumbnails"/>
+            </not>
+        </preConditions>
+        <createTable tableName="post_thumbnails">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="blog_post_id" type="BIGINT">
+                <constraints nullable="false" foreignKeyName="fk_post_thumbnails_blog_post" references="blog_posts(id)" deleteCascade="true"/>
+            </column>
+            <column name="image_url" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="alt_text" type="VARCHAR(255)"/>
+            <column name="display_order" type="INT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="12-migrate-thumbnail-data" author="gemini-dev">
+         <preConditions onFail="MARK_RAN">
+            <columnExists tableName="blog_posts" columnName="thumbnailUrl"/>
+        </preConditions>
+        <sql>
+            INSERT INTO post_thumbnails (blog_post_id, image_url, display_order, alt_text)
+            SELECT id, thumbnailUrl, 0, 'Legacy thumbnail'
+            FROM blog_posts
+            WHERE thumbnailUrl IS NOT NULL AND thumbnailUrl != '' AND id NOT IN (SELECT blog_post_id FROM post_thumbnails);
+        </sql>
+    </changeSet>
+
+    <changeSet id="13-drop-old-thumbnail-columns" author="gemini-dev">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="blog_posts" columnName="thumbnailUrl"/>
+        </preConditions>
+        <dropColumn tableName="blog_posts" columnName="thumbnailUrl"/>
+        <dropColumn tableName="blog_posts" columnName="coverImageUrl"/>
+    </changeSet>
+
+</databaseChangeLog>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="28-add-homepage-metadata" author="treishvaam">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="page_content"/>
+            <sqlCheck expectedResult="0">SELECT COUNT(*) FROM page_content WHERE page_name = 'index'</sqlCheck>
+        </preConditions>
+        <comment>Insert static SEO metadata for the homepage</comment>
+        <insert tableName="page_content">
+            <column name="page_name" value="index"/>
+            <column name="title" value="Treishfin · Treishvaam Finance | Financial News &amp; Analysis"/>
+            <column name="content" value="Stay ahead with the latest financial news, market updates, and expert analysis from Treishvaam Finance. Your daily source for insights on stocks, crypto, and trading."/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>
