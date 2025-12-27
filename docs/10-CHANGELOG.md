@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - Enterprise Zero Trust & Edge Hardening
+### Security & Networking
+- **Infra (Zero Trust)**: Implemented strict **"Port Lockdown"**. Removed public `ports` binding for all internal services (Redis, Elasticsearch, MariaDB, RabbitMQ, MinIO, Grafana). Access is now strictly internal via Docker network `treish_net`.
+- **Edge (Cloudflare Worker)**: Hardened the Edge Layer.
+    - **Secrets**: Replaced hardcoded backend URLs with Cloudflare Environment Variables (`BACKEND_URL`, `FRONTEND_URL`).
+    - **Security Headers**: Injected Banking-Grade headers (`Strict-Transport-Security`, `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`) into every response.
+- **Frontend (BFF Pattern)**: Refactored `apiConfig.js` and `AuthContext.js` to use dynamic environment injection (`process.env.REACT_APP_API_URL`).
+    - **Fix**: Resolved `401 Unauthorized` in News Widget by correcting API base path construction.
+    - **Sec**: Removed all hardcoded production URLs from the source code.
+- **Docs**: Comprehensive update of `README.md`, `ARCHITECTURE.md`, `SECRETS.md`, and `SEO-EDGE.md` to reflect the new "Closed Port" architecture.
+
 ## [2.6.0] - Enterprise Security Hardening (Flash & Wipe)
 ### Infrastructure & Security
 - **Sec**: Implemented **Flash & Wipe** secret injection strategy. Secrets are injected into memory during Docker startup and immediately wiped from disk (`auto_deploy.sh`), leaving only Identity tokens.

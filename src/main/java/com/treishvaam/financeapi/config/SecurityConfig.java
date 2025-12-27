@@ -4,6 +4,8 @@ import com.treishvaam.financeapi.security.InternalSecretFilter;
 import com.treishvaam.financeapi.security.KeycloakRealmRoleConverter;
 import com.treishvaam.financeapi.security.RateLimitingFilter;
 import java.util.Arrays;
+import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -30,6 +32,11 @@ public class SecurityConfig {
 
   private final RateLimitingFilter rateLimitingFilter;
   private final InternalSecretFilter internalSecretFilter;
+
+  // 1. Inject Allowed Origins Dynamically from application.properties
+  // This allows 'localhost' in Dev and 'treishvaamgroup.com' in Prod automatically.
+  @Value("#{'${cors.allowed-origins}'.split(',')}")
+  private List<String> allowedOrigins;
 
   public SecurityConfig(
       RateLimitingFilter rateLimitingFilter, InternalSecretFilter internalSecretFilter) {
@@ -118,13 +125,9 @@ public class SecurityConfig {
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
     
-    // 🔒 STRICT SECURITY: Only allow known domains (Fort Knox)
-    // We explicitly list the Frontend and the Parent Domain.
-    configuration.setAllowedOrigins(Arrays.asList(
-        "https://treishfin.treishvaamgroup.com",
-        "https://treishvaamgroup.com",
-        "https://www.treishvaamgroup.com"
-    ));
+    // 2. Use the Injected List from Properties
+    // This is the bridge between your text files and the Java security engine.
+    configuration.setAllowedOrigins(allowedOrigins);
     
     configuration.setAllowedMethods(
         Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
