@@ -103,6 +103,13 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     else
         echo "CRITICAL: Infisical fetch failed. Service restart may fail."
     fi
+
+    # --- 5. PERMISSION REPAIR (CRITICAL FIX FOR NON-ROOT CONTAINER) ---
+    echo "[System] Fixing permissions for Non-Root User..."
+    # We ensure these folders exist and are writable by the container (UID 100/101)
+    mkdir -p logs uploads sitemaps
+    chmod -R 777 logs uploads sitemaps
+    # ------------------------------------------------------------------
     
     # C. RESTART SERVICES (Passwordless)
     echo "[Docker] Rebuilding services..."
@@ -110,11 +117,10 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     docker compose down --remove-orphans
     docker compose up -d --build --force-recreate
     
-    # --- SAFETY BUFFER (CRITICAL FIX) ---
-    # Wait for all containers (especially Nginx) to fully initialize and read env vars
+    # --- SAFETY BUFFER ---
+    # Wait for all containers to fully initialize
     echo "[System] Stabilizing containers (Waiting 10s)..."
     sleep 10
-    # ------------------------------------
     
     # D. CONDITIONAL RESTARTS
     if echo "$CHANGED_FILES" | grep -qE "^nginx/"; then

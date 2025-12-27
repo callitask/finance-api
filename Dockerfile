@@ -24,12 +24,10 @@ FROM eclipse-temurin:21-jdk-jammy
 
 WORKDIR /app
 
-# 1. Install Python 3, Dependencies, AND Infisical CLI
-# We combine apt-get commands to keep the image layer small.
+# 1. Install Python 3 and Dependencies
+# We removed 'infisical' to prevent authentication errors inside the container.
 RUN apt-get update && \
-    apt-get install -y python3 python3-pip python-is-python3 curl && \
-    curl -1sLf 'https://dl.cloudsmith.io/public/infisical/infisical-cli/setup.deb.sh' | bash && \
-    apt-get install -y infisical && \
+    apt-get install -y python3 python3-pip python-is-python3 && \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install --no-cache-dir \
@@ -56,7 +54,6 @@ EXPOSE 8080
 # 5. Switch to Non-Root User
 USER spring:spring
 
-# 6. Start the App via Infisical
-# "infisical run --" fetches secrets using the ENV vars provided in docker-compose,
-# injects them into the process, and then starts the Java app.
-ENTRYPOINT ["infisical", "run", "--", "java", "-jar", "app.war"]
+# 6. Start the App
+# Secrets are injected via environment variables from docker-compose/.env
+ENTRYPOINT ["java", "-jar", "app.war"]
