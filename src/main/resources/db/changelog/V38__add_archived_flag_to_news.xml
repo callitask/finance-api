@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="38-1" author="treishvaam">
+        <addColumn tableName="news_highlights">
+            <column name="is_archived" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="38-2" author="treishvaam">
+        <createIndex tableName="news_highlights" indexName="idx_news_archived_published">
+            <column name="is_archived"/>
+            <column name="published_at" descending="true"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

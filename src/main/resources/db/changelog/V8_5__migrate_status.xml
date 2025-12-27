@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="8-migrate-status" author="treishvaam">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="blog_posts" columnName="status"/></not>
+        </preConditions>
+
+        <addColumn tableName="blog_posts">
+            <column name="status" type="VARCHAR(50)"/>
+        </addColumn>
+
+        <update tableName="blog_posts">
+            <column name="status" value="PUBLISHED"/>
+            <where>published = true</where>
+        </update>
+        <update tableName="blog_posts">
+            <column name="status" value="SCHEDULED"/>
+            <where>published = false AND scheduled_time IS NOT NULL</where>
+        </update>
+        <update tableName="blog_posts">
+            <column name="status" value="DRAFT"/>
+            <where>published = false AND scheduled_time IS NULL</where>
+        </update>
+
+        <addNotNullConstraint tableName="blog_posts" columnName="status" columnDataType="VARCHAR(50)"/>
+
+        <dropColumn tableName="blog_posts" columnName="published"/>
+    </changeSet>
+
+</databaseChangeLog>

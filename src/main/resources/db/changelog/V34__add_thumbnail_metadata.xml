@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="34-add-thumbnail-metadata" author="treishvaam">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="post_thumbnails"/>
+            <not>
+                <columnExists tableName="post_thumbnails" columnName="blur_hash"/>
+            </not>
+        </preConditions>
+        
+        <addColumn tableName="post_thumbnails">
+            <column name="width" type="INT"/>
+            <column name="height" type="INT"/>
+            <column name="mime_type" type="VARCHAR(100)"/>
+            <column name="blur_hash" type="VARCHAR(255)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

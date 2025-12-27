@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                             http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="3" author="your-name">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="users" columnName="linkedin_access_token"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="users">
+            <column name="linkedin_access_token" type="VARCHAR(1024)"/>
+            <column name="linkedin_token_expiry" type="BIGINT"/>
+            <column name="linkedin_urn" type="VARCHAR(255)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="8" author="gemini-dev">
+        <comment>Add status column, migrate data from published, and drop published column</comment>
+
+        <addColumn tableName="blog_posts">
+            <column name="status" type="VARCHAR(50)"/>
+        </addColumn>
+
+        <update tableName="blog_posts">
+            <column name="status" value="PUBLISHED"/>
+            <where>published = true</where>
+        </update>
+        <update tableName="blog_posts">
+            <column name="status" value="SCHEDULED"/>
+            <where>published = false AND scheduled_time IS NOT NULL</where>
+        </update>
+        <update tableName="blog_posts">
+            <column name="status" value="DRAFT"/>
+            <where>published = false AND scheduled_time IS NULL</where>
+        </update>
+
+        <addNotNullConstraint tableName="blog_posts" columnName="status" columnDataType="VARCHAR(50)"/>
+
+        <dropColumn tableName="blog_posts" columnName="published"/>
+
+    </changeSet>
+
+    <changeSet id="9" author="your-name">
+        <modifyDataType
+            tableName="blog_posts"
+            columnName="status"
+            newDataType="ENUM('draft', 'published', 'scheduled')"/>
+    </changeSet>
+
+    <changeSet id="fix-roles-name-type" author="your-name">
+        <modifyDataType
+            tableName="roles"
+            columnName="name"
+            newDataType="ENUM('role_user', 'role_admin')"/>
+    </changeSet>
+
+    <changeSet id="fix-linkedin-token-expiry-type" author="your-name">
+        <modifyDataType
+            tableName="users"
+            columnName="linkedin_token_expiry"
+            newDataType="DATETIME(6)"/>
+    </changeSet>
+
+</databaseChangeLog>

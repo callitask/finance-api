@@ -1,0 +1,43 @@
+---
+- name: Provision Treishvaam Finance Server
+  hosts: webservers
+  become: true
+  vars:
+    project_root: /opt/treishvaam
+    docker_compose_version: "2.24.5"
+  tasks:
+    - name: Update apt cache
+      apt: { update_cache: yes, cache_valid_time: 3600 }
+    - name: Install required system packages
+      apt:
+        name: [curl, git, ca-certificates, gnupg, python3-pip]
+        state: present
+    - name: Create project directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ project_root }}"
+        - "{{ project_root }}/data"
+        - "{{ project_root }}/logs"
+        - "{{ project_root }}/scripts"
+        - "{{ project_root }}/nginx"
+        - "{{ project_root }}/config"
+    - name: Ensure Docker is installed
+      shell: |
+        curl -fsSL https://get.docker.com -o get-docker.sh
+        sh get-docker.sh
+      args: { creates: /usr/bin/docker }
+    - name: Ensure Docker Compose is installed
+      get_url:
+        url: "https://github.com/docker/compose/releases/download/v{{ docker_compose_version }}/docker-compose-linux-x86_64"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+    - name: Configure UFW Firewall
+      community.general.ufw: { rule: allow, port: "{{ item }}", proto: tcp }
+      loop: ['22', '80', '443']
+    - name: Enable UFW
+      community.general.ufw: { state: enabled }
+    - name: Verify Docker service is running
+      service: { name: docker, state: started, enabled: yes }

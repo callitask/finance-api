@@ -1,0 +1,12 @@
+tunnel: 849d7408-9082-459b-97cd-9a9c3f020715
+# Note: credentials-file is removed. Authentication is handled by TUNNEL_TOKEN env var.
+
+protocol: http2
+
+ingress:
+  # Backend API & Images -> Routes to Nginx container
+  - hostname: backend.treishvaamgroup.com
+    service: http://treishvaam-nginx:80
+
+  # Catch-all rule
+  - service: http_status:404
