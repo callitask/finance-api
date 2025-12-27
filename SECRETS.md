@@ -11,13 +11,25 @@ We utilize a "Flash & Wipe" strategy to ensure secrets never persist on the disk
 1.  **Storage**: Secrets are stored encrypted in the Infisical Vault (Production Environment).
 2.  **Retrieval**: The `auto_deploy.sh` script authenticates with Infisical using a Machine Identity Token.
 3.  **Injection**: Secrets are exported to a temporary `.env` file solely for the duration of the `docker compose up` command.
-4.  **Wipe**: Immediately after container startup, the `.env` file is sanitized, removing all high-value secrets and leaving only the Machine Identity tokens.
+4.  **Wipe**: Immediately after container startup, the `.env` file is sanitized, removing all high-value secrets.
 
 ## Required Environment Variables
 
-The following variables must be present in the Infisical Project. These keys map directly to the interpolated values in `docker-compose.yml`.
+### Cloudflare Worker Secrets (Edge)
+These are configured in the Cloudflare Dashboard -> Workers -> Settings -> Variables.
+| Variable Name | Description |
+| :--- | :--- |
+| `BACKEND_URL` | Origin URL for API calls (e.g., `https://backend.treishvaamgroup.com`). |
+| `FRONTEND_URL` | Public Frontend URL (e.g., `https://treishfin.treishvaamgroup.com`). |
 
-### Infrastructure Secrets
+### Frontend Cloudflare Pages Secrets
+These are configured in Cloudflare Pages -> Settings -> Environment Variables.
+| Variable Name | Description |
+| :--- | :--- |
+| `REACT_APP_API_URL` | Base URL for the Backend API. |
+| `REACT_APP_AUTH_URL` | Base URL for Keycloak Auth. |
+
+### Backend Infrastructure Secrets (Infisical)
 | Variable Name | Description | Service(s) |
 | :--- | :--- | :--- |
 | `MINIO_ROOT_PASSWORD` | Root password for Object Storage. | MinIO, Backup Service |
@@ -28,7 +40,7 @@ The following variables must be present in the Infisical Project. These keys map
 | `BACKUP_MINIO_ACCESS_KEY` | Access key for Backup Service to talk to MinIO. | Backup Service |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Token for Zero Trust Tunnel connection. | Cloudflared |
 
-### Application Secrets
+### Backend Application Secrets (Infisical)
 | Variable Name | Description | Service(s) |
 | :--- | :--- | :--- |
 | `PROD_DB_URL` | JDBC URL for the main application database. | Backend |
@@ -38,7 +50,7 @@ The following variables must be present in the Infisical Project. These keys map
 | `APP_ADMIN_EMAIL` | Email for the bootstrapped Admin user. | Backend |
 | `APP_ADMIN_PASSWORD` | Password for the bootstrapped Admin user. | Backend, Keycloak |
 
-### External API Keys
+### External API Keys (Infisical)
 | Variable Name | Description | Service(s) |
 | :--- | :--- | :--- |
 | `MARKET_DATA_API_KEY` | Generic key for market data providers. | Backend |
@@ -47,21 +59,8 @@ The following variables must be present in the Infisical Project. These keys map
 | `NEWS_API_KEY` | API Key for NewsAPI. | Backend |
 | `GA4_PROPERTY_ID` | Google Analytics 4 Property ID. | Backend |
 
-## Local Development
-
-For local development, developers must have the Infisical CLI installed.
-
-1.  **Login**: `infisical login`
-2.  **Run**: `infisical run --env dev -- docker-compose up`
-
-This command injects the development secrets directly into the process without creating a physical `.env` file.
-
 ## Rotation Policy
 
 * **Database Passwords**: Rotate every 90 days. Requires full stack restart (`auto_deploy.sh`).
 * **API Keys**: Rotate immediately upon vendor notification or suspected breach.
-* **JWT Keys**: Rotate annually. Requires valid token invalidation.
-
-## Access Control
-
-Access to the Production Infisical environment is restricted to the DevOps Lead and CTO. Developers use the Development environment which contains separate, non-sensitive credentials.
+* **Worker Secrets**: Update in Cloudflare Dashboard immediately if domain changes.

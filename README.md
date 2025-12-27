@@ -1,67 +1,69 @@
-# Treishvaam Finance Platform - Enterprise Edition
+# Treishvaam Finance - Enterprise Frontend
 
 ## Project Overview
 
-The Treishvaam Finance Platform is a high-performance, enterprise-grade financial analytics and content delivery system. It is designed as a modular, microservices-ready monolith using Spring Boot 3.4 (Java 21) for the backend and React for the frontend, served via Cloudflare Edge.
+This is the React-based frontend for the Treishvaam Finance Platform. It is designed to be served via **Cloudflare Pages** and utilizes a **Zero-Trust Security Architecture**.
 
-The infrastructure is built on a Zero-Trust security model, utilizing Keycloak for Identity and Access Management (IAM), Infisical for secret management, and a self-healing Watchdog automation system for deployment.
+Unlike traditional SPAs, this application **does not** hold any API keys or secrets. It relies entirely on a "Backend-for-Frontend" (BFF) pattern, where the Spring Boot backend acts as a secure proxy for all external data providers (NewsAPI, AlphaVantage, etc.).
 
-## Technology Stack
+## Security & Configuration (Zero Trust)
 
-### Backend Core
-- **Language**: Java 21 (LTS)
-- **Framework**: Spring Boot 3.4.0
-- **Build Tool**: Maven
-- **Database**: MariaDB 10.6
-- **Caching**: Redis (Alpine)
-- **Messaging**: RabbitMQ (3.12 Management)
-- **Search Engine**: Elasticsearch 8.17.0
-- **Object Storage**: MinIO (S3 Compatible)
+This project strictly follows the **12-Factor App** configuration methodology. We do not hardcode URLs.
 
-### Frontend & Edge
-- **Framework**: React 18
-- **Styling**: Tailwind CSS
-- **Edge Runtime**: Cloudflare Workers (V8 Isolate)
-- **CDN**: Cloudflare Network
+### 1. Environment Variables
+The application requires two key variables to function. These tell the frontend where to find the secure API and Authentication server.
 
-### Infrastructure & DevOps
-- **Containerization**: Docker & Docker Compose
-- **Orchestration**: Self-Healing Watchdog Script (Bash)
-- **Reverse Proxy**: Nginx + OWASP ModSecurity (WAF)
-- **Secret Management**: Infisical (End-to-End Encryption)
-- **Observability**: Grafana, Prometheus, Loki, Tempo, Zipkin
+| Variable Name | Description | Local Dev Value | Production Value |
+| :--- | :--- | :--- | :--- |
+| `REACT_APP_API_URL` | The URL of the Spring Boot Backend. | `http://localhost:8080` | `https://backend.treishvaamgroup.com` |
+| `REACT_APP_AUTH_URL` | The URL of the Keycloak Server. | `http://localhost:8080/auth` | `https://backend.treishvaamgroup.com/auth` |
+
+### 2. Local Development Setup
+To run this project locally, you must create a `.env` file in the root directory (this file is git-ignored for security).
+
+1.  **Copy the template**:
+    ```bash
+    cp .env.example .env
+    ```
+2.  **Edit `.env`**:
+    ```env
+    REACT_APP_API_URL=http://localhost:8080
+    REACT_APP_AUTH_URL=http://localhost:8080/auth
+    ```
+3.  **Start the App**:
+    ```bash
+    npm start
+    ```
+
+### 3. Production Deployment (Cloudflare)
+We use **Cloudflare Pages** for hosting.
+1.  **Push** your code to the `main` branch.
+2.  **Go to Cloudflare Dashboard** -> Pages -> Settings -> Environment Variables.
+3.  **Add the Production Variables** (Mark them as "Encrypted" / "Secret"):
+    * `REACT_APP_API_URL`: `https://backend.treishvaamgroup.com`
+    * `REACT_APP_AUTH_URL`: `https://backend.treishvaamgroup.com/auth`
+4.  **Redeploy** to apply changes.
 
 ## Architecture Highlights
 
-1.  **Secure Identity**: All authentication is handled by Keycloak via OpenID Connect (OIDC). The backend acts as an OAuth2 Resource Server.
-2.  **Flash & Wipe Deployment**: The deployment script injects secrets into memory during startup and immediately wipes them from the disk to prevent leakage.
-3.  **SEO at the Edge**: A custom Cloudflare Worker intercepts crawler requests and dynamically injects meta tags before the React app loads, ensuring perfect SEO scoring.
-4.  **Resilience**: Circuit Breakers (Resilience4j) are implemented for all external market data APIs (AlphaVantage, Finnhub, etc.).
+* **Secure API Client**: All HTTP requests are handled by `src/apiConfig.js`. This client automatically attaches the Keycloak JWT (Bearer Token) to every request and handles 401/403 errors globally.
+* **Smart Layouts**: The `NewsIntelligenceWidget` and `BlogPage` utilize intelligent grid layouts that adapt based on the content density and screen size.
+* **Real User Monitoring (RUM)**: Grafana Faro is initialized in `src/faroConfig.js` to track frontend performance and errors in real-time.
 
-## Quick Start (Local & Server)
+## Key Directories
 
-### Prerequisites
-- Docker Engine & Docker Compose
-- Java 21 SDK
-- Maven
-- Infisical CLI (for secret injection)
+* `src/apiConfig.js`: **Critical.** Central configuration for API endpoints.
+* `src/context/AuthContext.js`: Handles Keycloak login/logout and session state.
+* `src/components/news`: Contains the logic for the Financial News widgets.
+* `src/pages`: Lazy-loaded route components (Dashboard, Blog, Market).
 
-### Deployment
-To deploy the full stack, use the automated watchdog script which handles branch selection, secret injection, and container orchestration.
+## Commands
 
-```bash
-chmod +x scripts/auto_deploy.sh
-./scripts/auto_deploy.sh
-```
-
-## Repository Structure
-
-- `src/main/java`: Backend source code.
-- `src/main/resources`: Configuration and Database migrations (Liquibase).
-- `nginx/`: Web Application Firewall configurations.
-- `scripts/`: Automation and maintenance scripts.
-- `backup/`: Database and Object Storage backup logic.
-- `docs/`: Detailed architectural documentation.
+| Command | Description |
+| :--- | :--- |
+| `npm start` | Runs the app in development mode at `http://localhost:3000`. |
+| `npm run build` | Builds the app for production to the `build` folder. |
+| `npm test` | Launches the test runner. |
 
 ## License
 Proprietary software. All rights reserved by Treishvaam Group.

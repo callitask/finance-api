@@ -88,12 +88,14 @@ docker exec -it treishvaam-backup ./restore.sh <timestamp>.sql.gz
 
 ## 5. Observability (LGTM Stack)
 
-We utilize the **Grafana LGTM Stack** (Loki, Grafana, Tempo, Mimir) for full-stack observability without needing SSH access.
+We utilize the **Grafana LGTM Stack** (Loki, Grafana, Tempo, Mimir) for full-stack observability.
 
-### Access
-* **URL**: `http://<SERVER_IP>:3001`
-* **User**: `admin`
-* **Password**: (Managed in Infisical via `GRAFANA_ADMIN_PASSWORD`)
+### Zero Trust Access
+Direct IP access to Grafana (Port 3001) has been **disabled** for security. Access is managed via Cloudflare Tunnel.
+
+* **URL**: `https://grafana.treishvaamgroup.com` (Configured in Cloudflare Zero Trust Dashboard)
+* **Authentication**: Protected via Cloudflare Access (SSO/Google Login).
+* **Internal User**: `admin` (Password managed in Infisical via `GRAFANA_ADMIN_PASSWORD`).
 
 ### Debugging Workflows
 
