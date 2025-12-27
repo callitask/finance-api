@@ -124,11 +124,11 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-    
+
     // 2. Use the Injected List from Properties
     // This is the bridge between your text files and the Java security engine.
     configuration.setAllowedOrigins(allowedOrigins);
-    
+
     configuration.setAllowedMethods(
         Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
     configuration.setAllowedHeaders(Arrays.asList("*"));
