@@ -43,7 +43,7 @@ To protect sensitive endpoints from internal threats or misconfigured gateways, 
 
 * **Filter**: `InternalSecretFilter`.
 * **Mechanism**: Inspects the `X-Internal-Secret` header on specific POST endpoints (e.g., `/api/v1/posts`).
-* **Validation**: The header value is compared against the `${APP_SECURITY_INTERNAL_SECRET}` injected by Infisical.
+* **Validation**: The header value is compared against the `${INTERNAL_API_SECRET_KEY}` injected by Infisical.
 * **Effect**: If valid, the request is granted the `ROLE_INTERNAL` authority, bypassing standard user checks.
 
 ## 3. Multi-Tenancy Architecture
@@ -116,6 +116,24 @@ All critical actions are audited for security and compliance.
 
 ## 8. Configuration Management (Infisical)
 
-* **No Hardcoded Secrets**: `application-prod.properties` contains placeholders like `${PROD_DB_PASSWORD}`.
-* **Injection**: The `auto_deploy.sh` Watchdog script fetches secrets from Infisical and injects them as environment variables during container startup.
-* **Flash & Wipe**: Secrets exist on disk for less than 5 seconds during deployment.
+We strictly adhere to the 12-Factor App methodology.
+
+### 8.1. Secrets Injection Strategy
+* **Source of Truth**: Infisical (External Secrets Manager).
+* **Mechanism**:
+    1.  The `auto_deploy.sh` script fetches secrets from Infisical securely.
+    2.  Secrets are written to a temporary `.env` file.
+    3.  `docker-compose` reads `.env` and injects variables (e.g., `MINIO_ACCESS_KEY`, `SPRING_RABBITMQ_PASSWORD`) into containers.
+    4.  **Flash & Wipe**: The `.env` file is stripped of secrets immediately after deployment.
+
+### 8.2. Critical Configurations
+The following properties in `application-prod.properties` are **Dynamic**:
+
+| Property | Environment Variable | Description |
+| :--- | :--- | :--- |
+| `spring.datasource.password` | `PROD_DB_PASSWORD` | Database Access |
+| `storage.s3.secret-key` | `MINIO_SECRET_KEY` | File Storage Access |
+| `spring.rabbitmq.password` | `SPRING_RABBITMQ_PASSWORD` | Event Bus Access |
+| `jwt.secret` | `JWT_SECRET_KEY` | Token Signing |
+
+*Note: HashiCorp Vault has been explicitly disabled (`spring.cloud.vault.enabled=false`) in favor of this simpler, robust Docker injection model.*
