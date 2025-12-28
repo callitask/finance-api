@@ -5,7 +5,6 @@ import java.net.MalformedURLException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,8 +49,10 @@ public class FileController {
         // ENTERPRISE OPTIMIZATION: Cache logo for 30 days
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType("image/webp"))
-            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + resource.getFilename() + "\"")
-            .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS).cachePublic()) 
+            .header(
+                HttpHeaders.CONTENT_DISPOSITION,
+                "inline; filename=\"" + resource.getFilename() + "\"")
+            .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS).cachePublic())
             .body(resource);
       } else {
         logger.error("Cached logo.webp not found or is not readable at path: {}", filePath);
@@ -64,15 +65,13 @@ public class FileController {
   }
 
   /**
-   * Universal File Upload Endpoint.
-   * Compatible with:
-   * 1. Standard Form Uploads
-   * 2. SunEditor (Rich Text Editor) - Requires strictly formatted JSON response.
+   * Universal File Upload Endpoint. Compatible with: 1. Standard Form Uploads 2. SunEditor (Rich
+   * Text Editor) - Requires strictly formatted JSON response.
    */
   @PostMapping("/files/upload")
   public ResponseEntity<Map<String, Object>> handleFileUpload(
       @RequestParam("file") MultipartFile file) {
-    
+
     if (file == null || file.isEmpty()) {
       // Return 400, but in JSON format for the editor to display a nice error
       return ResponseEntity.badRequest().body(Map.of("errorMessage", "File is empty"));
@@ -84,16 +83,20 @@ public class FileController {
 
       // 2. Generate URLs
       Map<String, String> imageUrls = new HashMap<>();
-      String largeUrl = "/api/v1/uploads/" + baseName + ".webp"; // Default to webp if converted, or handle extension
-      // Note: FileStorageService currently returns exact path. If service converts, we assume .webp here for now. 
-      // Ideally FileStorageService returns the final filename. 
+      String largeUrl =
+          "/api/v1/uploads/"
+              + baseName
+              + ".webp"; // Default to webp if converted, or handle extension
+      // Note: FileStorageService currently returns exact path. If service converts, we assume .webp
+      // here for now.
+      // Ideally FileStorageService returns the final filename.
       // The storeFile method in service returns "/api/uploads/filename".
-      
+
       // Let's use the return value from service which is the authoritative path
       String fileUrl = baseName; // service returns relative path e.g. /api/uploads/123_abc.jpg
 
       imageUrls.put("large", fileUrl);
-      
+
       // 3. Construct Response for SunEditor
       // Spec: { "result": [ { "url": "...", "name": "...", "size": ... } ] }
       Map<String, Object> fileInfo = new HashMap<>();
@@ -107,13 +110,14 @@ public class FileController {
 
       Map<String, Object> response = new HashMap<>();
       response.put("result", resultList);
-      
+
       // Explicit 200 OK for editor parsers
       return ResponseEntity.ok(response);
 
     } catch (Exception e) {
       logger.error("Upload failed", e);
-      return ResponseEntity.internalServerError().body(Map.of("errorMessage", "Server upload failed: " + e.getMessage()));
+      return ResponseEntity.internalServerError()
+          .body(Map.of("errorMessage", "Server upload failed: " + e.getMessage()));
     }
   }
 }

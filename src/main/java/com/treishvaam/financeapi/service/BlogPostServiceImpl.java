@@ -33,6 +33,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -129,7 +130,6 @@ public class BlogPostServiceImpl implements BlogPostService {
     String username = SecurityContextHolder.getContext().getAuthentication().getName();
     newPost.setAuthor(username);
 
-    // FIX: Updated method call to match new TenantContext API
     String currentTenant = TenantContext.getTenantId();
     newPost.setTenantId(
         currentTenant != null && !currentTenant.isEmpty() ? currentTenant : "treishfin");
@@ -158,33 +158,42 @@ public class BlogPostServiceImpl implements BlogPostService {
     return blogPostRepository.save(existingPost);
   }
 
+  /**
+   * ENTERPRISE PATTERN: I/O OUTSIDE TRANSACTION 1. Perform Network I/O (Image Uploads) first. 2.
+   * Call transactional method for DB persistence. 3. Publish async events after transaction
+   * commits.
+   */
   @Override
-  @Transactional
-  @CacheEvict(
-      value = CachingConfig.BLOG_POST_CACHE,
-      key = "#result.urlArticleId",
-      condition = "#result.urlArticleId != null and #result.status.name() == 'PUBLISHED'")
+  // NOTE: No @Transactional here to prevent DB connection holding during MinIO upload
   public BlogPost save(
       BlogPost blogPost,
       List<MultipartFile> newThumbnails,
       List<PostThumbnailDto> thumbnailDtos,
       MultipartFile coverImage) {
+
+    // --- Step 1: Network I/O (Heavy Lifting) ---
+    // Handle Cover Image
     if (coverImage != null && !coverImage.isEmpty()) {
       ImageMetadataDto coverMetadata = imageService.saveImageAndGetMetadata(coverImage);
       if (coverMetadata != null) blogPost.setCoverImageUrl(coverMetadata.getBaseFilename());
     }
 
+    // Handle Thumbnails
     Map<String, MultipartFile> newFilesMap =
         newThumbnails != null
             ? newThumbnails.stream()
                 .collect(Collectors.toMap(MultipartFile::getOriginalFilename, Function.identity()))
             : Map.of();
+
     List<PostThumbnail> finalThumbnails = new ArrayList<>();
+
+    // Process thumbnails list (Upload new ones, link existing ones)
     for (PostThumbnailDto dto : thumbnailDtos) {
       PostThumbnail thumbnail;
       if ("new".equals(dto.getSource())) {
         MultipartFile file = newFilesMap.get(dto.getFileName());
         if (file != null && !file.isEmpty()) {
+          // Upload to MinIO (Slow I/O)
           ImageMetadataDto metadata = imageService.saveImageAndGetMetadata(file);
           if (metadata == null) continue;
           thumbnail = new PostThumbnail();
@@ -197,6 +206,7 @@ public class BlogPostServiceImpl implements BlogPostService {
           continue;
         }
       } else {
+        // Find existing thumbnail in the current post's list
         thumbnail =
             blogPost.getThumbnails().stream()
                 .filter(t -> t.getImageUrl().equals(dto.getUrl()))
@@ -209,8 +219,37 @@ public class BlogPostServiceImpl implements BlogPostService {
       thumbnail.setDisplayOrder(dto.getDisplayOrder());
       finalThumbnails.add(thumbnail);
     }
+
+    // --- Step 2: Persistence (Transactional) ---
+    // We pass the prepared data to a transactional method.
+    BlogPost savedPost = persistPost(blogPost, finalThumbnails);
+
+    // --- Step 3: Async Messaging (Post-Commit) ---
+    if (savedPost.getStatus() == PostStatus.PUBLISHED) {
+      try {
+        messagePublisher.publishSearchIndexEvent(savedPost.getId(), "INDEX");
+        messagePublisher.publishSitemapRegenerateEvent();
+      } catch (Exception e) {
+        logger.error(
+            "Failed to publish async events for post ID: {}. Post was saved successfully.",
+            savedPost.getId(),
+            e);
+      }
+    }
+
+    return savedPost;
+  }
+
+  // Dedicated Transactional Method for DB Operations only
+  @Transactional(propagation = Propagation.REQUIRED)
+  @CacheEvict(
+      value = CachingConfig.BLOG_POST_CACHE,
+      key = "#result.urlArticleId",
+      condition = "#result.urlArticleId != null and #result.status.name() == 'PUBLISHED'")
+  public BlogPost persistPost(BlogPost blogPost, List<PostThumbnail> processedThumbnails) {
+    // Update relationships
     blogPost.getThumbnails().clear();
-    blogPost.getThumbnails().addAll(finalThumbnails);
+    blogPost.getThumbnails().addAll(processedThumbnails);
 
     if (blogPost.getSlug() == null || blogPost.getSlug().isEmpty())
       blogPost.setSlug(generateUniqueId());
@@ -226,24 +265,12 @@ public class BlogPostServiceImpl implements BlogPostService {
 
     BlogPost savedPost = blogPostRepository.save(blogPost);
 
+    // Generate permanent ID if published
     if ((savedPost.getStatus() == PostStatus.PUBLISHED
             || savedPost.getStatus() == PostStatus.SCHEDULED)
         && savedPost.getUrlArticleId() == null) {
       savedPost.setUrlArticleId(generateUrlArticleId(savedPost));
       savedPost = blogPostRepository.save(savedPost);
-    }
-
-    // --- PHASE 6 FIX: Robust Messaging Handling ---
-    if (savedPost.getStatus() == PostStatus.PUBLISHED) {
-      try {
-        messagePublisher.publishSearchIndexEvent(savedPost.getId(), "INDEX");
-        messagePublisher.publishSitemapRegenerateEvent();
-      } catch (Exception e) {
-        logger.error(
-            "Failed to publish async events for post ID: {}. Post was saved successfully.",
-            savedPost.getId(),
-            e);
-      }
     }
 
     return savedPost;
@@ -355,7 +382,6 @@ public class BlogPostServiceImpl implements BlogPostService {
     BlogPost newPost = new BlogPost();
     newPost.setAuthor(SecurityContextHolder.getContext().getAuthentication().getName());
 
-    // FIX: Updated method call to match new TenantContext API
     String currentTenant = TenantContext.getTenantId();
     newPost.setTenantId(
         currentTenant != null && !currentTenant.isEmpty() ? currentTenant : "treishfin");

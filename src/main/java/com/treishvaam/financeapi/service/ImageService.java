@@ -40,16 +40,45 @@ public class ImageService {
     private String mimeType;
     private String blurHash;
 
-    public String getBaseFilename() { return baseFilename; }
-    public void setBaseFilename(String baseFilename) { this.baseFilename = baseFilename; }
-    public Integer getWidth() { return width; }
-    public void setWidth(Integer width) { this.width = width; }
-    public Integer getHeight() { return height; }
-    public void setHeight(Integer height) { this.height = height; }
-    public String getMimeType() { return mimeType; }
-    public void setMimeType(String mimeType) { this.mimeType = mimeType; }
-    public String getBlurHash() { return blurHash; }
-    public void setBlurHash(String blurHash) { this.blurHash = blurHash; }
+    public String getBaseFilename() {
+      return baseFilename;
+    }
+
+    public void setBaseFilename(String baseFilename) {
+      this.baseFilename = baseFilename;
+    }
+
+    public Integer getWidth() {
+      return width;
+    }
+
+    public void setWidth(Integer width) {
+      this.width = width;
+    }
+
+    public Integer getHeight() {
+      return height;
+    }
+
+    public void setHeight(Integer height) {
+      this.height = height;
+    }
+
+    public String getMimeType() {
+      return mimeType;
+    }
+
+    public void setMimeType(String mimeType) {
+      this.mimeType = mimeType;
+    }
+
+    public String getBlurHash() {
+      return blurHash;
+    }
+
+    public void setBlurHash(String blurHash) {
+      this.blurHash = blurHash;
+    }
   }
 
   @PostConstruct
@@ -63,7 +92,7 @@ public class ImageService {
     }
   }
 
-  // NOTE: This method performs I/O and CPU intensive tasks. 
+  // NOTE: This method performs I/O and CPU intensive tasks.
   // It is designed to be called BEFORE a transaction starts.
   public ImageMetadataDto saveImageAndGetMetadata(MultipartFile file) {
     if (file == null || file.isEmpty()) {

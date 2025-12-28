@@ -159,10 +159,9 @@ public class BlogPostServiceImpl implements BlogPostService {
   }
 
   /**
-   * ENTERPRISE PATTERN: I/O OUTSIDE TRANSACTION
-   * 1. Perform Network I/O (Image Uploads) first.
-   * 2. Call transactional method for DB persistence.
-   * 3. Publish async events after transaction commits.
+   * ENTERPRISE PATTERN: I/O OUTSIDE TRANSACTION 1. Perform Network I/O (Image Uploads) first. 2.
+   * Call transactional method for DB persistence. 3. Publish async events after transaction
+   * commits.
    */
   @Override
   // NOTE: No @Transactional here to prevent DB connection holding during MinIO upload
@@ -171,7 +170,7 @@ public class BlogPostServiceImpl implements BlogPostService {
       List<MultipartFile> newThumbnails,
       List<PostThumbnailDto> thumbnailDtos,
       MultipartFile coverImage) {
-    
+
     // --- Step 1: Network I/O (Heavy Lifting) ---
     // Handle Cover Image
     if (coverImage != null && !coverImage.isEmpty()) {
@@ -185,9 +184,9 @@ public class BlogPostServiceImpl implements BlogPostService {
             ? newThumbnails.stream()
                 .collect(Collectors.toMap(MultipartFile::getOriginalFilename, Function.identity()))
             : Map.of();
-            
+
     List<PostThumbnail> finalThumbnails = new ArrayList<>();
-    
+
     // Process thumbnails list (Upload new ones, link existing ones)
     for (PostThumbnailDto dto : thumbnailDtos) {
       PostThumbnail thumbnail;
@@ -273,7 +272,7 @@ public class BlogPostServiceImpl implements BlogPostService {
       savedPost.setUrlArticleId(generateUrlArticleId(savedPost));
       savedPost = blogPostRepository.save(savedPost);
     }
-    
+
     return savedPost;
   }
 
