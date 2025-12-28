@@ -163,6 +163,9 @@ services:
       - FINNHUB_API_KEY=${FINNHUB_API_KEY}
       - NEWS_API_KEY=${NEWS_API_KEY}
       - GA4_PROPERTY_ID=${GA4_PROPERTY_ID}
+      # --- STORAGE SECRETS (FIXED) ---
+      - MINIO_ACCESS_KEY=admin
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
       # --- CONFIG ---
       - SPRING_PROFILES_ACTIVE=prod
       - SPRING_DATA_REDIS_HOST=treishvaam-redis
