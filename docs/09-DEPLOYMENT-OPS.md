@@ -68,15 +68,29 @@ The following keys **must** exist in the Infisical Production Environment for th
 | `INTERNAL_API_SECRET_KEY` | Service-to-Service Lock | Backend |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Tunnel Auth Token | Cloudflared |
 
-### Managing Secrets
-To add or rotate a secret (e.g., Database Password):
-1.  Log in to the **Infisical Dashboard**.
-2.  Update the variable in the `Prod` environment.
-3.  Trigger a deployment (or wait for the next Watchdog cycle). The new value will be automatically pulled during the "Flash" phase.
+---
+
+## 4. Fort Knox Security Configuration (Nginx & Edge)
+
+We employ a "Defense in Depth" strategy starting at the Nginx Gateway.
+
+### Security Headers (Hardened)
+The following headers are strictly enforced in `nginx/conf.d/default.conf` to prevent common web attacks while enabling secure cross-origin authentication.
+
+| Header | Value | Purpose |
+| :--- | :--- | :--- |
+| **`Content-Security-Policy`** | `frame-ancestors 'self' https://treishfin.treishvaamgroup.com;` | **Critical Fix**: Replaces `X-Frame-Options`. Explicitly whitelists the Frontend domain to allow Silent SSO (Keycloak iframe) while blocking all other clickjacking attempts. |
+| **`X-Content-Type-Options`** | `nosniff` | Prevents browsers from "guessing" MIME types (e.g., treating text as executable scripts). |
+| **`X-XSS-Protection`** | `1; mode=block` | Enables the browser's built-in Cross-Site Scripting (XSS) filter. |
+| **`Server`** | *(Hidden)* | `server_tokens off;` prevents Nginx from broadcasting its version number to scanners. |
+
+### Upload Security
+* **Limits**: `client_max_body_size 100M` matches Spring Boot's limit.
+* **Execution Prevention**: The `/uploads/` directory is served with `no-transform` headers to prevent execution of uploaded scripts.
 
 ---
 
-## 4. Disaster Recovery (DR)
+## 5. Disaster Recovery (DR)
 
 ### Scenario A: Bad Code on `develop`
 If a deployment to `develop` breaks the site:
@@ -101,7 +115,7 @@ docker exec -it treishvaam-backup ./restore.sh <timestamp>.sql.gz
 
 ---
 
-## 5. Observability (LGTM Stack)
+## 6. Observability (LGTM Stack)
 
 We utilize the **Grafana LGTM Stack** (Loki, Grafana, Tempo, Mimir) for full-stack observability.
 

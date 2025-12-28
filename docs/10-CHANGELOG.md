@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [tfin-financeapi-Develop.0.0.0.1] - Fort Knox Security Suite
 ### Security & Architecture
+- **Fix (Silent SSO)**: Replaced the restrictive `X-Frame-Options: DENY` header with **Content Security Policy (CSP)** in both **Nginx** and **Cloudflare Worker**. This resolves the "Refused to display in a frame" error, allowing Keycloak's Silent SSO iframe to function correctly while strictly maintaining Clickjacking protection.
+- **Edge (Worker)**: Upgraded `worker.js` to enforce `Content-Security-Policy: frame-ancestors 'self'` and `Strict-Transport-Security` (2 years), aligning the Edge Layer with the Backend Security Standard.
 - **Fort Knox Protocol**: Fully enabled "Internal Service Locking". Critical write endpoints now require `X-Internal-Secret` validation in addition to JWTs (`InternalSecretFilter`), protecting against internal vector attacks.
 - **IP Defense**: Enabled Application-Level Rate Limiting with a **"Fail-Open" Resilience Strategy**. If the Redis backing store fails, the system now prioritizes availability, allowing traffic to pass rather than causing a denial of service.
 - **URL Hidden Strategy**: Completed the "URLS HIDDEN" initiative. All backend and frontend code now uses strictly injected environment variables. Public repositories contain zero hardcoded URLs or IPs.

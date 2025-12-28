@@ -48,8 +48,9 @@ export default {
       // 2. Anti-MIME Sniffing
       newHeaders.set("X-Content-Type-Options", "nosniff");
       
-      // 3. Clickjacking Protection (Only allow same origin to embed)
-      newHeaders.set("X-Frame-Options", "SAMEORIGIN");
+      // 3. Clickjacking Protection (CSP - Modern Standard)
+      // REPLACED: X-Frame-Options with CSP frame-ancestors
+      newHeaders.set("Content-Security-Policy", "frame-ancestors 'self';");
       
       // 4. XSS Protection (Legacy browsers)
       newHeaders.set("X-XSS-Protection", "1; mode=block");

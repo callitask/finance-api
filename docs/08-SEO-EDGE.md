@@ -90,8 +90,8 @@ The Worker injects **Banking-Grade Security Headers** into *every* response to p
 | Header | Value | Purpose |
 | :--- | :--- | :--- |
 | `Strict-Transport-Security` | `max-age=63072000; includeSubDomains; preload` | Forces HTTPS for 2 years. Prevents downgrade attacks. |
+| `Content-Security-Policy` | `frame-ancestors 'self';` | **Silent SSO**: Allows the site to be framed ONLY by itself (same origin). Blocks all external clickjacking attempts. |
 | `X-Content-Type-Options` | `nosniff` | Prevents browsers from MIME-sniffing a response away from the declared content-type. |
-| `X-Frame-Options` | `SAMEORIGIN` | Prevents Clickjacking. Other sites cannot embed the platform in an `<iframe>`. |
 | `X-XSS-Protection` | `1; mode=block` | Activates legacy browser XSS filtering. |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` | Protects user privacy by stripping path data when navigating to external sites. |
 | `Permissions-Policy` | `geolocation=(), microphone=(), ...` | Blocks access to sensitive browser features (Camera, Mic) by default. |

@@ -48,6 +48,7 @@ We use **Cloudflare Pages** for hosting.
 ## Architecture Highlights
 
 * **Secure API Client**: All HTTP requests are handled by `src/apiConfig.js`. This client automatically attaches the Keycloak JWT (Bearer Token) to every request and handles 401/403 errors globally.
+* **Silent Single Sign-On (SSO)**: The application uses a hidden iframe strategy (`silent-check-sso.html`) to renew tokens in the background. The Backend strictly whitelists this frontend domain via **Content Security Policy (CSP)** to allow this flow while blocking all other framing attempts.
 * **Smart Layouts**: The `NewsIntelligenceWidget` and `BlogPage` utilize intelligent grid layouts that adapt based on the content density and screen size.
 * **Real User Monitoring (RUM)**: Grafana Faro is initialized in `src/faroConfig.js` to track frontend performance and errors in real-time.
 
@@ -55,6 +56,7 @@ We use **Cloudflare Pages** for hosting.
 
 * `src/apiConfig.js`: **Critical.** Central configuration for API endpoints.
 * `src/context/AuthContext.js`: Handles Keycloak login/logout and session state.
+* `public/silent-check-sso.html`: **Critical.** A static file loaded by Keycloak in an iframe to enable silent token renewal without page reloads.
 * `src/components/news`: Contains the logic for the Financial News widgets.
 * `src/pages`: Lazy-loaded route components (Dashboard, Blog, Market).
 
