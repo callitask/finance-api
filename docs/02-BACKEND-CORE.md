@@ -5,6 +5,7 @@
 * **Framework**: Spring Boot 3.4.0
 * **Build System**: Maven 3.9+
 * **Container**: Docker (Distroless or Alpine-based OpenJDK 21)
+* **Concurrency Model**: Utilizes **Java 21 Virtual Threads** (Project Loom) for high-throughput parallel processing.
 
 ## 2. Security Architecture (Zero-Trust)
 
@@ -56,18 +57,39 @@ The application is built to support multiple sub-brands (tenants) from a single 
 * **Context Holder**: `TenantContext` uses a `ThreadLocal` variable to store the Tenant ID for the duration of the request.
 * **Data Isolation**: Service layers use the `TenantContext` to filter database queries (e.g., `WHERE tenant_id = ?`), ensuring data segregation.
 
-## 4. Resilience & Reliability
+## 4. Concurrency & Virtual Threads (Enterprise Optimization)
+
+We leverage **Java 21 Virtual Threads** to handle high-concurrency tasks without the overhead of OS threads.
+
+### 4.1. Image Processing
+* **Executor**: `Executors.newVirtualThreadPerTaskExecutor()` is used in `ImageService.java`.
+* **Use Case**: Parallel resizing of uploaded images into multiple WebP variants (Master, Desktop, Tablet, Mobile).
+* **Benefit**: Virtual threads block cheaply. This allows us to process dozens of images simultaneously without exhausting the thread pool, even if the CPU or I/O waits are significant.
+
+## 5. Transactional Integrity & I/O Strategy
+
+To prevent database connection pool exhaustion—a common failure mode in Enterprise apps—we enforce a **Strict Separation of Concerns**.
+
+### 5.1. The "Plan First, Commit Later" Pattern
+* **Rule**: Network I/O (e.g., MinIO Uploads, Third-party API calls) is **FORBIDDEN** inside `@Transactional` methods.
+* **Reasoning**: If a network call takes 2 seconds inside a transaction, it holds a database connection for 2 seconds. Under load (e.g., 50 users uploading images), this starves the DB pool and freezes the app.
+* **Implementation**:
+    1.  **Phase 1 (Non-Transactional)**: Perform all heavy lifting (Image resizing, MinIO uploads) first. Get the resulting URLs.
+    2.  **Phase 2 (Transactional)**: Pass the URLs to a dedicated `persistPost()` method annotated with `@Transactional`. This method does nothing but fast SQL inserts.
+    3.  **Result**: Database lock time is reduced from seconds to milliseconds.
+
+## 6. Resilience & Reliability
 
 To prevent cascading failures when external APIs (AlphaVantage, Finnhub) go down, we use **Resilience4j**.
 
-### 4.1. Circuit Breakers
+### 6.1. Circuit Breakers
 * **Configuration**: Defined in `application-prod.properties`.
 * **Behavior**:
     * If 50% of requests to an external provider fail within a sliding window, the circuit opens.
     * **Open State**: Requests are rejected immediately (Fast Fail) without calling the external service.
     * **Half-Open**: After a wait duration, a few probe requests are allowed to check if the service has recovered.
 
-### 4.2. Rate Limiting (Bucket4j)
+### 6.2. Rate Limiting (Bucket4j)
 * **Purpose**: Protects the API from abuse and DDoS attempts.
 * **Filter**: `RateLimitingFilter` checks the user's IP or User ID against a token bucket backed by **Redis**.
 * **Headers**: Returns `X-RateLimit-Remaining` and `X-RateLimit-Retry-After` to the client.
@@ -75,11 +97,11 @@ To prevent cascading failures when external APIs (AlphaVantage, Finnhub) go down
     * In the event of a Redis failure (Connection Refused/Timeout), the filter is designed to **Fail Open**.
     * **Logic**: We prioritize Application Availability over strict Rate Limiting during infrastructure outages. Errors are logged, but the request is allowed to proceed.
 
-## 5. Async Processing & Event Bus
+## 7. Async Processing & Event Bus
 
 The application avoids blocking the main HTTP threads for long-running tasks.
 
-### 5.1. Task Execution
+### 7.1. Task Execution
 * **Config**: `AsyncConfig.java` defines a `ThreadPoolTaskExecutor`.
 * **Usage**: Methods annotated with `@Async` (e.g., sending emails, generating sitemaps) run in a separate thread pool.
 * **Pool Sizing**:
@@ -87,12 +109,12 @@ The application avoids blocking the main HTTP threads for long-running tasks.
     * **Max Pool**: 10 threads (burst capacity).
     * **Queue**: 25 tasks (buffer).
 
-### 5.2. Messaging (RabbitMQ)
+### 7.2. Messaging (RabbitMQ)
 * **Publisher**: `MessagePublisher` sends events to the `internal-events` exchange.
 * **Consumer**: `MessageListener` processes events asynchronously (e.g., audit logging, search indexing).
 * **Reliability**: Dead Letter Queues (DLQ) are configured to catch failed messages for later inspection.
 
-## 6. Caching Strategy
+## 8. Caching Strategy
 
 **Redis** is the backbone of our performance strategy.
 
@@ -102,7 +124,7 @@ The application avoids blocking the main HTTP threads for long-running tasks.
     * `@CacheEvict`: Clears cache when data changes (e.g., publishing a new post).
 * **TTL**: Different Time-To-Live values for different data types (e.g., Market Data = 10 mins, Static Content = 24 hours).
 
-## 7. Audit Logging
+## 9. Audit Logging
 
 All critical actions are audited for security and compliance.
 
@@ -114,11 +136,11 @@ All critical actions are audited for security and compliance.
     * **Resource**: ID of the entity affected.
     * **Outcome**: SUCCESS or FAILURE.
 
-## 8. Configuration Management (Infisical)
+## 10. Configuration Management (Infisical)
 
 We strictly adhere to the 12-Factor App methodology.
 
-### 8.1. Secrets Injection Strategy
+### 10.1. Secrets Injection Strategy
 * **Source of Truth**: Infisical (External Secrets Manager).
 * **Mechanism**:
     1.  The `auto_deploy.sh` script fetches secrets from Infisical securely.
@@ -126,7 +148,7 @@ We strictly adhere to the 12-Factor App methodology.
     3.  `docker-compose` reads `.env` and injects variables (e.g., `MINIO_ACCESS_KEY`, `SPRING_RABBITMQ_PASSWORD`) into containers.
     4.  **Flash & Wipe**: The `.env` file is stripped of secrets immediately after deployment.
 
-### 8.2. Critical Configurations
+### 10.2. Critical Configurations
 The following properties in `application-prod.properties` are **Dynamic**:
 
 | Property | Environment Variable | Description |

@@ -47,6 +47,15 @@ Handles the lifecycle of editorial content.
 * **Context Awareness**: The service checks `TenantContext.getTenantId()` to ensure all created posts are stamped with the correct Tenant ID (e.g., `TREISHFIN`).
 * **Isolation**: Fetch queries automatically filter by the current tenant context.
 
+### 2.3. Enterprise I/O Strategy ("Plan First, Commit Later")
+To guarantee high concurrency and prevent "Database Denial of Service," this service strictly separates Network I/O from Database Transactions.
+
+* **The Problem**: Network calls (e.g., uploading to MinIO) are slow and unpredictable. If performed inside a `@Transactional` method, they hold a database connection for the entire duration, starving the pool under load.
+* **The Solution**:
+    1.  **Phase 1 (Non-Transactional Orchestration)**: The `save()` method performs all heavy lifting first (Image resizing, MinIO uploads). It calculates the resulting URLs and metadata. No database lock is held.
+    2.  **Phase 2 (Transactional Persistence)**: Once I/O is successful, the data is passed to `persistPost()`, which is annotated with `@Transactional`. This method performs the fast SQL inserts/updates.
+* **Result**: Database lock time is reduced from seconds (Network bound) to milliseconds (CPU bound).
+
 ## 3. Search Service (`SearchController` & Repositories)
 
 Provides high-performance full-text search capabilities using **Elasticsearch**.
@@ -65,9 +74,17 @@ Provides high-performance full-text search capabilities using **Elasticsearch**.
 * **Public Access**: Files are typically served directly via Nginx mapping to the MinIO volume for performance, bypassing the Java application layer for reads.
 
 ### 4.2. Image Processing (`ImageService`)
-* **Processing**: Uses the Java `ImageIO` and standard libraries to resize and compress uploaded images.
-* **Responsiveness**: Generates multiple thumbnails (Small, Medium, Large) for every uploaded cover image to optimize frontend loading speeds.
-* **Parallelism**: Uses Virtual Threads (Java 21) to process multiple image resizes concurrently.
+This service acts as the **Source of Truth** for image quality, implementing a "Backend-Driven Optimization" strategy.
+
+* **Java 21 Virtual Threads**: Utilizes `Executors.newVirtualThreadPerTaskExecutor()` to process image resizing tasks in parallel. This allows high-throughput processing without blocking valuable OS threads.
+* **Quality Pipeline**:
+    * **Input**: Receives high-quality, lossless PNGs from the frontend (Client-side compression is disabled to prevent generation loss).
+    * **Output**: Generates optimized WebP variants for every upload:
+        * **Master**: 1920w (High Quality)
+        * **Desktop**: 1200w
+        * **Tablet**: 800w
+        * **Mobile**: 480w
+* **BlurHash**: Generates a compact string representation of the image placeholder (BlurHash) during processing, enabling instant "blur-up" loading effects on the frontend.
 
 ## 5. Event-Driven Architecture (RabbitMQ)
 
@@ -79,6 +96,7 @@ The system uses an internal event bus to decouple services.
     * **Search Indexing**: Triggered when a post is created/updated.
     * **Audit Logging**: Asynchronous recording of user actions.
     * **Cache Eviction**: Clearing Redis keys when master data changes.
+    * **Sitemap Regeneration**: Triggered after publication to ensure Googlebot sees fresh URLs.
 
 ## 6. External Integrations
 
@@ -93,12 +111,12 @@ The system uses an internal event bus to decouple services.
 
 ## 7. SEO & Sitemaps (`SitemapService`)
 
-* **Dynamic Generation**: XML sitemaps are not static files. They are generated on-the-fly based on the current database state.
+* **Dynamic Generation**: XML sitemaps are generated on-the-fly based on the current database state.
 * **Endpoints**:
     * `/sitemap.xml`: Main index.
     * `/sitemap-news.xml`: Google News specific format (includes `<news:publication_date>`).
     * `/feed.xml`: RSS 2.0 feed for aggregators.
-* **Caching**: Results are cached heavily to prevent database load from crawler bots.
+* **Edge Integration**: These endpoints are primarily consumed by the Cloudflare Worker, which caches and serves them to bots with correct headers.
 
 ## 8. Fort Knox Security Implementation
 

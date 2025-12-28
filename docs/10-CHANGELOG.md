@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [tfin-financeapi-Develop.0.0.0.2] - Phase 1 & 2: Zero Latency & Enterprise I/O
+### Phase 2: Edge-Side Performance (Zero Latency)
+- **Feat (Edge Hydration)**: Upgraded Cloudflare Worker to implement **"Edge-Side Hydration"**. The Worker now pre-fetches API data (Blog Posts, Market Tickers) and injects it directly into the HTML as `window.__PRELOADED_STATE__`.
+- **Perf**: Eliminated the "Double Fetch" problem. React now renders instantly on mount without triggering a second network call to the backend.
+- **Sec (XSS Defense)**: Implemented strict JSON sanitization (`safeStringify`) for the preloaded state to prevent Cross-Site Scripting via injected content.
+
+### Phase 1: Enterprise I/O & Concurrency
+- **Arch (Split I/O)**: Refactored `BlogPostService` to strictly decouple Network I/O from Database Transactions. MinIO uploads now occur *before* the transaction opens ("Plan First, Commit Later"), preventing database connection pool exhaustion under load.
+- **Conc (Virtual Threads)**: Activated **Java 21 Virtual Threads** (`Executors.newVirtualThreadPerTaskExecutor`) in `ImageService`. Image resizing (WebP generation) is now handled in parallel, non-blocking threads.
+- **Frontend (Quality)**: Removed client-side compression (`browser-image-compression`). The Frontend now uploads high-quality, lossless PNGs, allowing the Backend's new pipeline to generate optimized WebP variants without "Double Compression" artifacts.
+
+### Fixes & Refactoring
+- **Fix**: Updated `FileController` to return the specific JSON format required by **SunEditor** (`{ result: [{ url, name, size }] }`), resolving image upload errors in the rich text editor.
+- **Fix**: Resolved "Duplicate Class" compilation error in `Category.java` caused by a copy-paste regression.
+- **Fix**: Restored `BlogPostService` interface definition to resolve controller dependency injection failures.
+
 ## [tfin-financeapi-Develop.0.0.0.1] - Fort Knox Security Suite
 ### Security & Architecture
 - **Fix (Silent SSO)**: Replaced the restrictive `X-Frame-Options: DENY` header with **Content Security Policy (CSP)** in both **Nginx** and **Cloudflare Worker**. This resolves the "Refused to display in a frame" error, allowing Keycloak's Silent SSO iframe to function correctly while strictly maintaining Clickjacking protection.

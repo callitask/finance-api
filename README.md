@@ -47,9 +47,10 @@ We use **Cloudflare Pages** for hosting.
 
 ## Architecture Highlights
 
+* **Edge-Side Hydration (Zero Latency)**: When accessed via Cloudflare, the Cloudflare Worker pre-fetches API data and injects it into the HTML head as `window.__PRELOADED_STATE__`. The React app detects this on mount and **skips the initial API call**, rendering Blog Posts and Market Data instantly.
+* **Lossless Image Pipeline**: The `ImageCropUploader` sends raw, uncompressed PNG data to the backend. We intentionally disable client-side compression to prevent "generation loss". All resizing and WebP conversion is handled server-side by **Java 21 Virtual Threads** for maximum quality.
 * **Secure API Client**: All HTTP requests are handled by `src/apiConfig.js`. This client automatically attaches the Keycloak JWT (Bearer Token) to every request and handles 401/403 errors globally.
 * **Silent Single Sign-On (SSO)**: The application uses a hidden iframe strategy (`silent-check-sso.html`) to renew tokens in the background. The Backend strictly whitelists this frontend domain via **Content Security Policy (CSP)** to allow this flow while blocking all other framing attempts.
-* **Smart Layouts**: The `NewsIntelligenceWidget` and `BlogPage` utilize intelligent grid layouts that adapt based on the content density and screen size.
 * **Real User Monitoring (RUM)**: Grafana Faro is initialized in `src/faroConfig.js` to track frontend performance and errors in real-time.
 
 ## Key Directories
@@ -57,7 +58,7 @@ We use **Cloudflare Pages** for hosting.
 * `src/apiConfig.js`: **Critical.** Central configuration for API endpoints.
 * `src/context/AuthContext.js`: Handles Keycloak login/logout and session state.
 * `public/silent-check-sso.html`: **Critical.** A static file loaded by Keycloak in an iframe to enable silent token renewal without page reloads.
-* `src/components/news`: Contains the logic for the Financial News widgets.
+* `src/components/ImageCropUploader.js`: Handles image cropping and raw PNG upload logic.
 * `src/pages`: Lazy-loaded route components (Dashboard, Blog, Market).
 
 ## Commands

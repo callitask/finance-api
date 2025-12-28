@@ -12,8 +12,9 @@ Unlike standard deployments, this system exposes **zero** internal ports. The da
 * **Backend API**: Spring Boot 3.4 (Java 21)
     * **Port**: 8080 (Internal Only - Proxied by Nginx).
     * **Role**: Core business logic, OAuth2 resource server, data aggregation.
+    * **Concurrency**: Utilizes **Java 21 Virtual Threads** for high-throughput, non-blocking image processing and parallel tasks.
 * **Edge Worker**: Cloudflare Worker
-    * **Role**: Global Edge Logic for SEO injection, security headers, and bot mitigation.
+    * **Role**: Global Edge Logic for **Edge-Side Hydration**, SEO injection, security headers, and bot mitigation.
 
 ### 2. Data Layer (The "Vault" - No Exposed Ports)
 * **Database**: MariaDB 10.6
@@ -69,7 +70,7 @@ graph TD
 
     subgraph Edge_Layer
         CF[Cloudflare Network]
-        Worker[CF Worker (SEO/Security)]
+        Worker[CF Worker (Edge Hydration & SEO)]
         Tunnel[Cloudflare Tunnel]
     end
 
@@ -108,10 +109,12 @@ graph TD
 ```
 
 ## Request Flow
-**1. Edge Processing (Cloudflare Worker):**
+
+**1. Edge Processing (Cloudflare Worker - Phase 2 Optimization):**
 A client request hits the Cloudflare Worker first.
-- **Security**: The Worker injects HSTS, X-Frame-Options, and Content-Security-Policy headers.
-- **SEO**: If the visitor is a bot, the Worker fetches metadata and injects it into the HTML.
+- **Edge Hydration (Zero Latency)**: For blog posts and market data pages, the Worker actively fetches the API data from the backend and injects it into the HTML head as `window.__PRELOADED_STATE__`. This eliminates the need for the browser to make a second API call, resulting in instant rendering.
+- **Security**: Injects HSTS, X-Content-Type-Options, and strictly defined Content-Security-Policy (CSP) headers.
+- **SEO**: Dynamic JSON-LD Schema injection for rich snippets.
 - **Routing**: Traffic is routed through the Cloudflare Tunnel to the origin server.
 
 **2. Zero Trust Gateway (Nginx):**
@@ -119,12 +122,14 @@ The request emerges from the Tunnel and hits Nginx container (listening on port 
 - **WAF**: ModSecurity inspects the payload for SQL Injection or XSS attacks.
 - **Proxy**: Nginx forwards valid requests to the Backend container via the internal `treish_net` network.
 
-**3. Backend Processing:**
+**3. Backend Processing (Enterprise I/O Strategy):**
 The Spring Boot application processes the request.
+- **Enterprise I/O Separation (Phase 1)**: 
+    - **Network I/O**: Heavy operations like Image Uploads (to MinIO) are performed **outside** the database transaction boundary.
+    - **Transaction**: The database transaction is opened *only* to persist metadata (URLs) after the upload succeeds ("Plan First, Commit Later").
+    - **Concurrency**: Image resizing and processing are handled by **Java 21 Virtual Threads**, ensuring the main thread pool is never blocked by CPU-intensive tasks.
 - **Rate Limiting**: The `RateLimitingFilter` checks the client IP against Redis buckets.
-- **Internal Lock**: The `InternalSecretFilter` checks for the `X-Internal-Secret` on sensitive internal endpoints.
-- **Service Mesh**: The app talks to Redis, MariaDB, and ElasticSearch using their **container hostnames** (e.g., `treishvaam-redis`).
-- **Isolation**: Since `ports` are removed in `docker-compose.yml`, these services are completely invisible to port scanners on the public internet.
+- **Service Mesh**: The app talks to Redis, MariaDB, and ElasticSearch using container hostnames.
 
 **4. Admin Access (Grafana/MinIO):**
 Admins access dashboards (Grafana, MinIO Console) via **Cloudflare Tunnel Public Hostnames** (e.g., `grafana.treishfin.treishvaamgroup.com`). This puts them behind Cloudflare Access (SSO), eliminating the need for open ports.
@@ -145,4 +150,4 @@ Nginx is configured to explicitly handle Cross-Origin Resource Sharing (CORS).
 ---
 
 ## SEO Edge Logic
-See `docs/08-SEO-EDGE.md` for full details on how the Cloudflare Worker handles Bot Detection and Meta Injection.
+See `docs/08-SEO-EDGE.md` for full details on how the Cloudflare Worker handles **Edge Hydration**, Bot Detection, and Meta Injection.

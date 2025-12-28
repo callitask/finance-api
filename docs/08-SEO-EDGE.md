@@ -1,36 +1,54 @@
-# SEO & Edge Security Architecture
+# SEO, Edge Hydration & Security Architecture
 
-**Security Status:** Fort Knox Edge Defense
+**Status:** Phase 2 Complete (Edge Hydration & Zero Trust Security)
 
-This document details the "Edge-Side Rendering" (ESR) and "Edge Security" strategy used to ensure perfect SEO, social sharing previews, and banking-grade security headers for the Single Page Application (SPA).
+This document details the **"Edge-Side Rendering" (ESR)** and **"Edge Security"** strategy. It explains how we achieve perfect SEO, social sharing previews, and **Zero-Latency** page loads using Cloudflare Workers.
 
 ## 1. The Challenge
-React SPAs render content specifically in the browser (Client-Side Rendering). This presents two major problems:
-1.  **Crawlers**: Legacy bots (e.g., LinkedIn, Twitter, some Google bots) do not execute JavaScript, seeing only an empty `<div id="root"></div>`.
-2.  **Security**: Standard static hosting often lacks advanced security headers (HSTS, CSP) needed for enterprise compliance.
+React SPAs (Single Page Applications) typically face three major problems:
+1.  **SEO Visibility**: Legacy bots (LinkedIn, Twitter, some Google crawlers) do not execute JavaScript and see only an empty `<div id="root"></div>`.
+2.  **Performance (The Spinner Problem)**: Users load the HTML, wait for React to boot, and *then* React fetches data. This "Double Fetch" creates a noticeable delay (loading spinners).
+3.  **Security**: Standard static hosting often lacks advanced security headers (HSTS, CSP) needed for enterprise compliance.
 
 ## 2. The Solution: Cloudflare Worker Strategy
 
-We deploy a custom Cloudflare Worker (`cloudflared/worker.js`) that acts as a smart proxy between the user and the application. It is configured dynamically using Cloudflare Environment Variables (`BACKEND_URL`, `FRONTEND_URL`).
+We deploy a custom Cloudflare Worker (`cloudflared/worker.js`) that acts as a smart proxy and **Edge Orchestrator** between the user and the application.
 
-### 2.1. Request Interception Flow
-The Worker intercepts every request to the domain.
+### 2.1. Core Innovation: Edge-Side Hydration (Zero Latency)
+Unlike standard SPAs, Treishvaam Finance does **not** force the browser to fetch initial data.
 
-1.  **Configuration Loading (URL Hidden Strategy)**: The Worker loads target URLs from the Cloudflare Vault (Secrets). The source code contains **zero** hardcoded URLs ("URLS HIDDEN"), preventing credential leakage via the repo.
-2.  **Bot Detection**: The Worker checks if the `User-Agent` matches known bots (Googlebot, Bingbot, LinkedInBot, Twitterbot, WhatsApp, etc.).
-    * **Regular Users**: Requests are passed to the CDN/Nginx to load the React app.
-    * **Bots**: The Worker engages the "Edge Rendering" engine.
-3.  **Security Injection**: Regardless of the user type (Bot or Human), strict security headers are injected into the response (see Section 7).
+**The Flow:**
+1.  **Interception**: The Worker intercepts the request (e.g., `/category/news/market-rally`).
+2.  **Edge Fetch**: The Worker immediately calls the Backend API (`/api/v1/posts/url/...`) internally.
+3.  **Injection**: The Worker injects two things into the HTML `<head>` before sending it to the user:
+    * **JSON-LD Schema**: For Google/SEO Bots.
+    * **`window.__PRELOADED_STATE__`**: The actual JSON data of the post.
+4.  **Instant Render**: When React loads on the client, it checks for `window.__PRELOADED_STATE__`. If found, it **skips the network call** and renders instantly.
 
-### 2.2. Metadata Fetching & Injection
-If a bot requests a specific page (e.g., `/market/AAPL` or `/category/news/bitcoin`), the Worker:
-1.  Fetches data from the Backend API (`/api/v1/...`) using the internal `BACKEND_URL`.
-2.  Dynamically replaces the standard `<title>` and `<meta>` tags in the HTML.
-3.  Injects structured JSON-LD data into the `<head>`.
+### 2.2. XSS Prevention (Sanitized Injection)
+Injecting JSON directly into HTML is a security risk (XSS). To prevent attackers from injecting scripts via blog content, we implement a strict **Sanitization Routine** in the Worker.
 
-## 3. High Availability Robots.txt
+* **Function**: `safeStringify(data)`
+* **Logic**: It replaces dangerous characters (`<`, `>`, `&`) with their unicode equivalents (`\u003c`, `\u003e`, `\u0026`) before injection.
+* **Result**: Even if a blog post title contains `<script>alert(1)</script>`, it is rendered harmlessly as text.
 
-We implement a **Dual-Layer Strategy** for `robots.txt` to ensure crawlers are never blocked.
+## 3. Architecture & Request Flow
+
+The Worker configures itself dynamically using Cloudflare Environment Variables (`BACKEND_URL`, `FRONTEND_URL`), ensuring zero hardcoded secrets in the repo.
+
+### 3.1. Routing Logic
+| Path | Action | Description |
+| :--- | :--- | :--- |
+| `/` (Homepage) | **Inject Meta** | Injects `WebSite` Schema and SEO Title/Description. |
+| `/category/*` | **Hydrate** | Fetches Blog Post -> Injects `NewsArticle` Schema + Preloaded State. |
+| `/market/*` | **Hydrate** | Fetches Market Data -> Injects `FinancialProduct` Schema + Preloaded State. |
+| `/sitemap.xml` | **Proxy** | Proxies directly to Backend API (See Section 4). |
+| `/api/*` | **Proxy** | Secure tunnel to Backend API. |
+| `*` (Static) | **Pass-Through** | Serves static assets (JS/CSS/Images) with Security Headers. |
+
+## 4. High Availability Robots.txt
+
+We implement a **Dual-Layer Strategy** for `robots.txt` to ensure crawlers are never blocked, even if the static server fails.
 
 ### Layer 1: Static Source (Primary)
 The primary file serves rules for the frontend.
@@ -57,9 +75,9 @@ Disallow: /login
 Sitemap: [https://treishfin.treishvaamgroup.com/sitemap.xml](https://treishfin.treishvaamgroup.com/sitemap.xml)
 ```
 
-## 4. Sitemap & Feed Proxying
+## 5. Sitemap & Feed Proxying
 
-To ensure Google receives the freshest content, the Worker proxies specific SEO paths directly to the Spring Boot Backend using the `BACKEND_URL` secret.
+To ensure Google receives the freshest content, the Worker proxies specific SEO paths directly to the Spring Boot Backend.
 
 | Path | Proxy Target (Backend) | Purpose |
 | :--- | :--- | :--- |
@@ -69,19 +87,15 @@ To ensure Google receives the freshest content, the Worker proxies specific SEO 
 
 **Failover Logic**: If the backend is down, the Worker returns a `503 Service Unavailable` to prevent search engines from de-indexing the site due to "404 Not Found" errors.
 
-## 5. Structured Data (JSON-LD)
+## 6. Structured Data (JSON-LD)
 
-The Worker injects specific Schema.org schemas based on content type.
+The Worker injects specific Schema.org schemas based on content type to ensure Rich Snippets in Google Search.
 
-### 5.1. Content Scenarios
+### 6.1. Content Scenarios
 * **Homepage**: Injects `WebSite` schema with internal search action.
 * **Static Pages**: Injects `WebPage` and `Organization` schema for About/Contact pages.
 * **Blog Posts**: Injects `NewsArticle` with Author, Date, and Image metadata.
-* **Market Data**: Injects `FinancialProduct` schema for stock pages (e.g., `/market/AAPL`), including real-time price and currency.
-
-## 6. Image Optimization
-
-Images are stored in MinIO and served via Nginx. The Worker allows requests to `/api/v1/files/` to bypass the HTML logic, utilizing Cloudflare's global CDN for edge caching of binary assets.
+* **Market Data**: Injects `FinancialProduct` schema for stock pages (e.g., `/market/AAPL`), including real-time price (`UnitPriceSpecification`) and currency.
 
 ## 7. Edge Security Hardening (Zero Trust)
 
