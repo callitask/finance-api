@@ -40,45 +40,16 @@ public class ImageService {
     private String mimeType;
     private String blurHash;
 
-    public String getBaseFilename() {
-      return baseFilename;
-    }
-
-    public void setBaseFilename(String baseFilename) {
-      this.baseFilename = baseFilename;
-    }
-
-    public Integer getWidth() {
-      return width;
-    }
-
-    public void setWidth(Integer width) {
-      this.width = width;
-    }
-
-    public Integer getHeight() {
-      return height;
-    }
-
-    public void setHeight(Integer height) {
-      this.height = height;
-    }
-
-    public String getMimeType() {
-      return mimeType;
-    }
-
-    public void setMimeType(String mimeType) {
-      this.mimeType = mimeType;
-    }
-
-    public String getBlurHash() {
-      return blurHash;
-    }
-
-    public void setBlurHash(String blurHash) {
-      this.blurHash = blurHash;
-    }
+    public String getBaseFilename() { return baseFilename; }
+    public void setBaseFilename(String baseFilename) { this.baseFilename = baseFilename; }
+    public Integer getWidth() { return width; }
+    public void setWidth(Integer width) { this.width = width; }
+    public Integer getHeight() { return height; }
+    public void setHeight(Integer height) { this.height = height; }
+    public String getMimeType() { return mimeType; }
+    public void setMimeType(String mimeType) { this.mimeType = mimeType; }
+    public String getBlurHash() { return blurHash; }
+    public void setBlurHash(String blurHash) { this.blurHash = blurHash; }
   }
 
   @PostConstruct
@@ -92,6 +63,8 @@ public class ImageService {
     }
   }
 
+  // NOTE: This method performs I/O and CPU intensive tasks. 
+  // It is designed to be called BEFORE a transaction starts.
   public ImageMetadataDto saveImageAndGetMetadata(MultipartFile file) {
     if (file == null || file.isEmpty()) {
       return null;
@@ -103,29 +76,21 @@ public class ImageService {
       String baseFilename = UUID.randomUUID().toString();
       metadata.setBaseFilename(baseFilename);
 
-      // --- PHASE 16: Enterprise Responsive Strategy ---
       String masterName = baseFilename + ".webp"; // 1920w (Master)
-      String desktopName = baseFilename + "-1200.webp"; // 1200w (Standard Desktop)
-      String tabletName = baseFilename + "-800.webp"; // 800w (Tablet/Small Laptop)
-      String mobileName = baseFilename + "-480.webp"; // 480w (Mobile)
+      String desktopName = baseFilename + "-1200.webp"; // 1200w
+      String tabletName = baseFilename + "-800.webp"; // 800w
+      String mobileName = baseFilename + "-480.webp"; // 480w
 
-      // Use Virtual Threads for high-throughput parallel processing
+      // Java 21 Virtual Threads for High Concurrency
       try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
         var futures =
             new CompletableFuture<?>[] {
-              // Master: High Quality (0.90), Max Width 1920
               CompletableFuture.runAsync(
                   () -> uploadResizedSafe(imageBytes, 1920, masterName, 0.90), executor),
-
-              // Desktop: Good Quality (0.85), Max Width 1200
               CompletableFuture.runAsync(
                   () -> uploadResizedSafe(imageBytes, 1200, desktopName, 0.85), executor),
-
-              // Tablet: Standard Quality (0.80), Max Width 800
               CompletableFuture.runAsync(
                   () -> uploadResizedSafe(imageBytes, 800, tabletName, 0.80), executor),
-
-              // Mobile: Optimized (0.80), Max Width 480
               CompletableFuture.runAsync(
                   () -> uploadResizedSafe(imageBytes, 480, mobileName, 0.80), executor)
             };
@@ -156,7 +121,6 @@ public class ImageService {
         ByteArrayOutputStream os = new ByteArrayOutputStream()) {
 
       try {
-        // --- PHASE 16 OPTIMIZATION ---
         Thumbnails.of(is)
             .width(targetWidth)
             .outputQuality(quality)
@@ -164,20 +128,17 @@ public class ImageService {
             .toOutputStream(os);
 
         byte[] resizedBytes = os.toByteArray();
-        // FIXED: Using storeFile with ByteArrayInputStream instead of upload
         fileStorageService.storeFile(
             new ByteArrayInputStream(resizedBytes), filename, "image/webp");
 
       } catch (IllegalArgumentException e) {
-        // FALLBACK: If WebP fails, use PNG
+        // Fallback to PNG
         logger.error("WebP not supported. Falling back to PNG for {}", filename);
         is.reset();
         os.reset();
 
         Thumbnails.of(is).width(targetWidth).outputFormat("png").toOutputStream(os);
-
         byte[] pngBytes = os.toByteArray();
-        // FIXED: Using storeFile with ByteArrayInputStream instead of upload
         fileStorageService.storeFile(new ByteArrayInputStream(pngBytes), filename, "image/png");
       }
     }
