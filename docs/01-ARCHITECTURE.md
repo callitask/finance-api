@@ -1,66 +1,110 @@
 # System Architecture
 
 ## System Overview
-Treishvaam Finance is deployed on an Ubuntu Server (VirtualBox) using Docker Compose to orchestrate all core services. The architecture implements a **Zero Trust Network** fortified by the **Fort Knox Security Suite**, ensuring that no database, cache, or internal service is directly accessible from the public internet.
+Treishvaam Finance is an Enterprise-Grade Financial Intelligence Platform deployed on an Ubuntu Server (VirtualBox) using Docker Compose. The system implements a **Strict Zero Trust Network** architecture fortified by the **Fort Knox Security Suite**.
+
+**Key Architectural Security Feature:**
+Unlike standard deployments, this system exposes **zero** internal ports. The database, cache, search engine, and storage services are **invisible** to the host machine and the public internet, accessible *only* via the internal Docker network (`treish_net`).
 
 ## System Components
-* **Application Layer**:
-    * **Backend**: Spring Boot 3.4 (Java 21) — Internal Port 8080 (Proxied by Nginx).
-    * **Worker**: Cloudflare Worker (Edge Logic for SEO/Routing/Security).
-* **Data Layer** (Internal Access Only):
-    * **Database**: MariaDB — Port 3306 (Closed to Internet).
-    * **Cache**: Redis — Port 6379 (Closed to Internet).
-    * **Search**: Elasticsearch 8.17 — Port 9200 (Closed to Internet).
-    * **Storage**: MinIO — Port 9000 (API) / 9001 (Console) (Closed to Internet).
-    * **Messaging**: RabbitMQ — Port 5672 (AMQP) / 15672 (Mgmt) (Closed to Internet).
-* **Security Layer**:
-    * **Identity**: Keycloak — Port 8080/auth (Internal).
-    * **WAF**: Nginx + ModSecurity (OWASP Rules).
-    * **Tunnel**: Cloudflare Tunnel (Secure Admin Access).
-    * **Secrets**: Infisical (Machine Identity Injection).
-    * **IP Defense**: Application-Level Rate Limiting (Bucket4j).
-* **Automation Layer**:
-    * **Build**: GitHub Actions (Runner).
-    * **Watchdog**: Bash Script (`auto_deploy.sh`) for branch monitoring, self-healing, and "Flash & Wipe" secret injection.
+
+### 1. Application Layer (The "Face")
+* **Backend API**: Spring Boot 3.4 (Java 21)
+    * **Port**: 8080 (Internal Only - Proxied by Nginx).
+    * **Role**: Core business logic, OAuth2 resource server, data aggregation.
+* **Edge Worker**: Cloudflare Worker
+    * **Role**: Global Edge Logic for SEO injection, security headers, and bot mitigation.
+
+### 2. Data Layer (The "Vault" - No Exposed Ports)
+* **Database**: MariaDB 10.6
+    * **Networking**: Accessible ONLY by `backend` and `keycloak`. Port 3306 is removed from host binding.
+* **Cache**: Redis (Alpine)
+    * **Networking**: Accessible ONLY by `backend`. Port 6379 is removed.
+* **Search Engine**: Elasticsearch 8.17
+    * **Networking**: Accessible ONLY by `backend`. Port 9200 is removed.
+* **Object Storage**: MinIO (S3 Compatible)
+    * **Networking**: Accessible ONLY by `backend` and `backup-service`. Ports 9000/9001 are removed.
+* **Messaging**: RabbitMQ
+    * **Networking**: Internal Event Bus. Ports 5672/15672 are removed.
+
+### 3. Security Layer (The "Shield")
+* **Identity Provider**: Keycloak 23
+    * **Role**: Centralized Auth (SSO). Running internally, exposed only via Nginx Gateway.
+* **Gateway**: Nginx + ModSecurity (OWASP CRS)
+    * **Role**: The **ONLY** container with exposed ports (80/443). Handles WAF, Rate Limiting, and SSL Termination.
+* **Tunnel**: Cloudflare Tunnel (`cloudflared`)
+    * **Role**: Secure ingress for Admin Dashboards (Grafana, MinIO Console) without opening firewall ports.
+* **Secrets Management**: Infisical
+    * **Role**: Runtime injection of secrets into the `.env` file during deployment (Flash & Wipe strategy).
+
+### 4. Observability Layer (The "Eyes")
+* **Loki**: Log Aggregation (Internal).
+* **Tempo**: Distributed Tracing (Internal).
+* **Prometheus**: Metrics Collection (Internal).
+* **Grafana**: Visualization Dashboard (Accessed via Cloudflare Tunnel).
 
 ## Fort Knox Security Protocols
-The system implements two specific high-security patterns:
 
-**1. URL Hidden Strategy**
-No production URLs or internal endpoints are hardcoded in the application source code.
-- All connectivity configs are injected via **Environment Variables** at runtime.
-- Public repositories contain only placeholders (e.g., `localhost` references), rendering the code useless to attackers without the Infisical vault keys.
+**1. "Dark Mode" Networking (Port Elimination)**
+We do not rely on firewalls alone. We rely on Docker's network isolation.
+* **Config**: In `docker-compose.yml`, the `ports:` directive is commented out for all data services.
+* **Effect**: Even if the UFW firewall is disabled, the databases remain inaccessible from the internet.
 
-**2. IP Blocked Strategy**
-Defense in depth is applied beyond the Edge WAF.
-- **Layer 1**: Cloudflare Edge (Geoblocking/Bot Fight Mode).
-- **Layer 2**: Nginx ModSecurity (WAF Rules).
-- **Layer 3**: Spring Boot `RateLimitingFilter`. Explicitly blocks IP addresses exceeding request thresholds before they touch business logic.
+**2. Hardcoded Secret Elimination**
+* **Strategy**: All sensitive credentials (DB passwords, API Keys, MinIO Secrets) are replaced with Environment Variables (`${...}`) in `application-prod.properties`.
+* **Injection**: Variables are passed explicitly to containers via the `environment` block in Docker Compose.
+
+**3. IP Defense Strategy**
+* **Layer 1 (Edge)**: Cloudflare (DDoS Protection, Bot Fight Mode).
+* **Layer 2 (Gateway)**: Nginx ModSecurity (SQLi/XSS Blocking).
+* **Layer 3 (App)**: Spring Boot `RateLimitingFilter` (Bucket4j) blocks abusive IPs before they reach business logic.
 
 ## Architecture Diagram
 ```mermaid
 graph TD
     subgraph Public_Internet
-        Client[Browser/App]
+        Client[Client (Browser/Mobile)]
+        Admin[Admin User]
     end
 
     subgraph Edge_Layer
-        CF[Cloudflare Network] --> Worker[CF Worker (Security + SEO)]
-        Worker --> Tunnel[Cloudflare Tunnel]
+        CF[Cloudflare Network]
+        Worker[CF Worker (SEO/Security)]
+        Tunnel[Cloudflare Tunnel]
     end
 
-    subgraph Internal_Docker_Network ["Docker Network (treish_net)"]
-        Tunnel --> NG[Nginx (Gateway + WAF)]
-        NG --> API[Spring Boot Backend]
-        API --> DB[MariaDB]
-        API --> RD[Redis]
-        API --> ES[Elasticsearch]
-        API --> S3[MinIO Storage]
-        NG --> KC[Keycloak (Auth)]
-        API --> MQ[RabbitMQ]
+    subgraph Host_Server_Ubuntu ["Ubuntu Server (Docker Host)"]
+        subgraph Exposed_Services
+            NG[Nginx Gateway (Port 80/443)]
+        end
+
+        subgraph Internal_Treish_Net ["Docker Network (treish_net) - NO EXTERNAL ACCESS"]
+            API[Spring Boot Backend]
+            KC[Keycloak (Auth)]
+            
+            DB[(MariaDB)]
+            RD[(Redis)]
+            ES[(Elasticsearch)]
+            S3[(MinIO Storage)]
+            MQ[(RabbitMQ)]
+            
+            Log[Loki/Prometheus]
+        end
     end
 
-    Client -- HTTPS (443) --> CF
+    Client --> CF --> Worker --> Tunnel --> NG
+    Admin -- "Zero Trust Access" --> CF --> Tunnel --> Grafana/MinIO_Console
+    
+    NG --> API
+    NG --> KC
+    
+    API --> DB
+    API --> RD
+    API --> ES
+    API --> S3
+    API --> MQ
+    
+    API -- "Logs/Metrics" --> Log
 ```
 
 ## Request Flow

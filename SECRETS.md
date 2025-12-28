@@ -49,7 +49,7 @@ These are configured in Cloudflare Pages -> Settings -> Environment Variables.
 | `JWT_SECRET_KEY` | Secret for legacy token signing (if applicable). | Backend |
 | `APP_ADMIN_EMAIL` | Email for the bootstrapped Admin user. | Backend |
 | `APP_ADMIN_PASSWORD` | Password for the bootstrapped Admin user. | Backend, Keycloak |
-| `APP_SECURITY_INTERNAL_SECRET` | **Critical**. Master key for `InternalSecretFilter`. Used to lock down POST endpoints. | Backend |
+| `INTERNAL_API_SECRET_KEY` | **Critical**. Master key for `InternalSecretFilter`. Used to lock down POST endpoints. | Backend |
 
 ### External API Keys (Infisical)
 | Variable Name | Description | Service(s) |

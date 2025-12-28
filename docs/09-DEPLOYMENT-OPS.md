@@ -54,6 +54,20 @@ We do not rely on static `.env` files for application secrets. Instead, we use a
 4.  **State 3 (Stabilization)**: The script waits 10 seconds to ensure containers have initialized.
 5.  **State 4 (Wipe)**: The script immediately overwrites `.env` with a safe template, removing all sensitive data from the disk.
 
+### Required Secrets Reference (Infisical)
+The following keys **must** exist in the Infisical Production Environment for the deployment to succeed.
+
+| Key | Description | Service(s) |
+| :--- | :--- | :--- |
+| `PROD_DB_PASSWORD` | MariaDB Root Password | Database |
+| `KEYCLOAK_DB_PASSWORD` | Keycloak DB Password | Keycloak |
+| `MINIO_ROOT_PASSWORD` | MinIO Admin Secret | Storage, Backend |
+| `RABBITMQ_DEFAULT_USER` | RabbitMQ User | Messaging, Backend |
+| `RABBITMQ_DEFAULT_PASS` | RabbitMQ Password | Messaging, Backend |
+| `JWT_SECRET_KEY` | Token Signing Key | Backend |
+| `INTERNAL_API_SECRET_KEY` | Service-to-Service Lock | Backend |
+| `CLOUDFLARE_TUNNEL_TOKEN` | Tunnel Auth Token | Cloudflared |
+
 ### Managing Secrets
 To add or rotate a secret (e.g., Database Password):
 1.  Log in to the **Infisical Dashboard**.
