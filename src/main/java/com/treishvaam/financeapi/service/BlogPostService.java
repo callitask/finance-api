@@ -35,8 +35,8 @@ public interface BlogPostService {
   BlogPost updateDraft(Long id, BlogPostDto blogPostDto);
 
   /**
-   * Orchestrates the saving of a blog post, handling heavy I/O (Image Uploads)
-   * outside of the database transaction.
+   * Orchestrates the saving of a blog post, handling heavy I/O (Image Uploads) outside of the
+   * database transaction.
    */
   BlogPost save(
       BlogPost blogPost,
@@ -44,8 +44,8 @@ public interface BlogPostService {
       List<PostThumbnailDto> thumbnailDtos,
       MultipartFile coverImage);
 
-  // Helper method for persisting the post (Transactional) - Not usually in interface, 
-  // but if needed for proxy self-calls it might be. 
+  // Helper method for persisting the post (Transactional) - Not usually in interface,
+  // but if needed for proxy self-calls it might be.
   // For now, we only expose the main business methods.
 
   void deleteById(Long id);
