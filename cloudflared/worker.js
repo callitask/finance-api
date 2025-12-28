@@ -49,7 +49,6 @@ export default {
       newHeaders.set("X-Content-Type-Options", "nosniff");
       
       // 3. Clickjacking Protection (CSP - Modern Standard)
-      // REPLACED: X-Frame-Options with CSP frame-ancestors
       newHeaders.set("Content-Security-Policy", "frame-ancestors 'self';");
       
       // 4. XSS Protection (Legacy browsers)
@@ -66,6 +65,13 @@ export default {
         statusText: response.statusText,
         headers: newHeaders
       });
+    };
+
+    // =================================================================================
+    // HELPER: SAFE JSON INJECTION (Prevents XSS in Preloaded State)
+    // =================================================================================
+    const safeStringify = (data) => {
+      return JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
     };
 
     // ----------------------------------------------
@@ -169,8 +175,6 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
       });
 
       const apiResp = await fetch(proxyReq);
-      // We generally do NOT inject HTML security headers into API JSON responses
-      // to avoid CORS issues, but strict transport security is fine.
       return apiResp;
     }
 
@@ -219,7 +223,7 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
     }
 
     // =================================================================================
-    // 7. SEO INTELLIGENCE (HTML REWRITER)
+    // 7. SEO INTELLIGENCE & EDGE HYDRATION
     // =================================================================================
     
     // SCENARIO A: HOMEPAGE
@@ -303,7 +307,7 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
       return addSecurityHeaders(rewritten);
     }
 
-    // SCENARIO C: BLOG POSTS
+    // SCENARIO C: BLOG POSTS (With Edge Hydration)
     if (url.pathname.includes("/category/")) {
       const parts = url.pathname.split("/");
       const articleId = parts[parts.length - 1];
@@ -316,6 +320,7 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
         if (!apiResp.ok) return addSecurityHeaders(response);
         const post = await apiResp.json();
 
+        // Schema.org Data
         const schema = {
              "@context": "https://schema.org",
              "@type": "NewsArticle",
@@ -335,7 +340,15 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
           .on('meta[name="description"]', { element(e) { e.setAttribute("content", post.metaDescription || post.title); } })
           .on("head", {
             element(e) {
+              // 1. Inject JSON-LD Schema
               e.append(`<script type="application/ld+json">${JSON.stringify(schema)}</script>`, { html: true });
+              
+              // 2. EDGE HYDRATION: Inject the post data so React doesn't have to fetch it again
+              // We use safeStringify to prevent XSS attacks via the JSON payload
+              e.append(
+                `<script>window.__PRELOADED_STATE__ = ${safeStringify(post)};</script>`,
+                { html: true }
+              );
             }
           })
           .transform(response);
@@ -344,7 +357,7 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
       } catch (e) { return addSecurityHeaders(response); }
     }
 
-    // SCENARIO D: MARKET DATA
+    // SCENARIO D: MARKET DATA (With Edge Hydration)
     if (url.pathname.startsWith("/market/")) {
       const rawTicker = url.pathname.split("/market/")[1];
       if (!rawTicker) return addSecurityHeaders(response);
@@ -387,7 +400,14 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
           .on('meta[property="og:description"]', { element(e) { e.setAttribute("content", pageDesc); } })
           .on("head", {
             element(e) {
+              // 1. Inject JSON-LD
               e.append(`<script type="application/ld+json">${JSON.stringify(schema)}</script>`, { html: true });
+              
+              // 2. EDGE HYDRATION: Inject market data for instant rendering
+              e.append(
+                `<script>window.__PRELOADED_STATE__ = ${safeStringify(marketData)};</script>`,
+                { html: true }
+              );
             }
           })
           .transform(response);
