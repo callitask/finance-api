@@ -28,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -106,6 +107,11 @@ public class BlogPostServiceImpl implements BlogPostService {
   }
 
   @Override
+  // ENTERPRISE CACHING: Read-Through Cache for High Performance
+  @Cacheable(
+      value = CachingConfig.BLOG_POST_CACHE,
+      key = "#urlArticleId",
+      unless = "#result == null")
   public Optional<BlogPost> findByUrlArticleId(String urlArticleId) {
     return blogPostRepository.findByUrlArticleId(urlArticleId);
   }
@@ -150,8 +156,6 @@ public class BlogPostServiceImpl implements BlogPostService {
             .orElseThrow(() -> new RuntimeException("Post not found with id: " + id));
 
     // --- ENTERPRISE OPTIMISTIC LOCKING CHECK ---
-    // If the client sends a version, we must verify it matches the DB version.
-    // This prevents "Lost Updates" if another admin saved the post while this user was editing.
     if (blogPostDto.getVersion() != null
         && existingPost.getVersion() != null
         && !blogPostDto.getVersion().equals(existingPost.getVersion())) {
@@ -256,7 +260,7 @@ public class BlogPostServiceImpl implements BlogPostService {
   @CacheEvict(
       value = CachingConfig.BLOG_POST_CACHE,
       key = "#result.urlArticleId",
-      condition = "#result.urlArticleId != null and #result.status.name() == 'PUBLISHED'")
+      condition = "#result.urlArticleId != null")
   public BlogPost persistPost(BlogPost blogPost, List<PostThumbnail> processedThumbnails) {
     // Update relationships
     blogPost.getThumbnails().clear();
@@ -414,6 +418,11 @@ public class BlogPostServiceImpl implements BlogPostService {
 
   @Override
   @Transactional(readOnly = true)
+  // ENTERPRISE CACHING: Read-Through Cache for Full Slug URLs
+  @Cacheable(
+      value = CachingConfig.BLOG_POST_CACHE,
+      key = "#userFriendlySlug",
+      unless = "#result == null")
   public Optional<BlogPost> findPostForUrl(Long id, String categorySlug, String userFriendlySlug) {
     Optional<BlogPost> postOpt =
         blogPostRepository.findByIdAndUserFriendlySlug(id, userFriendlySlug);
