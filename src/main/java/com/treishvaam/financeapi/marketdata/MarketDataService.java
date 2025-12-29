@@ -4,9 +4,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treishvaam.financeapi.apistatus.ApiFetchStatus;
 import com.treishvaam.financeapi.apistatus.ApiFetchStatusRepository;
-import com.treishvaam.financeapi.aspect.LogAudit; // IMPORTED
+import com.treishvaam.financeapi.aspect.LogAudit;
 import com.treishvaam.financeapi.repository.UserRepository;
-import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker; // IMPORTED
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import jakarta.annotation.PostConstruct;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -34,7 +34,6 @@ public class MarketDataService {
   private static final Logger logger = LoggerFactory.getLogger(MarketDataService.class);
   private static final int CACHE_DURATION_MINUTES = 30;
 
-  // ... (Keep existing static constants: SUPPORTED_ETFS, PEER_MAP) ...
   private static final List<String> SUPPORTED_ETFS =
       Arrays.asList(
           "^GSPC", "^DJI", "^IXIC", "^RUT", "^NYA", "^VIX", "^GDAXI", "^FTSE", "^HSI", "GC=F",
@@ -92,7 +91,7 @@ public class MarketDataService {
   }
 
   @Transactional
-  // --- NEW: Circuit Breaker for Python Pipeline ---
+  // --- CIRCUIT BREAKER: Fault Tolerance for Python Pipeline ---
   @CircuitBreaker(name = "pythonScript", fallbackMethod = "fallbackPythonUpdate")
   public void runPythonHistoryAndQuoteUpdate(String triggerSource) {
     String apiLabel = "Market Data Pipeline (Python)";
@@ -103,8 +102,13 @@ public class MarketDataService {
     apiFetchStatusRepository.save(status);
 
     try {
-      ProcessBuilder pb =
-          new ProcessBuilder("python3", pythonScriptPath, dbUrl, dbUsername, dbPassword);
+      // SECURITY UPGRADE: Pass credentials via Environment Variables, NOT command line args
+      ProcessBuilder pb = new ProcessBuilder("python3", pythonScriptPath);
+      Map<String, String> env = pb.environment();
+      env.put("DB_URL", dbUrl);
+      env.put("DB_USER", dbUsername);
+      env.put("DB_PASSWORD", dbPassword);
+
       pb.redirectErrorStream(true);
 
       Process process = pb.start();
@@ -131,19 +135,18 @@ public class MarketDataService {
                 + exitCode
                 + ". Output: "
                 + output.substring(0, Math.min(output.length(), 1000)));
-        throw new RuntimeException("Python script failed"); // Trigger circuit breaker
+        throw new RuntimeException("Python script failed");
       }
     } catch (Exception e) {
       logger.error("FATAL: Failed to run Python update script: {}", e.getMessage(), e);
       status.setStatus("FAILURE");
       status.setDetails("Java exception: " + e.getMessage());
       apiFetchStatusRepository.save(status);
-      throw new RuntimeException(e); // Ensure circuit breaker records failure
+      throw new RuntimeException(e);
     }
     apiFetchStatusRepository.save(status);
   }
 
-  // --- NEW: Fallback Method ---
   public void fallbackPythonUpdate(String triggerSource, Throwable t) {
     logger.error("Circuit Breaker Open: Python script update skipped. Reason: {}", t.getMessage());
     apiFetchStatusRepository.save(
@@ -178,12 +181,11 @@ public class MarketDataService {
   }
 
   @Transactional
-  // --- NEW: Circuit Breaker for FMP API ---
+  // --- CIRCUIT BREAKER: Fault Tolerance for External API ---
   @CircuitBreaker(name = "fmpApi", fallbackMethod = "fallbackMarketMovers")
   public void fetchAndStoreMarketData(String market, String triggerSource) {
     MarketDataProvider provider = marketDataFactory.getMoversProvider(market);
 
-    // 1. Gainers
     try {
       List<MarketData> gainers = provider.fetchTopGainers();
       marketDataRepository.deleteByType("GAINER");
@@ -195,10 +197,9 @@ public class MarketDataService {
               triggerSource,
               "Fetched " + (gainers != null ? gainers.size() : 0) + " items."));
     } catch (Exception e) {
-      throw new RuntimeException(e); // Trigger CB
+      throw new RuntimeException(e);
     }
 
-    // 2. Losers
     try {
       List<MarketData> losers = provider.fetchTopLosers();
       marketDataRepository.deleteByType("LOSER");
@@ -213,7 +214,6 @@ public class MarketDataService {
       throw new RuntimeException(e);
     }
 
-    // 3. Active
     try {
       List<MarketData> active = provider.fetchMostActive();
       marketDataRepository.deleteByType("ACTIVE");
@@ -238,7 +238,7 @@ public class MarketDataService {
   }
 
   @Transactional
-  @LogAudit(action = "MANUAL_REFRESH", target = "Indices") // --- NEW: Audit Log ---
+  @LogAudit(action = "MANUAL_REFRESH", target = "Indices")
   public void refreshIndices() {
     logger.info("Manual refresh of Indices triggered. Executing Python pipeline.");
     runPythonHistoryAndQuoteUpdate("MANUAL_TRIGGER");
@@ -272,7 +272,7 @@ public class MarketDataService {
   }
 
   @Transactional
-  @LogAudit(action = "FLUSH_DATA", target = "Movers") // --- NEW: Audit Log ---
+  @LogAudit(action = "FLUSH_DATA", target = "Movers")
   public void flushMoversData(String password) {
     if (!isPasswordValid(password)) throw new SecurityException("Invalid password.");
     marketDataRepository.deleteByType("GAINER");
@@ -281,7 +281,7 @@ public class MarketDataService {
   }
 
   @Transactional
-  @LogAudit(action = "FLUSH_DATA", target = "Indices") // --- NEW: Audit Log ---
+  @LogAudit(action = "FLUSH_DATA", target = "Indices")
   public void flushIndicesData(String password) {
     if (!isPasswordValid(password)) throw new SecurityException("Invalid password.");
     historicalDataCacheRepository.deleteAll();

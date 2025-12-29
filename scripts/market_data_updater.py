@@ -1,10 +1,17 @@
 import sys
+import os
 import logging
 import yfinance as yf
 import pandas as pd
 from sqlalchemy import create_engine, text
 from datetime import datetime, timedelta, date
 import math
+from decimal import Decimal, getcontext, ROUND_HALF_UP
+
+# --- CONFIGURATION: Financial Precision ---
+getcontext().prec = 28
+# Rounding strategy for currency
+DECIMAL_CTX = Decimal("0.00000001")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -12,7 +19,6 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-# CRITICAL FIX: Removed broken ticker '^BSESCP' to prevent 404 crash loops
 TICKERS = [
     "^GSPC", "^DJI", "^IXIC", "^RUT", "^VIX", "^NYA", "^GDAXI", "^FTSE", "^FCHI", "^IBEX", "^STOXX50E",
     "^NSEI", "^BSESN", "^NSEBANK", "^CNXIT", "^HSI", "^N225", "^STI", "000001.SS",
@@ -21,7 +27,22 @@ TICKERS = [
     "BTC-INR", "ETH-INR", "SOL-INR", "XRP-INR", "DOGE-INR"
 ]
 
-def get_db_engine(jdbc_url, user, password):
+def get_db_engine():
+    # SECURITY: Read from Environment Variables (Invisible to Process List)
+    jdbc_url = os.getenv("DB_URL", "")
+    user = os.getenv("DB_USER", "")
+    password = os.getenv("DB_PASSWORD", "")
+
+    if not jdbc_url or not user or not password:
+        # Fallback to args only if env vars are missing (Backward Compatibility)
+        if len(sys.argv) >= 4:
+            jdbc_url = sys.argv[1]
+            user = sys.argv[2]
+            password = sys.argv[3]
+        else:
+            logging.error("Fatal: Database credentials missing from ENV and ARGS.")
+            sys.exit(1)
+
     try:
         clean_url = jdbc_url.replace("jdbc:", "")
         if "mariadb://" in clean_url:
@@ -32,18 +53,26 @@ def get_db_engine(jdbc_url, user, password):
         if "?" in clean_url:
             clean_url = clean_url.split("?")[0]
 
+        # Securely construct connection string
         connection_str = f"{clean_url.replace('//', f'//{user}:{password}@')}"
         return create_engine(connection_str)
     except Exception as e:
         logging.error(f"Fatal: Could not parse DB URL. Error: {e}")
         sys.exit(1)
 
-def sanitize_val(val):
+def to_decimal(val):
+    """Safely convert numpy/float/string to Decimal for DB storage"""
     if val is None: return None
     if isinstance(val, (float, int)):
         if math.isnan(val) or math.isinf(val): return None
     if pd.isna(val): return None
-    return float(val)
+    
+    try:
+        # Convert to string first to avoid float precision artifacts
+        d = Decimal(str(val))
+        return d.quantize(DECIMAL_CTX, rounding=ROUND_HALF_UP)
+    except:
+        return None
 
 def get_last_db_date(conn, ticker):
     try:
@@ -60,10 +89,12 @@ def process_ticker(ticker, engine):
         with engine.connect() as conn:
             last_date = get_last_db_date(conn, ticker)
 
+            # --- SMART SYNC LOGIC ---
             if last_date is None:
                 logging.info(f"[{ticker}] Status: NEW. Strategy: FULL HISTORY FETCH.")
                 hist = yf.Ticker(ticker).history(period="max", auto_adjust=False)
             else:
+                # Fetch overlap to calculate changes correctly
                 start_fetch = last_date - timedelta(days=7)
                 logging.info(f"[{ticker}] Status: ACTIVE. Last Date: {last_date}. Strategy: SYNC from {start_fetch}.")
                 hist = yf.Ticker(ticker).history(start=start_fetch, auto_adjust=False)
@@ -73,18 +104,20 @@ def process_ticker(ticker, engine):
                 return
 
             latest_row = hist.iloc[-1]
-            current_price = sanitize_val(latest_row.get('Close'))
+            current_price = to_decimal(latest_row.get('Close'))
 
             prev_close = None
             if len(hist) >= 2:
                 prev_row = hist.iloc[-2]
-                prev_close = sanitize_val(prev_row.get('Close'))
+                prev_close = to_decimal(prev_row.get('Close'))
 
             change_amt = None
             change_pct = None
-            if current_price is not None and prev_close is not None and prev_close != 0:
+            
+            # --- PRECISE CALCULATION ---
+            if current_price is not None and prev_close is not None and prev_close != Decimal(0):
                 change_amt = current_price - prev_close
-                change_pct = (change_amt / prev_close) * 100
+                change_pct = (change_amt / prev_close) * Decimal(100)
 
             currency = "INR" if "INR" in ticker else "USD"
 
@@ -101,15 +134,15 @@ def process_ticker(ticker, engine):
             conn.execute(quote_sql, {
                 "t": ticker, "n": ticker, "curr": currency, "cp": current_price,
                 "ca": change_amt, "cpct": change_pct, "pc": prev_close,
-                "dh": sanitize_val(latest_row.get('High')),
-                "dl": sanitize_val(latest_row.get('Low')),
+                "dh": to_decimal(latest_row.get('High')),
+                "dl": to_decimal(latest_row.get('Low')),
                 "vol": int(latest_row.get('Volume', 0))
             })
             conn.commit()
 
             for dt, row in hist.iterrows():
                 record_date = dt.date()
-                close_p = sanitize_val(row.get('Close'))
+                close_p = to_decimal(row.get('Close'))
                 if close_p is not None:
                     conn.execute(text("""
                         INSERT INTO historical_price (ticker, price_date, close_price)
@@ -124,18 +157,10 @@ def process_ticker(ticker, engine):
         logging.error(f"[{ticker}] FAILED. Reason: {e}")
 
 def main():
-    if len(sys.argv) < 4:
-        logging.error("Usage: python3 market_data_updater.py <jdbc_url> <user> <password>")
-        sys.exit(1)
-
-    db_url = sys.argv[1]
-    db_user = sys.argv[2]
-    db_pass = sys.argv[3]
-
     logging.info(f"Initializing Market Data Engine. Target Tickers: {len(TICKERS)}")
 
     try:
-        engine = get_db_engine(db_url, db_user, db_pass)
+        engine = get_db_engine()
         for ticker in TICKERS:
             process_ticker(ticker, engine)
         logging.info("Global Market Data Sync Completed Successfully.")
