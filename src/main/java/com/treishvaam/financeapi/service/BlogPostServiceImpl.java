@@ -12,6 +12,8 @@ import com.treishvaam.financeapi.model.PostThumbnail;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.repository.CategoryRepository;
 import com.treishvaam.financeapi.service.ImageService.ImageMetadataDto;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -30,6 +32,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -50,6 +53,8 @@ public class BlogPostServiceImpl implements BlogPostService {
 
   @Autowired private CategoryRepository categoryRepository;
   @Autowired private ImageService imageService;
+
+  @PersistenceContext private EntityManager entityManager;
 
   private String generateUniqueId() {
     SecureRandom random = new SecureRandom();
@@ -359,31 +364,59 @@ public class BlogPostServiceImpl implements BlogPostService {
   @Override
   @Transactional
   public int backfillSlugs() {
-    List<BlogPost> posts = blogPostRepository.findAll();
     int count = 0;
-    for (BlogPost post : posts) {
-      if (post.getUserFriendlySlug() == null || post.getUserFriendlySlug().isEmpty()) {
-        post.setUserFriendlySlug(generateUserFriendlySlug(post.getTitle()));
-        blogPostRepository.save(post);
-        count++;
+    int batchSize = 100;
+    int page = 0;
+    Page<BlogPost> slice;
+
+    do {
+      slice = blogPostRepository.findAll(PageRequest.of(page, batchSize));
+      boolean hasChanges = false;
+      for (BlogPost post : slice) {
+        if (post.getUserFriendlySlug() == null || post.getUserFriendlySlug().isEmpty()) {
+          post.setUserFriendlySlug(generateUserFriendlySlug(post.getTitle()));
+          blogPostRepository.save(post);
+          count++;
+          hasChanges = true;
+        }
       }
-    }
+      if (hasChanges) {
+        entityManager.flush();
+        entityManager.clear();
+      }
+      page++;
+    } while (slice.hasNext());
+
     return count;
   }
 
   @Override
   @Transactional
   public int backfillUrlArticleIds() {
-    List<BlogPost> posts = blogPostRepository.findAll();
     int count = 0;
-    for (BlogPost post : posts) {
-      if ((post.getStatus() == PostStatus.PUBLISHED || post.getStatus() == PostStatus.SCHEDULED)
-          && post.getUrlArticleId() == null) {
-        post.setUrlArticleId(generateUrlArticleId(post));
-        blogPostRepository.save(post);
-        count++;
+    int batchSize = 100;
+    int page = 0;
+    Page<BlogPost> slice;
+
+    do {
+      slice = blogPostRepository.findAll(PageRequest.of(page, batchSize));
+      boolean hasChanges = false;
+      for (BlogPost post : slice) {
+        if ((post.getStatus() == PostStatus.PUBLISHED || post.getStatus() == PostStatus.SCHEDULED)
+            && post.getUrlArticleId() == null) {
+          post.setUrlArticleId(generateUrlArticleId(post));
+          blogPostRepository.save(post);
+          count++;
+          hasChanges = true;
+        }
       }
-    }
+      if (hasChanges) {
+        entityManager.flush();
+        entityManager.clear();
+      }
+      page++;
+    } while (slice.hasNext());
+
     return count;
   }
 
