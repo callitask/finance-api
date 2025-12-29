@@ -7,6 +7,8 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -15,6 +17,7 @@ import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import net.coobird.thumbnailator.Thumbnails;
+import org.apache.tika.Tika;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ResourceLoader;
@@ -27,10 +30,12 @@ public class ImageService {
   private static final Logger logger = LoggerFactory.getLogger(ImageService.class);
   private final FileStorageService fileStorageService;
   private final ResourceLoader resourceLoader;
+  private final Tika tika;
 
   public ImageService(FileStorageService fileStorageService, ResourceLoader resourceLoader) {
     this.fileStorageService = fileStorageService;
     this.resourceLoader = resourceLoader;
+    this.tika = new Tika();
   }
 
   public static class ImageMetadataDto {
@@ -94,13 +99,27 @@ public class ImageService {
 
   // NOTE: This method performs I/O and CPU intensive tasks.
   // It is designed to be called BEFORE a transaction starts.
+  // ENTERPRISE UPDATE: Uses Temp Files instead of RAM. Tika for Security.
   public ImageMetadataDto saveImageAndGetMetadata(MultipartFile file) {
     if (file == null || file.isEmpty()) {
       return null;
     }
+
+    Path tempFile = null;
     try {
-      byte[] imageBytes = file.getBytes();
-      ImageMetadataDto metadata = extractMetadata(imageBytes);
+      // 1. Stream upload to a temporary file (Zero RAM Impact)
+      tempFile = Files.createTempFile("upload_" + UUID.randomUUID(), ".tmp");
+      file.transferTo(tempFile.toFile());
+
+      // 2. Security Check: Validate MIME type using Apache Tika
+      String detectedMime = tika.detect(tempFile.toFile());
+      if (!detectedMime.startsWith("image/")) {
+        logger.warn("Security Alert: Invalid image file type detected: {}", detectedMime);
+        throw new SecurityException("Invalid file type: " + detectedMime);
+      }
+
+      // 3. Extract Metadata from Disk
+      ImageMetadataDto metadata = extractMetadata(tempFile, detectedMime);
 
       String baseFilename = UUID.randomUUID().toString();
       metadata.setBaseFilename(baseFilename);
@@ -110,18 +129,21 @@ public class ImageService {
       String tabletName = baseFilename + "-800.webp"; // 800w
       String mobileName = baseFilename + "-480.webp"; // 480w
 
-      // Java 21 Virtual Threads for High Concurrency
+      // 4. Java 21 Virtual Threads for High Concurrency Resizing
+      // We pass the Path (tempFile) instead of byte[], so threads read from disk.
+      final Path sourcePath = tempFile;
+
       try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
         var futures =
             new CompletableFuture<?>[] {
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(imageBytes, 1920, masterName, 0.90), executor),
+                  () -> uploadResizedSafe(sourcePath, 1920, masterName, 0.90), executor),
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(imageBytes, 1200, desktopName, 0.85), executor),
+                  () -> uploadResizedSafe(sourcePath, 1200, desktopName, 0.85), executor),
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(imageBytes, 800, tabletName, 0.80), executor),
+                  () -> uploadResizedSafe(sourcePath, 800, tabletName, 0.80), executor),
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(imageBytes, 480, mobileName, 0.80), executor)
+                  () -> uploadResizedSafe(sourcePath, 480, mobileName, 0.80), executor)
             };
 
         CompletableFuture.allOf(futures).join();
@@ -132,25 +154,36 @@ public class ImageService {
     } catch (Exception e) {
       logger.error("Failed to save uploaded image", e);
       throw new RuntimeException("Failed to save uploaded image", e);
+    } finally {
+      // 5. Cleanup: Always delete temp file
+      if (tempFile != null) {
+        try {
+          Files.deleteIfExists(tempFile);
+        } catch (IOException e) {
+          logger.warn("Failed to delete temp file: {}", tempFile, e);
+        }
+      }
     }
   }
 
   private void uploadResizedSafe(
-      byte[] originalBytes, int targetWidth, String filename, double quality) {
+      Path sourceFile, int targetWidth, String filename, double quality) {
     try {
-      uploadResized(originalBytes, targetWidth, filename, quality);
+      uploadResized(sourceFile, targetWidth, filename, quality);
     } catch (IOException e) {
       throw new RuntimeException("Async upload failed for " + filename, e);
     }
   }
 
-  private void uploadResized(byte[] originalBytes, int targetWidth, String filename, double quality)
+  private void uploadResized(Path sourceFile, int targetWidth, String filename, double quality)
       throws IOException {
-    try (ByteArrayInputStream is = new ByteArrayInputStream(originalBytes);
-        ByteArrayOutputStream os = new ByteArrayOutputStream()) {
+    // Thumbnails.of(File) streams from disk.
+    // We still write to ByteArrayOutputStream for the *resized* output (small webp),
+    // which is acceptable for performance vs complexity.
+    try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {
 
       try {
-        Thumbnails.of(is)
+        Thumbnails.of(sourceFile.toFile())
             .width(targetWidth)
             .outputQuality(quality)
             .outputFormat("webp")
@@ -163,52 +196,50 @@ public class ImageService {
       } catch (IllegalArgumentException e) {
         // Fallback to PNG
         logger.error("WebP not supported. Falling back to PNG for {}", filename);
-        is.reset();
         os.reset();
 
-        Thumbnails.of(is).width(targetWidth).outputFormat("png").toOutputStream(os);
+        Thumbnails.of(sourceFile.toFile())
+            .width(targetWidth)
+            .outputFormat("png")
+            .toOutputStream(os);
         byte[] pngBytes = os.toByteArray();
         fileStorageService.storeFile(new ByteArrayInputStream(pngBytes), filename, "image/png");
       }
     }
   }
 
-  private ImageMetadataDto extractMetadata(byte[] imageBytes) {
+  private ImageMetadataDto extractMetadata(Path sourceFile, String mimeType) {
     ImageMetadataDto metadata = new ImageMetadataDto();
-    try (ByteArrayInputStream iisBytes = new ByteArrayInputStream(imageBytes)) {
 
-      try (ImageInputStream iis = ImageIO.createImageInputStream(iisBytes)) {
-        Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
-        if (readers.hasNext()) {
-          ImageReader reader = readers.next();
-          try {
-            reader.setInput(iis);
-            metadata.setWidth(reader.getWidth(0));
-            metadata.setHeight(reader.getHeight(0));
-            metadata.setMimeType("image/" + reader.getFormatName().toLowerCase());
-          } finally {
-            reader.dispose();
-          }
+    // Use ImageIO with File input (efficient random access)
+    try (ImageInputStream iis = ImageIO.createImageInputStream(sourceFile.toFile())) {
+      Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
+      if (readers.hasNext()) {
+        ImageReader reader = readers.next();
+        try {
+          reader.setInput(iis);
+          metadata.setWidth(reader.getWidth(0));
+          metadata.setHeight(reader.getHeight(0));
+          metadata.setMimeType(mimeType);
+        } finally {
+          reader.dispose();
         }
-      } catch (IOException e) {
-        logger.error("Could not read image metadata", e);
       }
-
-      iisBytes.reset();
-
-      try (InputStream blurStream = new ByteArrayInputStream(imageBytes)) {
-        BufferedImage image = ImageIO.read(blurStream);
-        if (image != null) {
-          String hash = BlurHash.encode(image, 4, 3);
-          metadata.setBlurHash(hash);
-        }
-      } catch (IOException e) {
-        logger.error("Could not generate blurhash", e);
-      }
-
-    } catch (Exception e) {
-      logger.error("Failed to extract image metadata", e);
+    } catch (IOException e) {
+      logger.error("Could not read image metadata", e);
     }
+
+    // BlurHash Generation
+    try (InputStream blurStream = Files.newInputStream(sourceFile)) {
+      BufferedImage image = ImageIO.read(blurStream);
+      if (image != null) {
+        String hash = BlurHash.encode(image, 4, 3);
+        metadata.setBlurHash(hash);
+      }
+    } catch (IOException e) {
+      logger.error("Could not generate blurhash", e);
+    }
+
     return metadata;
   }
 }
