@@ -19,8 +19,10 @@ Unlike standard deployments, this system exposes **zero** internal ports. The da
 ### 2. Data Layer (The "Vault" - No Exposed Ports)
 * **Database**: MariaDB 10.6
     * **Networking**: Accessible ONLY by `backend` and `keycloak`. Port 3306 is removed from host binding.
+    * **Integrity**: Enforces **Optimistic Locking** using `@Version` columns to prevent lost updates.
 * **Cache**: Redis (Alpine)
     * **Networking**: Accessible ONLY by `backend`. Port 6379 is removed.
+    * **Strategy**: **Read-Through Caching**. The service layer transparently serves read-heavy data (Articles, Market Widgets) from Redis, hitting the DB only on misses.
 * **Search Engine**: Elasticsearch 8.17
     * **Networking**: Accessible ONLY by `backend`. Port 9200 is removed.
 * **Object Storage**: MinIO (S3 Compatible)
@@ -100,7 +102,7 @@ graph TD
     NG --> KC
     
     API --> DB
-    API --> RD
+    API -- "Read-Through Cache" --> RD
     API --> ES
     API --> S3
     API --> MQ
@@ -123,13 +125,20 @@ The request emerges from the Tunnel and hits Nginx container (listening on port 
 - **Proxy**: Nginx forwards valid requests to the Backend container via the internal `treish_net` network.
 
 **3. Backend Processing (Enterprise I/O Strategy):**
-The Spring Boot application processes the request.
-- **Enterprise I/O Separation (Phase 1)**: 
-    - **Network I/O**: Heavy operations like Image Uploads (to MinIO) are performed **outside** the database transaction boundary.
-    - **Transaction**: The database transaction is opened *only* to persist metadata (URLs) after the upload succeeds ("Plan First, Commit Later").
-    - **Concurrency**: Image resizing and processing are handled by **Java 21 Virtual Threads**, ensuring the main thread pool is never blocked by CPU-intensive tasks.
-- **Rate Limiting**: The `RateLimitingFilter` checks the client IP against Redis buckets.
-- **Service Mesh**: The app talks to Redis, MariaDB, and ElasticSearch using container hostnames.
+The Spring Boot application processes the request using advanced patterns:
+
+- **Secure Streaming I/O (Phase 1)**:
+    - **Memory Safety**: Large file uploads are streamed directly to `Files.createTempFile` instead of loading into RAM (`byte[]`), preventing Out-Of-Memory (OOM) crashes under load.
+    - **Security Validation**: **Apache Tika** analyzes the binary signature (magic numbers) of uploads to strictly enforce MIME types, rejecting spoofed extensions (e.g., `.exe` renamed to `.jpg`).
+    - **Transaction Boundary**: Network I/O to MinIO happens **outside** the database transaction. The DB transaction opens *only* after a successful upload ("Plan First, Commit Later").
+
+- **Concurrency Control (Phase 2 & 3)**:
+    - **Optimistic Locking**: Implements a strict "Version Handshake". Updates must include the version number of the record being edited.
+    - **Conflict Resolution**: If the version in the DB is newer than the client's version (indicating another admin saved changes), the request is rejected with **409 Conflict**, preventing "Lost Updates".
+
+- **High-Performance Caching (Phase 4)**:
+    - **Read-Through**: API read operations (e.g., `findByUrlArticleId`) hit Redis first. If the key exists, data is returned in **<5ms**. If missing, the DB is queried, and the result is serialized (JSON) into Redis for future requests.
+    - **Eviction**: Updates and Deletes automatically evict the relevant keys to ensure cache consistency.
 
 **4. Admin Access (Grafana/MinIO):**
 Admins access dashboards (Grafana, MinIO Console) via **Cloudflare Tunnel Public Hostnames** (e.g., `grafana.treishfin.treishvaamgroup.com`). This puts them behind Cloudflare Access (SSO), eliminating the need for open ports.

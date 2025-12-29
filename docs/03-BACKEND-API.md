@@ -12,25 +12,28 @@ This document provides a comprehensive reference for the REST API surface of the
 ### Blog Post Controller (`BlogPostController`)
 **Base Path**: `/posts`
 
+**Concurrency Note:** All update operations (`PUT`) implement **Optimistic Locking**. The client *must* send the `version` field received from the last `GET` request. If the server's version is higher than the client's, a `409 Conflict` error is returned.
+
 | Method | Endpoint | Role | Description |
 | :--- | :--- | :--- | :--- |
 | **GET** | `/` | Public | List published posts with pagination. |
-| **GET** | `/{id}` | Public | Get a single post by its numerical ID. |
+| **GET** | `/{id}` | Public | Get a single post by its numerical ID. Returns `version` for locking. |
 | **GET** | `/public/{slug}` | Public | Get a post by its URL-friendly slug. |
-| **GET** | `/url/{urlArticleId}` | Public | Get a post by its legacy URL Article ID. |
+| **GET** | `/url/{urlArticleId}` | Public | Get a post by its legacy URL Article ID. **Cached (Redis).** |
 | **GET** | `/category/{categorySlug}` | Public | List published posts within a specific category. |
 | **GET** | `/tags/{tag}` | Public | List published posts matching a specific tag. |
 | **GET** | `/recent` | Public | Get the most recently published posts (Limit: 5). |
 | **GET** | `/featured` | Public | Get posts marked as 'Featured'. |
 | **GET** | `/search` | Public | (Database) Simple search by title/content keyword. |
-| **POST** | `/draft` | **ADMIN** | Create a new blog post in `DRAFT` status. |
-| **PUT** | `/draft/{id}` | **ADMIN** | Update an existing draft post. |
-| **GET** | `/admin/drafts` | **ADMIN** | List all posts with `DRAFT` status. |
-| **GET** | `/admin/all` | **ADMIN** | List all posts regardless of status (Published/Draft/Archived). |
-| **POST** | `/admin/publish/{id}` | **ADMIN** | Change post status to `PUBLISHED`. |
-| **DELETE** | `/admin/delete/{id}` | **ADMIN** | Permanently delete a post. |
-| **POST** | `/{id}/duplicate` | **ADMIN** | Clone an existing post into a new draft. |
-| **POST** | `/{id}/share` | **ADMIN** | Trigger a LinkedIn share for this post. |
+| **POST** | `/draft` | **Auth** | Create a new blog post in `DRAFT` status. |
+| **PUT** | `/draft/{id}` | **Auth** | Update an existing draft. **Body must include `version`.** |
+| **GET** | `/admin/drafts` | **Auth** | List all posts with `DRAFT` status. |
+| **GET** | `/admin/all` | **Auth** | List all posts regardless of status (Published/Draft/Archived). |
+| **PUT** | `/{id}` | **EDITOR+** | Update a post. **Requires `version` param** to prevent lost updates. |
+| **POST** | `/admin/publish/{id}` | **PUBLISHER+** | Change post status to `PUBLISHED`. |
+| **DELETE** | `/{id}` | **PUBLISHER+** | Permanently delete a post. |
+| **POST** | `/{id}/duplicate` | **Auth** | Clone an existing post into a new draft. |
+| **POST** | `/{id}/share` | **PUBLISHER+** | Trigger a LinkedIn share for this post. |
 
 ### Category Controller (`CategoryController`)
 **Base Path**: `/categories`
@@ -47,7 +50,7 @@ This document provides a comprehensive reference for the REST API surface of the
 
 | Method | Endpoint | Role | Description |
 | :--- | :--- | :--- | :--- |
-| **POST** | `/upload` | **ADMIN** | Upload an image/file to MinIO storage. Returns the public URL. |
+| **POST** | `/upload` | **ADMIN** | Upload an image/file to MinIO. **Security:** Validates MIME type via **Apache Tika** and streams to disk to prevent OOM. |
 | **GET** | `/{filename}` | Public | Serve the file content (if not served directly via Nginx). |
 
 ## 2. Market Data & News
@@ -61,7 +64,7 @@ This document provides a comprehensive reference for the REST API surface of the
 | **GET** | `/movers` | Public | Get top gainers, losers, and active stocks. |
 | **GET** | `/quote/{symbol}` | Public | Get real-time quote for a specific symbol. |
 | **GET** | `/history/{symbol}` | Public | Get historical price data (candles) for charts. |
-| **GET** | `/widget` | Public | Get optimized data payload for the frontend market widget. |
+| **GET** | `/widget` | Public | Get optimized data payload for the frontend market widget. **Cached.** |
 | **POST** | `/admin/refresh` | **ADMIN** | Force a manual refresh of market data from external providers. |
 
 ### News Highlight Controller (`NewsHighlightController`)
@@ -154,12 +157,12 @@ Certain high-risk internal endpoints (e.g., specific batch operations or inter-s
 }
 ```
 
-### Standard Error Response
+### Standard Error Response (Conflict Example)
 ```json
 {
   "status": "ERROR",
-  "message": "Resource not found",
-  "errorCode": "NOT_FOUND",
+  "message": "Optimistic locking failure...",
+  "errorCode": "CONFLICT",
   "timestamp": "2023-10-27T10:00:00Z"
 }
 ```

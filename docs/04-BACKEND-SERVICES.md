@@ -47,14 +47,34 @@ Handles the lifecycle of editorial content.
 * **Context Awareness**: The service checks `TenantContext.getTenantId()` to ensure all created posts are stamped with the correct Tenant ID (e.g., `TREISHFIN`).
 * **Isolation**: Fetch queries automatically filter by the current tenant context.
 
-### 2.3. Enterprise I/O Strategy ("Plan First, Commit Later")
-To guarantee high concurrency and prevent "Database Denial of Service," this service strictly separates Network I/O from Database Transactions.
+### 2.3. Enterprise I/O Strategy ("Secure Stream & Commit")
+To guarantee high concurrency, memory safety, and prevent "Database Denial of Service," this service strictly separates Network I/O from Database Transactions.
 
-* **The Problem**: Network calls (e.g., uploading to MinIO) are slow and unpredictable. If performed inside a `@Transactional` method, they hold a database connection for the entire duration, starving the pool under load.
+* **The Problem**: 
+    1.  **Connection Starvation**: Network calls (e.g., MinIO uploads) inside a transaction hold DB connections, freezing the app under load.
+    2.  **Memory Exhaustion**: Loading large images into RAM (`byte[]`) causes Out-Of-Memory (OOM) crashes.
 * **The Solution**:
-    1.  **Phase 1 (Non-Transactional Orchestration)**: The `save()` method performs all heavy lifting first (Image resizing, MinIO uploads). It calculates the resulting URLs and metadata. No database lock is held.
-    2.  **Phase 2 (Transactional Persistence)**: Once I/O is successful, the data is passed to `persistPost()`, which is annotated with `@Transactional`. This method performs the fast SQL inserts/updates.
-* **Result**: Database lock time is reduced from seconds (Network bound) to milliseconds (CPU bound).
+    1.  **Phase 1 (Secure Streaming - Non-Transactional)**: 
+        * **Zero-Allocation**: Uploads are streamed directly to `Files.createTempFile()`. RAM usage remains flat regardless of file size.
+        * **Security**: **Apache Tika** analyzes the file signature (Magic Numbers) to validate MIME types before processing.
+        * **Processing**: Image resizing happens in parallel Virtual Threads using the temp file as source.
+    2.  **Phase 2 (Transactional Persistence)**: Once the file is safely in MinIO, the URL is passed to `persistPost()`, which is annotated with `@Transactional` for fast SQL execution.
+* **Result**: Database lock time is minimized, and the server is immune to large-file memory spikes.
+
+### 2.4. Data Integrity (Optimistic Locking)
+To prevent the "Lost Update" anomaly common in collaborative CMS environments:
+* **Mechanism**: The `blog_posts` table uses a `@Version` column.
+* **Logic**: When updating a post, the service compares the `version` provided by the client with the current database `version`.
+* **Outcome**: If they mismatch (indicating another user modified the record), an `ObjectOptimisticLockingFailureException` is thrown (HTTP 409), ensuring no changes are silently overwritten.
+
+### 2.5. High-Performance Caching
+* **Strategy**: **Read-Through Caching**.
+* **Implementation**: Critical read methods (e.g., `findPostForUrl`, `findByUrlArticleId`) are annotated with `@Cacheable`.
+* **Flow**: 
+    1.  Check Redis.
+    2.  If Present: Return immediately (<5ms).
+    3.  If Missing: Fetch from DB -> Serialize to JSON -> Store in Redis -> Return.
+* **Consistency**: Write operations (`save`, `delete`) trigger `@CacheEvict` to invalidate stale keys.
 
 ## 3. Search Service (`SearchController` & Repositories)
 
@@ -74,17 +94,16 @@ Provides high-performance full-text search capabilities using **Elasticsearch**.
 * **Public Access**: Files are typically served directly via Nginx mapping to the MinIO volume for performance, bypassing the Java application layer for reads.
 
 ### 4.2. Image Processing (`ImageService`)
-This service acts as the **Source of Truth** for image quality, implementing a "Backend-Driven Optimization" strategy.
+This service acts as the **Source of Truth** for image quality and security.
 
-* **Java 21 Virtual Threads**: Utilizes `Executors.newVirtualThreadPerTaskExecutor()` to process image resizing tasks in parallel. This allows high-throughput processing without blocking valuable OS threads.
-* **Quality Pipeline**:
-    * **Input**: Receives high-quality, lossless PNGs from the frontend (Client-side compression is disabled to prevent generation loss).
-    * **Output**: Generates optimized WebP variants for every upload:
-        * **Master**: 1920w (High Quality)
-        * **Desktop**: 1200w
-        * **Tablet**: 800w
-        * **Mobile**: 480w
-* **BlurHash**: Generates a compact string representation of the image placeholder (BlurHash) during processing, enabling instant "blur-up" loading effects on the frontend.
+* **Secure Pipeline**:
+    * **Input**: Uses `Files.createTempFile` to handle uploads, ensuring **Zero RAM Allocation** for incoming streams.
+    * **Validation**: **Apache Tika** performs strict MIME detection to reject spoofed files (e.g., malware renamed as `.jpg`).
+* **Java 21 Virtual Threads**: Utilizes `Executors.newVirtualThreadPerTaskExecutor()` to process image resizing tasks in parallel.
+* **Quality**:
+    * **Output**: Generates optimized WebP variants (Master, Desktop, Tablet, Mobile).
+    * **Source**: Frontend sends raw PNGs; server handles all compression to avoid generation loss.
+* **BlurHash**: Generates a compact string representation for "blur-up" loading effects.
 
 ## 5. Event-Driven Architecture (RabbitMQ)
 

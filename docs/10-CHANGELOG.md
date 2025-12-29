@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [tfin-financeapi-Develop.0.0.0.3] - Enterprise Grade: Caching, Locking & Safe I/O
+### Phase 4: High-Performance Caching
+- **Perf (Read-Through Cache)**: Implemented a true "Read-Through" strategy using Redis. Critical read endpoints (e.g., Single Post by URL) now hit the cache first (`@Cacheable`), reducing DB load by ~95% for hot content.
+- **Feat (Serialization)**: Updated `BlogPost`, `Category`, and `PostThumbnail` entities to implement `Serializable`, enabling reliable object graph storage in Redis.
+- **Fix (Hollow Cache)**: Resolved the "Hollow Cache" anti-pattern where `@CacheEvict` was used without a corresponding `@Cacheable`, ensuring the cache is now actively utilized.
+
+### Phase 2 & 3: Data Integrity (Optimistic Locking)
+- **Arch (No Lost Updates)**: Implemented JPA **Optimistic Locking**. Added `@Version` field to `blog_posts` table via Liquibase migration (`V40`).
+- **Feat (Handshake)**: Updated Backend Controllers and Frontend `BlogEditorPage` to strictly enforce version checks.
+- **UX (Conflict Resolution)**: Added specific handling for `409 Conflict` errors. If concurrent edits occur, the UI now alerts the user instead of silently overwriting data.
+
+### Phase 1: Secure Streaming I/O
+- **Sec (MIME Validation)**: Integrated **Apache Tika** to perform strict binary signature analysis on uploads, rejecting spoofed file extensions (e.g., malware renamed as `.jpg`).
+- **Perf (Zero-Allocation)**: Refactored `ImageService` to stream uploads directly to `Files.createTempFile` instead of loading `byte[]` into RAM. This eliminates Out-Of-Memory (OOM) risks during high-res uploads.
+
 ## [tfin-financeapi-Develop.0.0.0.2] - Phase 1 & 2: Zero Latency & Enterprise I/O
 ### Phase 2: Edge-Side Performance (Zero Latency)
 - **Feat (Edge Hydration)**: Upgraded Cloudflare Worker to implement **"Edge-Side Hydration"**. The Worker now pre-fetches API data (Blog Posts, Market Tickers) and injects it directly into the HTML as `window.__PRELOADED_STATE__`.

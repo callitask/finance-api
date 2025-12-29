@@ -66,6 +66,14 @@ We leverage **Java 21 Virtual Threads** to handle high-concurrency tasks without
 * **Use Case**: Parallel resizing of uploaded images into multiple WebP variants (Master, Desktop, Tablet, Mobile).
 * **Benefit**: Virtual threads block cheaply. This allows us to process dozens of images simultaneously without exhausting the thread pool, even if the CPU or I/O waits are significant.
 
+### 4.2. Data Integrity (Optimistic Locking)
+* **Goal**: Prevent "Lost Updates" when multiple admins edit the same record.
+* **Mechanism**: JPA Optimistic Locking via the `@Version` field.
+* **Handshake**:
+    * **Read**: The frontend fetches the current `version` of an entity.
+    * **Write**: The update request *must* include this `version`.
+    * **Check**: If `dbVersion != clientVersion`, the backend throws `ObjectOptimisticLockingFailureException` (HTTP 409 Conflict), rejecting the stale write.
+
 ## 5. Transactional Integrity & I/O Strategy
 
 To prevent database connection pool exhaustion—a common failure mode in Enterprise apps—we enforce a **Strict Separation of Concerns**.
@@ -74,8 +82,11 @@ To prevent database connection pool exhaustion—a common failure mode in Enterp
 * **Rule**: Network I/O (e.g., MinIO Uploads, Third-party API calls) is **FORBIDDEN** inside `@Transactional` methods.
 * **Reasoning**: If a network call takes 2 seconds inside a transaction, it holds a database connection for 2 seconds. Under load (e.g., 50 users uploading images), this starves the DB pool and freezes the app.
 * **Implementation**:
-    1.  **Phase 1 (Non-Transactional)**: Perform all heavy lifting (Image resizing, MinIO uploads) first. Get the resulting URLs.
-    2.  **Phase 2 (Transactional)**: Pass the URLs to a dedicated `persistPost()` method annotated with `@Transactional`. This method does nothing but fast SQL inserts.
+    1.  **Phase 1 (Secure Streaming)**: 
+        * Uploads are streamed to `Files.createTempFile` (Disk) instead of RAM, preventing OOM errors.
+        * **Apache Tika** verifies the file signature (MIME type) before any processing occurs.
+        * Image resizing happens in parallel Virtual Threads.
+    2.  **Phase 2 (Transactional)**: Once uploads are safe on MinIO, their URLs are passed to `persistPost()`.
     3.  **Result**: Database lock time is reduced from seconds to milliseconds.
 
 ## 6. Resilience & Reliability
@@ -119,10 +130,11 @@ The application avoids blocking the main HTTP threads for long-running tasks.
 **Redis** is the backbone of our performance strategy.
 
 * **Config**: `CachingConfig.java`.
-* **Annotations**:
-    * `@Cacheable`: Caches results of expensive calls (e.g., `getMarketData`).
-    * `@CacheEvict`: Clears cache when data changes (e.g., publishing a new post).
-* **TTL**: Different Time-To-Live values for different data types (e.g., Market Data = 10 mins, Static Content = 24 hours).
+* **Serialization**: Entities (`BlogPost`, `Category`) implement `Serializable` to support JSON storage/retrieval via `GenericJackson2JsonRedisSerializer`.
+* **Patterns**:
+    * **Read-Through**: Critical read paths (e.g., `findByUrlArticleId`) are annotated with `@Cacheable`. The service checks Redis first; on miss, it fetches from DB and populates Redis transparently.
+    * **Cache-Aside**: Updates (`save`) and Deletes (`deleteById`) trigger `@CacheEvict` to maintain consistency.
+* **TTL**: Different Time-To-Live values for different data types (e.g., Blog Posts = 1 hour, Market Data = 5 mins).
 
 ## 9. Audit Logging
 

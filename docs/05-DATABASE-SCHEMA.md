@@ -22,6 +22,7 @@ erDiagram
     
     BLOG_POSTS {
         bigint id PK
+        bigint version "Optimistic Lock"
         string title
         string slug
         string status
@@ -65,13 +66,15 @@ erDiagram
 ### 3.2. Content Management System (CMS)
 * **`blog_posts`**: The central content table.
     * **Core**: `title`, `content` (LONGTEXT), `slug`, `user_friendly_slug`, `status` (DRAFT/PUBLISHED).
+    * **Concurrency**: `version` (BIGINT) - Used for JPA Optimistic Locking.
     * **SEO**: `meta_description`, `keywords`, `canonical_url`, `seo_title`.
-    * **Editorial**: `editor_notes`, `review_status`, `archived`.
+    * **Editorial**: `display_section`, `review_status`, `archived`.
     * **Context**: `tenant_id`, `author_id` (FK to users), `category_id` (FK to categories).
 * **`categories`**: Content classification.
     * Columns: `id`, `name`, `slug`, `description`.
 * **`post_thumbnails`**: Media assets linked to posts.
-    * Columns: `id`, `post_id`, `image_url`, `size` (SMALL/MEDIUM/LARGE), `metadata` (JSON).
+    * Columns: `id`, `post_id`, `image_url`, `alt_text`, `display_order`.
+    * **Metadata**: `width`, `height`, `mime_type`, `blur_hash` (Used for "blur-up" loading).
 * **`page_content`**: Dynamic text for static pages (e.g., 'About Us', 'Vision').
     * Columns: `id`, `page_identifier`, `content_json`.
 
@@ -114,6 +117,7 @@ erDiagram
 | **V36** | Added `audit_logs` for security compliance. |
 | **V38** | Added `archived` flag to `news_highlights`. |
 | **V39** | Added `description` field to `news_highlights`. |
+| **V40** | Added `version` column to `blog_posts` for **Optimistic Locking**. |
 
 ## 5. Indexes & Performance
 * **Slugs**: Unique indexes on `blog_posts(slug)` and `blog_posts(user_friendly_slug)` for fast lookup.

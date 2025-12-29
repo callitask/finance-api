@@ -70,23 +70,22 @@ The following keys **must** exist in the Infisical Production Environment for th
 
 ---
 
-## 4. Fort Knox Security Configuration (Nginx & Edge)
+## 4. Fort Knox Security Configuration (Defense in Depth)
 
-We employ a "Defense in Depth" strategy starting at the Nginx Gateway.
+We employ a "Defense in Depth" strategy starting at the Nginx Gateway and penetrating the Backend Logic.
 
-### Security Headers (Hardened)
-The following headers are strictly enforced in `nginx/conf.d/default.conf` to prevent common web attacks while enabling secure cross-origin authentication.
+### Layer 1: Gateway Headers (Hardened)
+The following headers are strictly enforced in `nginx/conf.d/default.conf`.
 
 | Header | Value | Purpose |
 | :--- | :--- | :--- |
-| **`Content-Security-Policy`** | `frame-ancestors 'self' https://treishfin.treishvaamgroup.com;` | **Critical Fix**: Replaces `X-Frame-Options`. Explicitly whitelists the Frontend domain to allow Silent SSO (Keycloak iframe) while blocking all other clickjacking attempts. |
-| **`X-Content-Type-Options`** | `nosniff` | Prevents browsers from "guessing" MIME types (e.g., treating text as executable scripts). |
-| **`X-XSS-Protection`** | `1; mode=block` | Enables the browser's built-in Cross-Site Scripting (XSS) filter. |
-| **`Server`** | *(Hidden)* | `server_tokens off;` prevents Nginx from broadcasting its version number to scanners. |
+| **`Content-Security-Policy`** | `frame-ancestors 'self' https://treishfin.treishvaamgroup.com;` | **Critical Fix**: Whitelists the Frontend domain for Silent SSO (Keycloak iframe) while blocking clickjacking. |
+| **`X-Content-Type-Options`** | `nosniff` | Prevents browsers from "guessing" MIME types. |
+| **`X-XSS-Protection`** | `1; mode=block` | Enables the browser's built-in XSS filter. |
 
-### Upload Security
-* **Limits**: `client_max_body_size 100M` matches Spring Boot's limit.
-* **Execution Prevention**: The `/uploads/` directory is served with `no-transform` headers to prevent execution of uploaded scripts.
+### Layer 2: Backend Validation (Zero Trust I/O)
+* **MIME Validation (Apache Tika)**: The backend analyzes the **binary signature** (Magic Numbers) of every uploaded file. A file named `malware.jpg` that is actually an executable will be rejected instantly before processing.
+* **OOM Protection (Zero-Allocation)**: Uploads are streamed directly to temporary disk storage (`Files.createTempFile`). This prevents Out-Of-Memory crashes even if a user uploads a 100MB file, ensuring operational stability under attack.
 
 ---
 
@@ -122,28 +121,31 @@ We utilize the **Grafana LGTM Stack** (Loki, Grafana, Tempo, Mimir) for full-sta
 ### Zero Trust Access
 Direct IP access to Grafana (Port 3001) has been **disabled** for security. Access is managed via Cloudflare Tunnel.
 
-* **URL**: `https://grafana.treishvaamgroup.com` (Configured in Cloudflare Zero Trust Dashboard)
+* **URL**: `https://grafana.treishvaamgroup.com`
 * **Authentication**: Protected via Cloudflare Access (SSO/Google Login).
-* **Internal User**: `admin` (Password managed in Infisical via `GRAFANA_ADMIN_PASSWORD`).
 
 ### Debugging Workflows
+1.  **Logs (Loki)**: Use `{container="backend"} |= "ERROR"` to find exceptions.
+2.  **Tracing (Tempo)**: Use Trace IDs from logs to visualize the full request path.
+3.  **Metrics (Prometheus)**: Check "Mission Control" for CPU/Memory spikes.
 
-#### 1. Viewing Logs (Loki)
-Instead of `docker logs`, use Grafana Explore:
-1.  Select Datasource: **Loki**.
-2.  **Backend Logs**: `{container="backend"}`
-3.  **Error Search**: `{container="backend"} |= "ERROR"`
-4.  **Nginx Access Logs**: `{container="nginx"}`
+---
 
-#### 2. Performance Tracing (Tempo)
-To trace a slow request:
-1.  Select Datasource: **Tempo**.
-2.  Find the `traceId` from the Loki logs.
-3.  Paste it into Tempo to visualize the full request path (Nginx -> Backend -> Database/Redis).
+## 7. Maintenance Procedures
 
-#### 3. Infrastructure Health (Prometheus)
-Check the **"Mission Control"** dashboard for:
-* CPU/Memory usage of containers.
-* RabbitMQ Queue depth.
-* JVM Heap memory usage.
-* Circuit Breaker states (Resilience4j).
+### Cache Management
+With **Read-Through Caching** enabled, Redis holds active content. If you manually patch the database or need to force a refresh:
+
+**Option A: Admin API (Preferred)**
+Authenticated Admins can trigger a flush via the API:
+```bash
+POST /api/v1/admin/actions/cache/clear
+Authorization: Bearer <ADMIN_TOKEN>
+```
+
+**Option B: CLI (Emergency)**
+Access the Redis container directly:
+```bash
+docker exec -it treishvaam-redis redis-cli FLUSHALL
+```
+*Note: This will temporarily spike DB load as caches rebuild.*

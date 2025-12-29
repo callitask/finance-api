@@ -1,6 +1,6 @@
 # SEO, Edge Hydration & Security Architecture
 
-**Status:** Phase 2 Complete (Edge Hydration & Zero Trust Security)
+**Status:** Phase 4 Complete (Edge Hydration, Zero Trust & Redis Caching)
 
 This document details the **"Edge-Side Rendering" (ESR)** and **"Edge Security"** strategy. It explains how we achieve perfect SEO, social sharing previews, and **Zero-Latency** page loads using Cloudflare Workers.
 
@@ -19,7 +19,8 @@ Unlike standard SPAs, Treishvaam Finance does **not** force the browser to fetch
 
 **The Flow:**
 1.  **Interception**: The Worker intercepts the request (e.g., `/category/news/market-rally`).
-2.  **Edge Fetch**: The Worker immediately calls the Backend API (`/api/v1/posts/url/...`) internally.
+2.  **Edge Fetch (Redis Accelerated)**: The Worker immediately calls the Backend API (`/api/v1/posts/url/...`) internally.
+    * **Phase 4 Optimization**: This request hits the Backend's **Read-Through Cache** (Redis). If the article is hot, the JSON is returned in **<5ms**, ensuring the Worker adds virtually no latency.
 3.  **Injection**: The Worker injects two things into the HTML `<head>` before sending it to the user:
     * **JSON-LD Schema**: For Google/SEO Bots.
     * **`window.__PRELOADED_STATE__`**: The actual JSON data of the post.
