@@ -7,6 +7,7 @@ import java.util.List;
 
 public class BlogPostDto {
   private Long id;
+  private Long version; // Optimistic Locking
   private String title;
   private String content;
   private String customSnippet;
@@ -41,6 +42,14 @@ public class BlogPostDto {
 
   public void setId(Long id) {
     this.id = id;
+  }
+
+  public Long getVersion() {
+    return version;
+  }
+
+  public void setVersion(Long version) {
+    this.version = version;
   }
 
   public String getTitle() {

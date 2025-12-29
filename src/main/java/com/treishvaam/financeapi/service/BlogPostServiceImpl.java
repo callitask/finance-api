@@ -30,6 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -147,6 +148,16 @@ public class BlogPostServiceImpl implements BlogPostService {
         blogPostRepository
             .findById(id)
             .orElseThrow(() -> new RuntimeException("Post not found with id: " + id));
+
+    // --- ENTERPRISE OPTIMISTIC LOCKING CHECK ---
+    // If the client sends a version, we must verify it matches the DB version.
+    // This prevents "Lost Updates" if another admin saved the post while this user was editing.
+    if (blogPostDto.getVersion() != null
+        && existingPost.getVersion() != null
+        && !blogPostDto.getVersion().equals(existingPost.getVersion())) {
+      throw new ObjectOptimisticLockingFailureException(BlogPost.class, id);
+    }
+
     existingPost.setTitle(blogPostDto.getTitle());
     existingPost.setContent(blogPostDto.getContent());
     existingPost.setCustomSnippet(blogPostDto.getCustomSnippet());

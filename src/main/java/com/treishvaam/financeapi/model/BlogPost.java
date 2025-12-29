@@ -18,6 +18,11 @@ public class BlogPost {
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
+  // Optimistic Locking Field
+  @Version
+  @Column(name = "version")
+  private Long version;
+
   @Column(nullable = false)
   private String title;
 
@@ -146,6 +151,14 @@ public class BlogPost {
 
   public void setId(Long id) {
     this.id = id;
+  }
+
+  public Long getVersion() {
+    return version;
+  }
+
+  public void setVersion(Long version) {
+    this.version = version;
   }
 
   public String getTitle() {
