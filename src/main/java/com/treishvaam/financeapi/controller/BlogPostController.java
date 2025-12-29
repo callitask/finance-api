@@ -23,6 +23,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
@@ -191,6 +192,7 @@ public class BlogPostController {
       @PathVariable Long id,
       @RequestParam("title") String title,
       @RequestParam("content") String content,
+      @RequestParam(value = "version", required = false) Long version,
       @RequestParam(value = "userFriendlySlug", required = false) String userFriendlySlug,
       @RequestParam(value = "customSnippet", required = false) String customSnippet,
       @RequestParam(value = "metaDescription", required = false) String metaDescription,
@@ -218,9 +220,19 @@ public class BlogPostController {
       return ResponseEntity.notFound().build();
     }
 
+    BlogPost existingPost = existingPostOpt.get();
+
+    // --- ENTERPRISE OPTIMISTIC LOCKING CHECK (CONTROLLER LEVEL) ---
+    // Since we just loaded 'existingPost' from the DB in this request, it has the LATEST version.
+    // If the client sent a version that is DIFFERENT, it means the client is stale.
+    if (version != null
+        && existingPost.getVersion() != null
+        && !version.equals(existingPost.getVersion())) {
+      throw new ObjectOptimisticLockingFailureException(BlogPost.class, id);
+    }
+
     Category category = blogPostService.findCategoryByName(categoryName);
 
-    BlogPost existingPost = existingPostOpt.get();
     existingPost.setTitle(title);
     existingPost.setContent(content);
     existingPost.setUserFriendlySlug(userFriendlySlug);
