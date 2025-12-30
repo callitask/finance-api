@@ -1,76 +1,129 @@
-# Treishvaam Finance - Enterprise Frontend
+---
+root: true
+project: Treishvaam Finance API
+stack: [Java 21, Spring Boot 3.4, Docker, Nginx, Python 3, Redis, MinIO]
+entry_points: [FinanceApiApplication.java, auto_deploy.sh, docker-compose.yml]
+status: Active
+---
 
-## Project Overview
+# Treishvaam Finance API
 
-This is the React-based frontend for the Treishvaam Finance Platform. It is designed to be served via **Cloudflare Pages** and utilizes a **Zero-Trust Security Architecture**.
+The Treishvaam Finance API is a **High-Performance Enterprise Backend** built with Spring Boot 3.4 and Java 21. It serves as the "Financial Intelligence Engine" for the platform, engineered for **Zero Latency**, **Decimal Precision**, and **Zero Trust Security**.
 
-Unlike traditional SPAs, this application **does not** hold any API keys or secrets. It relies entirely on a "Backend-for-Frontend" (BFF) pattern, where the Spring Boot backend acts as a secure proxy for all external data providers (NewsAPI, AlphaVantage, etc.).
+Unlike standard CRUD apps, this system utilizes **Java 21 Virtual Threads**, **Off-Heap Streaming**, and a hybrid **Java/Python Architecture** to handle high-frequency market data and media processing without blocking.
 
-## Security & Configuration (Zero Trust)
+## Development Status & Branching Strategy
 
-**Fort Knox Security Suite: ENABLED**
-This project strictly follows the **12-Factor App** configuration methodology. All production URLs are hidden from the codebase and injected strictly at runtime.
+The project follows a strict **GitFlow-inspired** branching strategy to ensure stability and rapid development.
 
-### 1. Environment Variables
-The application requires two key variables to function. These tell the frontend where to find the secure API and Authentication server.
+| Branch | Role | Deployment Policy |
+| :--- | :--- | :--- |
+| **`main`** | **Production** | Protected. Represents the live, customer-facing code. Only stable releases are merged here. |
+| **`staging`** | **Stable / Restore Point** | The "Golden Copy". Features are merged here when 100% complete. Acts as a fallback restore point if `develop` breaks. |
+| **`develop`** | **Active Development** | Daily work happens here. Code is pushed frequently. The server automatically deploys this branch if it has the latest activity. |
 
-| Variable Name | Description | Local Dev Value | Production Value |
-| :--- | :--- | :--- | :--- |
-| `REACT_APP_API_URL` | The URL of the Spring Boot Backend. | `http://localhost:8080` | `[REDACTED - INJECTED VIA CLOUDFLARE]` |
-| `REACT_APP_AUTH_URL` | The URL of the Keycloak Server. | `http://localhost:8080/auth` | `[REDACTED - INJECTED VIA CLOUDFLARE]` |
+## System Overview
 
-### 2. Local Development Setup
-To run this project locally, you must create a `.env` file in the root directory (this file is git-ignored for security).
+### Core Technology Stack
+* **Runtime**: Java 21 LTS (Temurin) with **Virtual Threads (Project Loom)** enabled.
+* **Framework**: Spring Boot 3.4.0.
+* **Database**: MariaDB 10.6 (Optimized with **JDBC Batching** `batch_size=50`).
+* **Caching**: Redis 7 (Alpine) implementing **Read-Through** & **Cache-Aside** patterns with JSON Serialization.
+* **Search**: Elasticsearch 8.17 (Real-time indexing via RabbitMQ).
+* **Storage**: MinIO (S3 Protocol) with **Nginx Direct-Read Offloading**.
+* **Market Engine**: Hybrid Java/Python 3 subsystem using `decimal.Decimal` for precision.
+* **Security**: Keycloak 23 (OAuth2/OIDC) + Infisical (Secrets).
 
-1.  **Copy the template**:
+## Key Enterprise Features
+
+This codebase implements advanced industry patterns to solve common scaling issues:
+
+### 1. High-Performance I/O Architecture
+* **Virtual Threads**: Uses `Executors.newVirtualThreadPerTaskExecutor()` for parallel image resizing and I/O-bound tasks, allowing thousands of concurrent operations without thread-pool exhaustion.
+* **Secure Streaming (Zero-Allocation)**: File uploads are streamed directly to `Files.createTempFile` (Disk) via `InputStream`, bypassing RAM. This prevents `OutOfMemoryError` even under heavy load.
+* **Transaction/IO Separation**: Implements the **"Plan First, Commit Later"** pattern. Network I/O (MinIO uploads) occurs *outside* the database transaction to prevent connection pool starvation.
+* **Static Asset Offloading**: Nginx intercepts READ requests (`/api/uploads/**`) and serves files directly from MinIO with `immutable` caching headers. The Java backend is **never** blocked by serving static images.
+
+### 2. Financial Data Precision & Integrity
+* **IEEE 754 Compliance**: All monetary calculations utilize `BigDecimal` (Java) and `decimal.Decimal` (Python) with a 28-digit precision context to prevent floating-point errors.
+* **Hybrid Engine**: Complex historical data analysis is offloaded to a secure Python subsystem (`market_data_updater.py`) injected with environment variables via `ProcessBuilder`.
+* **Optimistic Locking**: Implements strict version control (`@Version`) on database entities. If two admins edit a post simultaneously, the second write is rejected with `409 Conflict`, preventing "Lost Updates".
+
+### 3. Resilience & Stability
+* **Circuit Breakers (Resilience4j)**:
+    * **External APIs**: FMP/AlphaVantage calls have a 5s timeout and 50% failure threshold.
+    * **Python Engine**: The market data script has a 120s timeout to prevent zombie processes.
+* **Fail-Open Rate Limiting**: If Redis fails, the Rate Limiter (`Bucket4j`) is architected to "Fail Open", prioritizing application availability over restriction.
+* **Database Batching**: Hibernate is configured to group `INSERT`/`UPDATE` statements into batches of 50, eliminating the "N+1" problem during bulk data syncs or sitemap generation.
+
+### 4. Fort Knox Security
+* **Zero-Trust Networking**: No internal ports (3306, 6379, 9200) are exposed to the host. All communication happens strictly within the `treish_net` Docker network.
+* **Subprocess Security**: The Python Market Engine receives database credentials strictly via **Environment Variables**, ensuring passwords are never visible in the process table (`ps aux`).
+* **MIME Validation**: **Apache Tika** analyzes binary signatures ("Magic Numbers") to reject spoofed file extensions (e.g., malware renamed as `.jpg`).
+* **Secret Injection**: No hardcoded passwords. Secrets are injected into the process environment at runtime via Infisical.
+
+## Quick Start Guide
+
+### Prerequisites
+* Java Development Kit (JDK) 21
+* Docker & Docker Compose
+* Maven 3.9+
+* Infisical CLI (v0.154+)
+
+### Configuration
+This project follows the **12-Factor App** methodology.
+
+1.  **Install CLI**: Install the Infisical CLI tool.
+2.  **Link Project**:
     ```bash
-    cp .env.example .env
-    ```
-2.  **Edit `.env`**:
-    ```env
-    REACT_APP_API_URL=http://localhost:8080
-    REACT_APP_AUTH_URL=http://localhost:8080/auth
-    ```
-3.  **Start the App**:
-    ```bash
-    npm start
+    infisical login
+    infisical init
     ```
 
-### 3. Production Deployment (Cloudflare)
-We use **Cloudflare Pages** for hosting.
-1.  **Push** your code to the `main` branch.
-2.  **Go to Cloudflare Dashboard** -> Pages -> Settings -> Environment Variables.
-3.  **Add the Production Variables** (Mark them as "Encrypted" / "Secret"):
-    * `REACT_APP_API_URL`: `https://<HIDDEN_DOMAIN_OR_TUNNEL>`
-    * `REACT_APP_AUTH_URL`: `https://<HIDDEN_DOMAIN_OR_TUNNEL>/auth`
-4.  **Redeploy** to apply changes.
+### Building the Application
+To compile the project and run unit tests:
+```bash
+mvn clean package -DskipTests=false
+```
 
-## Architecture Highlights
+### Running Locally (Enterprise Mode)
+We use **Orchestrator Injection**. Infisical injects secrets directly into the Docker process.
 
-* **Optimistic Locking (Data Integrity)**: The application implements a strict "Version Handshake" with the backend. When editing a post, the frontend captures the database `version`. If another admin modifies the post concurrently, the save operation triggers a **409 Conflict**, and the UI prompts the user to refresh, preventing "Lost Update" anomalies.
-* **Edge-Side Hydration (Zero Latency)**: When accessed via Cloudflare, the Cloudflare Worker pre-fetches API data and injects it into the HTML head as `window.__PRELOADED_STATE__`. The React app detects this on mount and **skips the initial API call**, rendering Blog Posts and Market Data instantly.
-* **Secure Streaming I/O**: The `ImageCropUploader` streams raw content to the backend. We use **Apache Tika** for strict MIME type detection (preventing malicious uploads) and **Zero-Allocation Streaming** (Files.createTempFile) on the server to handle high-res uploads without RAM spikes.
-* **Read-Through Caching**: While the backend handles the heavy lifting with Redis, the frontend benefits from sub-5ms response times on repeated reads. The architecture ensures that `GET` requests for articles and market widgets hit the cache layer transparently.
-* **Secure API Client**: All HTTP requests are handled by `src/apiConfig.js`. This client automatically attaches the Keycloak JWT (Bearer Token) to every request and handles 401/403 errors globally.
-* **Silent Single Sign-On (SSO)**: The application uses a hidden iframe strategy (`silent-check-sso.html`) to renew tokens in the background. The Backend strictly whitelists this frontend domain via **Content Security Policy (CSP)** to allow this flow while blocking all other framing attempts.
-* **Real User Monitoring (RUM)**: Grafana Faro is initialized in `src/faroConfig.js` to track frontend performance, core web vitals, and JS errors in real-time.
+```bash
+# This fetches secrets and starts the entire stack (DB, Cache, Backend, Monitor)
+infisical run --env dev -- docker-compose up -d
+```
 
-## Key Directories
+## Architecture Modules
 
-* `src/apiConfig.js`: **Critical.** Central configuration for API endpoints and Axios interceptors.
-* `src/context/AuthContext.js`: Handles Keycloak login/logout and session state.
-* `src/pages/BlogEditorPage.js`: **Critical.** Handles the complex state for post editing, including the **Optimistic Locking** version handshake and conflict resolution UI.
-* `public/silent-check-sso.html`: **Critical.** A static file loaded by Keycloak in an iframe to enable silent token renewal without page reloads.
-* `src/components/ImageCropUploader.js`: Handles image cropping and raw PNG upload logic.
-* `src/pages`: Lazy-loaded route components (Dashboard, Blog, Market).
+* **`com.treishvaam.financeapi.marketdata`**: The core financial engine. Handles the "Strategy Pattern" for data providers and manages the Python bridge with resilience.
+* **`com.treishvaam.financeapi.service.BlogPostService`**: CMS logic implementing the "Plan First, Commit Later" transaction pattern and Optimistic Locking.
+* **`com.treishvaam.financeapi.security`**: Custom Security Filters (`InternalSecretFilter`, `RateLimitingFilter`) and Keycloak integration.
+* **`com.treishvaam.financeapi.config`**: Centralized configuration for Caching (Redis), Async Executors, and Web MVC.
+* **`scripts/`**: DevOps automation (`auto_deploy.sh`) and the Python Market Engine (`market_data_updater.py`).
 
-## Commands
+## CI/CD Automation (Dual-Engine)
 
-| Command | Description |
-| :--- | :--- |
-| `npm start` | Runs the app in development mode at `http://localhost:3000`. |
-| `npm run build` | Builds the app for production to the `build` folder. |
-| `npm test` | Launches the test runner. |
+We utilize a two-part automation engine to handle builds and deployments independently.
 
-## License
-Proprietary software. All rights reserved by Treishvaam Group.
+1.  **Build Engine (GitHub Actions)**:
+    * **File**: `.github/workflows/deploy.yml`
+    * **Role**: CI/CD Pipeline. Compiles Java code, runs tests, and securely transfers the `WAR` artifact.
+
+2.  **State Engine (Watchdog Script)**:
+    * **File**: `scripts/auto_deploy.sh`
+    * **Role**: Runs on the Ubuntu Server. It is "Self-Healing"—automatically detecting branch changes (`main` vs `develop`) and syncing infrastructure configs (Nginx, Python) without manual intervention.
+
+For detailed deployment procedures, refer to:
+`docs/09-DEPLOYMENT-OPS.md`
+
+## Documentation Index
+* **Architecture**: `docs/01-ARCHITECTURE.md`
+* **Core Logic**: `docs/02-BACKEND-CORE.md`
+* **API Reference**: `docs/03-BACKEND-API.md`
+* **Services Layer**: `docs/04-BACKEND-SERVICES.md`
+* **Database Schema**: `docs/05-DATABASE-SCHEMA.md`
+* **Edge & SEO**: `docs/08-SEO-EDGE.md`
+* **Deployment Ops**: `docs/09-DEPLOYMENT-OPS.md`
+* **Changelog**: `docs/10-CHANGELOG.md`
+* **Security Protocols**: `SECRETS.md`

@@ -20,11 +20,11 @@ Unlike standard SPAs, Treishvaam Finance does **not** force the browser to fetch
 **The Flow:**
 1.  **Interception**: The Worker intercepts the request (e.g., `/category/news/market-rally`).
 2.  **Edge Fetch (Redis Accelerated)**: The Worker immediately calls the Backend API (`/api/v1/posts/url/...`) internally.
-    * **Phase 4 Optimization**: This request hits the Backend's **Read-Through Cache** (Redis). If the article is hot, the JSON is returned in **<5ms**, ensuring the Worker adds virtually no latency.
+    * **Optimization**: This request hits the Backend's **Read-Through Cache** (Redis). If the article is hot, the JSON is returned in **<5ms**, ensuring the Worker adds virtually no latency.
 3.  **Injection**: The Worker injects two things into the HTML `<head>` before sending it to the user:
     * **JSON-LD Schema**: For Google/SEO Bots.
     * **`window.__PRELOADED_STATE__`**: The actual JSON data of the post.
-4.  **Instant Render**: When React loads on the client, it checks for `window.__PRELOADED_STATE__`. If found, it **skips the network call** and renders instantly.
+4.  **Instant Render**: When React loads on the client (`SinglePostPage.js`), it checks for `window.__PRELOADED_STATE__`. If found, it **skips the network call** and renders instantly.
 
 ### 2.2. XSS Prevention (Sanitized Injection)
 Injecting JSON directly into HTML is a security risk (XSS). To prevent attackers from injecting scripts via blog content, we implement a strict **Sanitization Routine** in the Worker.

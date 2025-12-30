@@ -39,13 +39,12 @@ The filter chain is configured with strict ordering to ensure safety before any 
     * **Protected**: All other endpoints require a valid JWT.
     * **Admin**: Endpoints like `/api/v1/admin/**` require `ROLE_ADMIN`.
 
-### 2.4. Internal Service Locking (The Internal Lock)
-To protect sensitive endpoints from internal threats or misconfigured gateways, we implement a secondary authentication layer.
+### 2.4. Subprocess Security (Market Engine)
+The backend invokes a Python subsystem for complex financial analysis.
 
-* **Filter**: `InternalSecretFilter`.
-* **Mechanism**: Inspects the `X-Internal-Secret` header on specific POST endpoints (e.g., `/api/v1/posts`).
-* **Validation**: The header value is compared against the `${INTERNAL_API_SECRET_KEY}` injected by Infisical.
-* **Effect**: If valid, the request is granted the `ROLE_INTERNAL` authority, bypassing standard user checks.
+* **Credentials Handling**: Database credentials are **never** passed as command-line arguments (which are visible in `ps aux`).
+* **Environment Injection**: `MarketDataService` uses `ProcessBuilder.environment()` to inject `DB_PASSWORD` and `DB_URL` securely into the Python process runtime.
+* **Isolation**: The script runs as a non-privileged user inside the container.
 
 ## 3. Multi-Tenancy Architecture
 
@@ -76,37 +75,48 @@ We leverage **Java 21 Virtual Threads** to handle high-concurrency tasks without
 
 ## 5. Transactional Integrity & I/O Strategy
 
-To prevent database connection pool exhaustion—a common failure mode in Enterprise apps—we enforce a **Strict Separation of Concerns**.
+To prevent database connection pool exhaustion—a common failure mode in Enterprise apps—we enforce a **Strict Separation of Concerns** and optimize write patterns.
 
-### 5.1. The "Plan First, Commit Later" Pattern
+### 5.1. The "Plan First, Commit Later" Pattern (Write Path)
 * **Rule**: Network I/O (e.g., MinIO Uploads, Third-party API calls) is **FORBIDDEN** inside `@Transactional` methods.
-* **Reasoning**: If a network call takes 2 seconds inside a transaction, it holds a database connection for 2 seconds. Under load (e.g., 50 users uploading images), this starves the DB pool and freezes the app.
+* **Reasoning**: If a network call takes 2 seconds inside a transaction, it holds a database connection for 2 seconds. Under load, this starves the DB pool.
 * **Implementation**:
-    1.  **Phase 1 (Secure Streaming)**: 
-        * Uploads are streamed to `Files.createTempFile` (Disk) instead of RAM, preventing OOM errors.
-        * **Apache Tika** verifies the file signature (MIME type) before any processing occurs.
-        * Image resizing happens in parallel Virtual Threads.
-    2.  **Phase 2 (Transactional)**: Once uploads are safe on MinIO, their URLs are passed to `persistPost()`.
-    3.  **Result**: Database lock time is reduced from seconds to milliseconds.
+    1.  **Secure Streaming**: Uploads are streamed to `Files.createTempFile` (Disk), utilizing **Apache Tika** for MIME verification.
+    2.  **Parallel Processing**: Image resizing happens in Virtual Threads.
+    3.  **Late Transaction**: Only AFTER files are safe on MinIO does the `persistPost()` transaction begin.
+
+### 5.2. Static Asset Offloading (Read Path)
+* **Rule**: The Java Backend should **never** serve static image files.
+* **Implementation**:
+    * **Nginx Interception**: Requests to `/api/uploads/**` are intercepted by the Nginx Gateway.
+    * **Direct MinIO Proxy**: Nginx proxies the request directly to the MinIO storage container.
+    * **Caching**: Nginx applies `Cache-Control: public, max-age=31536000, immutable` headers.
+* **Benefit**: Zero JVM thread usage for serving media assets.
+
+### 5.3. Database Write Optimization (Batching)
+* **Problem**: JPA/Hibernate typically executes inserts sequentially (N+1 problem during bulk imports).
+* **Solution**: Enabled JDBC Batching in `application.properties`.
+    * `spring.jpa.properties.hibernate.jdbc.batch_size=50`
+    * `spring.jpa.properties.hibernate.order_inserts=true`
+* **Effect**: 1,000 records are inserted in ~20 network round-trips instead of 1,000.
 
 ## 6. Resilience & Reliability
 
 To prevent cascading failures when external APIs (AlphaVantage, Finnhub) go down, we use **Resilience4j**.
 
 ### 6.1. Circuit Breakers
-* **Configuration**: Defined in `application-prod.properties`.
-* **Behavior**:
-    * If 50% of requests to an external provider fail within a sliding window, the circuit opens.
-    * **Open State**: Requests are rejected immediately (Fast Fail) without calling the external service.
-    * **Half-Open**: After a wait duration, a few probe requests are allowed to check if the service has recovered.
+* **External APIs (`fmpApi`)**:
+    * **Timeout**: 5 seconds.
+    * **Threshold**: 50% failure rate opens the circuit.
+    * **Fallback**: Returns stale data from the database/cache if available.
+* **Market Engine (`pythonScript`)**:
+    * **Timeout**: 120 seconds (Complex calculations).
+    * **Protection**: Prevents long-running scripts from piling up and exhausting server resources.
 
 ### 6.2. Rate Limiting (Bucket4j)
 * **Purpose**: Protects the API from abuse and DDoS attempts.
 * **Filter**: `RateLimitingFilter` checks the user's IP or User ID against a token bucket backed by **Redis**.
-* **Headers**: Returns `X-RateLimit-Remaining` and `X-RateLimit-Retry-After` to the client.
-* **Fail-Open Strategy (Resilience)**:
-    * In the event of a Redis failure (Connection Refused/Timeout), the filter is designed to **Fail Open**.
-    * **Logic**: We prioritize Application Availability over strict Rate Limiting during infrastructure outages. Errors are logged, but the request is allowed to proceed.
+* **Fail-Open Strategy**: In the event of a Redis failure, the filter is designed to **Fail Open** to prioritize availability.
 
 ## 7. Async Processing & Event Bus
 
@@ -115,38 +125,28 @@ The application avoids blocking the main HTTP threads for long-running tasks.
 ### 7.1. Task Execution
 * **Config**: `AsyncConfig.java` defines a `ThreadPoolTaskExecutor`.
 * **Usage**: Methods annotated with `@Async` (e.g., sending emails, generating sitemaps) run in a separate thread pool.
-* **Pool Sizing**:
-    * **Core Pool**: 5 threads (always alive).
-    * **Max Pool**: 10 threads (burst capacity).
-    * **Queue**: 25 tasks (buffer).
 
 ### 7.2. Messaging (RabbitMQ)
 * **Publisher**: `MessagePublisher` sends events to the `internal-events` exchange.
 * **Consumer**: `MessageListener` processes events asynchronously (e.g., audit logging, search indexing).
-* **Reliability**: Dead Letter Queues (DLQ) are configured to catch failed messages for later inspection.
+* **Reliability**: Dead Letter Queues (DLQ) catch failed messages.
 
 ## 8. Caching Strategy
 
 **Redis** is the backbone of our performance strategy.
 
 * **Config**: `CachingConfig.java`.
-* **Serialization**: Entities (`BlogPost`, `Category`) implement `Serializable` to support JSON storage/retrieval via `GenericJackson2JsonRedisSerializer`.
+* **Global TTL**: Defaults to 10 minutes (`600000ms`) to prevent data staleness.
 * **Patterns**:
-    * **Read-Through**: Critical read paths (e.g., `findByUrlArticleId`) are annotated with `@Cacheable`. The service checks Redis first; on miss, it fetches from DB and populates Redis transparently.
-    * **Cache-Aside**: Updates (`save`) and Deletes (`deleteById`) trigger `@CacheEvict` to maintain consistency.
-* **TTL**: Different Time-To-Live values for different data types (e.g., Blog Posts = 1 hour, Market Data = 5 mins).
+    * **Read-Through**: Critical read paths (e.g., `findByUrlArticleId`) are annotated with `@Cacheable`.
+    * **Cache-Aside**: Updates (`save`) and Deletes (`deleteById`) trigger `@CacheEvict`.
 
 ## 9. Audit Logging
 
 All critical actions are audited for security and compliance.
 
 * **Aspect**: `AuditAspect.java` uses AOP to intercept methods annotated with `@LogAudit`.
-* **Async Logging**: The actual database write to the `audit_logs` table happens asynchronously to ensure zero latency impact on the user.
-* **Data Captured**:
-    * **Actor**: User ID / Email.
-    * **Action**: Method name (e.g., `DELETE_POST`).
-    * **Resource**: ID of the entity affected.
-    * **Outcome**: SUCCESS or FAILURE.
+* **Async Logging**: The database write to `audit_logs` is asynchronous.
 
 ## 10. Configuration Management (Infisical)
 
@@ -154,20 +154,14 @@ We strictly adhere to the 12-Factor App methodology.
 
 ### 10.1. Secrets Injection Strategy
 * **Source of Truth**: Infisical (External Secrets Manager).
-* **Mechanism**:
-    1.  The `auto_deploy.sh` script fetches secrets from Infisical securely.
-    2.  Secrets are written to a temporary `.env` file.
-    3.  `docker-compose` reads `.env` and injects variables (e.g., `MINIO_ACCESS_KEY`, `SPRING_RABBITMQ_PASSWORD`) into containers.
-    4.  **Flash & Wipe**: The `.env` file is stripped of secrets immediately after deployment.
+* **Mechanism**: Secrets are injected into the container environment at runtime via `auto_deploy.sh` and `docker-compose`.
+* **Flash & Wipe**: The temporary `.env` file is deleted immediately after container startup.
 
-### 10.2. Critical Configurations
-The following properties in `application-prod.properties` are **Dynamic**:
+## 11. Financial Precision Architecture
 
-| Property | Environment Variable | Description |
-| :--- | :--- | :--- |
-| `spring.datasource.password` | `PROD_DB_PASSWORD` | Database Access |
-| `storage.s3.secret-key` | `MINIO_SECRET_KEY` | File Storage Access |
-| `spring.rabbitmq.password` | `SPRING_RABBITMQ_PASSWORD` | Event Bus Access |
-| `jwt.secret` | `JWT_SECRET_KEY` | Token Signing |
+To ensure Enterprise-grade accuracy in financial data (Stock Prices, Crypto), we strictly avoid floating-point arithmetic.
 
-*Note: HashiCorp Vault has been explicitly disabled (`spring.cloud.vault.enabled=false`) in favor of this simpler, robust Docker injection model.*
+* **Java Layer**: All monetary fields use `java.math.BigDecimal`.
+* **Python Layer**: The Market Data Engine uses `decimal.Decimal` with a precision context of 28 places.
+* **Database**: Columns are defined as `DECIMAL(19, 4)` or higher.
+* **Why?**: Prevents IEEE 754 errors (e.g., `0.1 + 0.2 = 0.30000000000000004`) ensuring exact penny-perfect calculations.

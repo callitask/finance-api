@@ -21,16 +21,22 @@ The architecture employs a hybrid approach for robustness:
 1.  **Java Native**: Direct REST calls via `RestClient` for real-time quotes and lightweight data.
 2.  **Python Bridge**: For heavy historical data processing and specific library requirements (e.g., `yfinance`), the service triggers a local Python script (`scripts/market_data_updater.py`).
     * **Execution**: Managed via `ProcessBuilder`.
-    * **Data Flow**: Python fetches data -> Writes to Database -> Java Service reads from Database.
+    * **Security Hardening**: Database credentials are injected securely via **Environment Variables** (`processBuilder.environment().put(...)`), ensuring passwords never appear in the process list (`ps aux`).
+    * **Financial Precision**: The Python engine uses `decimal.Decimal` (28-place context) to prevent floating-point errors.
 
 ### 1.3. Smart Synchronization & Caching
 * **Smart Sync**: Before fetching historical data, the system checks the `historical_price` table for the last available date. It only requests data *newer* than that date to preserve API quotas.
 * **Caching (`HistoricalDataCache`)**: To prevent duplicate fetches within the same trading session, metadata about fetch requests is stored in the `historical_data_cache` table.
 * **Redis Caching**: The `MarketDataController` caches the final JSON response for the frontend in Redis to minimize database load.
 
-### 1.4. Resiliency
-* **Circuit Breakers**: Annotated with `@CircuitBreaker(name = "external-api")`. If a provider fails repeatedly (e.g., 50% failure rate), the system switches to an "Open" state and rejects requests immediately.
-* **Fail-Open Strategy**: For critical read operations, if the Rate Limiting service (Redis) is unreachable, the system is designed to "Fail Open" (Allow Request) rather than blocking legitimate users, ensuring high availability during infrastructure partial outages.
+### 1.4. Resiliency & Circuit Breakers
+The service utilizes **Resilience4j** to prevent cascading failures.
+* **External APIs (`fmpApi`)**:
+    * **Timeout**: 5 seconds.
+    * **Fallback**: If the API fails or times out, the circuit opens, and the system serves stale data from the database.
+* **Python Engine (`pythonScript`)**:
+    * **Timeout**: 120 seconds.
+    * **Logic**: Protects the server from hanging indefinitely if the subprocess stalls.
 
 ## 2. Content Management (`BlogPostService`)
 
@@ -59,6 +65,7 @@ To guarantee high concurrency, memory safety, and prevent "Database Denial of Se
         * **Security**: **Apache Tika** analyzes the file signature (Magic Numbers) to validate MIME types before processing.
         * **Processing**: Image resizing happens in parallel Virtual Threads using the temp file as source.
     2.  **Phase 2 (Transactional Persistence)**: Once the file is safely in MinIO, the URL is passed to `persistPost()`, which is annotated with `@Transactional` for fast SQL execution.
+    3.  **Phase 3 (Bulk Optimization)**: **JDBC Batching** is enabled (`batch_size=50`). When performing bulk updates (e.g., Sitemap regeneration), operations are grouped into batches to reduce network round-trips by 50x.
 * **Result**: Database lock time is minimized, and the server is immune to large-file memory spikes.
 
 ### 2.4. Data Integrity (Optimistic Locking)
@@ -91,7 +98,7 @@ Provides high-performance full-text search capabilities using **Elasticsearch**.
 ### 4.1. Storage (`FileStorageService`)
 * **Provider**: MinIO (S3 Compatible).
 * **Operations**: Handles `putObject` for uploads and presigned URL generation for private access (if configured).
-* **Public Access**: Files are typically served directly via Nginx mapping to the MinIO volume for performance, bypassing the Java application layer for reads.
+* **Static Offloading**: While uploads go through Java (for security validation), **READ** requests (`/api/uploads/**`) are intercepted by Nginx and served directly from MinIO, bypassing the Java application layer entirely for zero-latency delivery.
 
 ### 4.2. Image Processing (`ImageService`)
 This service acts as the **Source of Truth** for image quality and security.

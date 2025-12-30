@@ -35,7 +35,7 @@ Our deployment process is decoupled into two distinct engines. This separates th
 * **Logic Flow**:
     1.  **Branch Intelligence**: Checks timestamps of `origin/develop`, `origin/staging`, and `origin/main`.
     2.  **Winner Takes All**: Automatically checks out the branch with the most recent commit.
-    3.  **Infrastructure Sync**: Pulls changes to non-compiled files (Nginx configs, Python scripts, Docker configs).
+    3.  **Infrastructure Sync**: Pulls changes to non-compiled files (Nginx configs, Python Market Engine, Docker configs).
     4.  **Secret Injection**: Executes the "Flash & Wipe" security sequence.
     5.  **Smart Restart**: Rebuilds containers only if configurations have changed.
 
@@ -83,9 +83,16 @@ The following headers are strictly enforced in `nginx/conf.d/default.conf`.
 | **`X-Content-Type-Options`** | `nosniff` | Prevents browsers from "guessing" MIME types. |
 | **`X-XSS-Protection`** | `1; mode=block` | Enables the browser's built-in XSS filter. |
 
-### Layer 2: Backend Validation (Zero Trust I/O)
+### Layer 2: Static Asset Offloading (Performance & Security)
+* **Direct Read Path**: Requests to `/api/uploads/**` are intercepted by Nginx and proxied directly to MinIO.
+* **Bypass**: This bypasses the Java application layer, preventing thread exhaustion from image downloads.
+* **Caching**: Nginx enforces `Cache-Control: public, max-age=31536000, immutable`, ensuring browsers never re-request static assets.
+* **Write Security**: Nginx strictly denies `PUT`, `POST`, or `DELETE` on these paths. All writes MUST go through the authenticated Java Backend.
+
+### Layer 3: Backend Validation (Zero Trust I/O)
 * **MIME Validation (Apache Tika)**: The backend analyzes the **binary signature** (Magic Numbers) of every uploaded file. A file named `malware.jpg` that is actually an executable will be rejected instantly before processing.
-* **OOM Protection (Zero-Allocation)**: Uploads are streamed directly to temporary disk storage (`Files.createTempFile`). This prevents Out-Of-Memory crashes even if a user uploads a 100MB file, ensuring operational stability under attack.
+* **OOM Protection (Zero-Allocation)**: Uploads are streamed directly to temporary disk storage (`Files.createTempFile`). This prevents Out-Of-Memory crashes even if a user uploads a 100MB file.
+* **Subprocess Security (Python)**: The Market Data Engine (`scripts/market_data_updater.py`) receives credentials via **Environment Variables** (`ProcessBuilder.environment`), not command-line arguments. This ensures passwords are hidden from the process table (`ps aux`).
 
 ---
 

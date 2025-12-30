@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Phase 1: Secure Streaming I/O
 - **Sec (MIME Validation)**: Integrated **Apache Tika** to perform strict binary signature analysis on uploads, rejecting spoofed file extensions (e.g., malware renamed as `.jpg`).
 - **Perf (Zero-Allocation)**: Refactored `ImageService` to stream uploads directly to `Files.createTempFile` instead of loading `byte[]` into RAM. This eliminates Out-Of-Memory (OOM) risks during high-res uploads.
+- **Arch (Static Offload)**: Configured Nginx to intercept READ requests (`/api/uploads/**`) and serve them directly from MinIO, bypassing the Java backend entirely for zero-latency asset delivery.
 
 ## [tfin-financeapi-Develop.0.0.0.2] - Phase 1 & 2: Zero Latency & Enterprise I/O
 ### Phase 2: Edge-Side Performance (Zero Latency)
@@ -34,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Fix**: Updated `FileController` to return the specific JSON format required by **SunEditor** (`{ result: [{ url, name, size }] }`), resolving image upload errors in the rich text editor.
 - **Fix**: Resolved "Duplicate Class" compilation error in `Category.java` caused by a copy-paste regression.
 - **Fix**: Restored `BlogPostService` interface definition to resolve controller dependency injection failures.
+- **Fix (Financial Precision)**: Refactored `MarketDataService` and Python Engine to use `BigDecimal` and `decimal.Decimal` respectively, preventing IEEE 754 floating-point errors in stock prices.
 
 ## [tfin-financeapi-Develop.0.0.0.1] - Fort Knox Security Suite
 ### Security & Architecture
