@@ -100,6 +100,14 @@ To prevent database connection pool exhaustion—a common failure mode in Enterp
     * `spring.jpa.properties.hibernate.order_inserts=true`
 * **Effect**: 1,000 records are inserted in ~20 network round-trips instead of 1,000.
 
+### 5.4. SEO Materialization (Hybrid SSG)
+* **Problem**: SPAs (Single Page Applications) often suffer from poor SEO and high Time-To-Interactive (TTI) because the browser must download JS before rendering content.
+* **Solution**: We implement **"Publish-Time Materialization"**.
+    1.  **Trigger**: When a post is published, the `HtmlMaterializerService` activates.
+    2.  **Generation**: It fetches the current React shell (`index.html`), uses **Jsoup** to inject the actual content HTML into the body, and embeds the JSON state.
+    3.  **Storage**: The resulting `.html` file is uploaded to MinIO/S3.
+    4.  **Delivery**: Cloudflare serves this static file, providing the speed of a static site with the dynamism of a CMS.
+
 ## 6. Resilience & Reliability
 
 To prevent cascading failures when external APIs (AlphaVantage, Finnhub) go down, we use **Resilience4j**.

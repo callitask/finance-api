@@ -62,6 +62,11 @@ This codebase implements advanced industry patterns to solve common scaling issu
 * **MIME Validation**: **Apache Tika** analyzes binary signatures ("Magic Numbers") to reject spoofed file extensions (e.g., malware renamed as `.jpg`).
 * **Secret Injection**: No hardcoded passwords. Secrets are injected into the process environment at runtime via Infisical.
 
+### 5. Enterprise SEO & Edge Architecture
+* **Materialized HTML (SSG)**: Implements "Publish-Time Static Generation". When an editor saves a post, the backend fetches the React shell, injects the full content body and JSON-LD schema, and uploads a static `.html` file to MinIO.
+* **Edge Intelligence**: The Cloudflare Worker acts as a smart router, serving the pre-generated static HTML to bots and users (Strategy A) while falling back to API hydration (Strategy B) if necessary.
+* **Zero-Flicker Hydration**: The React frontend detects server-injected content (`window.__PRELOADED_STATE__`) and uses `hydrateRoot` to attach event listeners without destroying the DOM.
+
 ## Quick Start Guide
 
 ### Prerequisites

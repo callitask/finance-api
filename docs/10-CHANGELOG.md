@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### [2025-10-30] SEO Architecture Overhaul (Phase 1-4)
+- **Feat (Backend)**: Added `HtmlMaterializerService` to generate static HTML files for blog posts on publish.
+- **Feat (Edge)**: Updated Cloudflare Worker to serve static HTML files from MinIO if available (SSG behavior).
+- **Feat (Frontend)**: Implemented `ReactDOM.hydrateRoot` conditional logic to support server-injected content.
+- **Fix (Frontend)**: Resolved missing images in NewsCards by handling raw filenames correctly.
+- **Fix (SEO)**: Removed duplicate meta tags and inline styles to improve code-to-text ratio.
+
 ## [tfin-financeapi-Develop.0.0.0.3] - Enterprise Grade: Caching, Locking & Safe I/O
 ### Phase 4: High-Performance Caching
 - **Perf (Read-Through Cache)**: Implemented a true "Read-Through" strategy using Redis. Critical read endpoints (e.g., Single Post by URL) now hit the cache first (`@Cacheable`), reducing DB load by ~95% for hot content.

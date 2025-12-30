@@ -83,7 +83,29 @@ To prevent the "Lost Update" anomaly common in collaborative CMS environments:
     3.  If Missing: Fetch from DB -> Serialize to JSON -> Store in Redis -> Return.
 * **Consistency**: Write operations (`save`, `delete`) trigger `@CacheEvict` to invalidate stale keys.
 
-## 3. Search Service (`SearchController` & Repositories)
+### 2.6. SEO Materialization Integration
+* **Service Integration**: Injects `HtmlMaterializerService`.
+* **Triggers**:
+    * **Immediate**: When `persistPost` saves a `PUBLISHED` post.
+    * **Deferred**: When `checkAndPublishScheduledPosts` transitions a post from `SCHEDULED` to `PUBLISHED`.
+* **Purpose**: Ensures that every public post has a corresponding `static/{slug}.html` file in MinIO for Cloudflare to serve.
+
+## 3. SEO Materializer Engine (`HtmlMaterializerService`)
+
+This service implements the "Hybrid Static Site Generation" logic.
+
+* **Responsibility**: Converts dynamic React states into static HTML files for bots.
+* **Process**:
+    1.  **Fetch Shell**: Calls the internal Nginx URL (`http://treishvaam-nginx/`) to get the currently deployed `index.html`. This ensures the static file version exactly matches the live React app version.
+    2.  **Inject Content**: Uses `Jsoup` to insert:
+        * `<title>` and `<meta>` tags.
+        * JSON-LD Schema (NewsArticle).
+        * Full HTML body content into `<div id="server-content">`.
+        * Redux State into `window.__PRELOADED_STATE__`.
+    3.  **Upload**: Streams the generated HTML string directly to MinIO (bucket: `treish-public`) with `Cache-Control` headers.
+* **Async Execution**: Runs in a separate thread (`@Async`) to avoid slowing down the Admin UI save operation.
+
+## 4. Search Service (`SearchController` & Repositories)
 
 Provides high-performance full-text search capabilities using **Elasticsearch**.
 
@@ -93,14 +115,14 @@ Provides high-performance full-text search capabilities using **Elasticsearch**.
     * **Listener**: `MessageListener` catches the event and updates the Elasticsearch index via `PostSearchRepository`.
     * **Re-indexing**: `AdminActionsController` provides a `/reindex` endpoint to wipe and rebuild the Elasticsearch index from the primary database if data becomes inconsistent.
 
-## 4. Media & File Management
+## 5. Media & File Management
 
-### 4.1. Storage (`FileStorageService`)
+### 5.1. Storage (`FileStorageService`)
 * **Provider**: MinIO (S3 Compatible).
 * **Operations**: Handles `putObject` for uploads and presigned URL generation for private access (if configured).
 * **Static Offloading**: While uploads go through Java (for security validation), **READ** requests (`/api/uploads/**`) are intercepted by Nginx and served directly from MinIO, bypassing the Java application layer entirely for zero-latency delivery.
 
-### 4.2. Image Processing (`ImageService`)
+### 5.2. Image Processing (`ImageService`)
 This service acts as the **Source of Truth** for image quality and security.
 
 * **Secure Pipeline**:
@@ -112,7 +134,7 @@ This service acts as the **Source of Truth** for image quality and security.
     * **Source**: Frontend sends raw PNGs; server handles all compression to avoid generation loss.
 * **BlurHash**: Generates a compact string representation for "blur-up" loading effects.
 
-## 5. Event-Driven Architecture (RabbitMQ)
+## 6. Event-Driven Architecture (RabbitMQ)
 
 The system uses an internal event bus to decouple services.
 
@@ -124,18 +146,18 @@ The system uses an internal event bus to decouple services.
     * **Cache Eviction**: Clearing Redis keys when master data changes.
     * **Sitemap Regeneration**: Triggered after publication to ensure Googlebot sees fresh URLs.
 
-## 6. External Integrations
+## 7. External Integrations
 
-### 6.1. LinkedIn Integration (`LinkedInService`)
+### 7.1. LinkedIn Integration (`LinkedInService`)
 * **Auth**: Manages OAuth2 tokens for LinkedIn users.
 * **Sharing**: Allows Admins to share a published blog post directly to their LinkedIn profile or Company Page.
 * **Flow**: Constructs a rich media share payload (Title, Thumbnail, Link) and posts to the LinkedIn API.
 
-### 6.2. Analytics (`AnalyticsService`)
+### 7.2. Analytics (`AnalyticsService`)
 * **Ingestion**: Records `AudienceVisit` data (IP hash, User Agent, Page URL).
 * **Aggregation**: Provides aggregated stats (Daily Visits, Top Posts) for the Admin Dashboard.
 
-## 7. SEO & Sitemaps (`SitemapService`)
+## 8. SEO & Sitemaps (`SitemapService`)
 
 * **Dynamic Generation**: XML sitemaps are generated on-the-fly based on the current database state.
 * **Endpoints**:
@@ -144,7 +166,7 @@ The system uses an internal event bus to decouple services.
     * `/feed.xml`: RSS 2.0 feed for aggregators.
 * **Edge Integration**: These endpoints are primarily consumed by the Cloudflare Worker, which caches and serves them to bots with correct headers.
 
-## 8. Fort Knox Security Implementation
+## 9. Fort Knox Security Implementation
 
 The Service Layer integrates directly with the Fort Knox Security Suite.
 
