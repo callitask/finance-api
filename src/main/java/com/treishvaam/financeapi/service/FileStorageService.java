@@ -51,9 +51,10 @@ public class FileStorageService {
 
   /**
    * Stores a file from an InputStream with explicit content type. RESTORED: Used by ImageService
-   * and NewsHighlightService
+   * and NewsHighlightService FIX: Returns String (fileName) instead of void to satisfy legacy API
+   * contracts.
    */
-  public void storeFile(ByteArrayInputStream stream, String fileName, String contentType) {
+  public String storeFile(ByteArrayInputStream stream, String fileName, String contentType) {
     try {
       long size = stream.available();
       log.info("Uploading stream: {} to bucket: {}", fileName, bucketName);
@@ -62,6 +63,7 @@ public class FileStorageService {
           PutObjectArgs.builder().bucket(bucketName).object(fileName).stream(stream, size, -1)
               .contentType(contentType)
               .build());
+      return fileName;
     } catch (Exception e) {
       log.error("Error uploading stream to MinIO: {}", e.getMessage());
       throw new RuntimeException("Could not store file " + fileName, e);
