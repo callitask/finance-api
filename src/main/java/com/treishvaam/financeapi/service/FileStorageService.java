@@ -1,94 +1,64 @@
 package com.treishvaam.financeapi.service;
 
-import io.minio.BucketExistsArgs;
 import io.minio.GetPresignedObjectUrlArgs;
-import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
-import io.minio.StatObjectArgs;
+import io.minio.RemoveObjectArgs;
 import io.minio.http.Method;
-import jakarta.annotation.PostConstruct;
 import java.io.InputStream;
 import java.util.concurrent.TimeUnit;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class FileStorageService {
 
-  private static final Logger logger = LoggerFactory.getLogger(FileStorageService.class);
   private final MinioClient minioClient;
 
   @Value("${minio.bucket-name}")
   private String bucketName;
 
-  @Value("${storage.s3.endpoint}")
-  private String endpoint;
-
-  public FileStorageService(MinioClient minioClient) {
-    this.minioClient = minioClient;
-  }
-
-  @PostConstruct
-  public void init() {
+  /** Uploads a standard file to MinIO (Images, etc.) */
+  public String uploadFile(MultipartFile file, String fileName) {
     try {
-      boolean found =
-          minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build());
-      if (!found) {
-        logger.info("🪣 Bucket '{}' not found. Creating it now...", bucketName);
-        minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
-      } else {
-        logger.info("✅ Connected to MinIO bucket: {}", bucketName);
-      }
-    } catch (Exception e) {
-      logger.error("❌ Critical Storage Error: Could not connect to MinIO. Check config.", e);
-    }
-  }
+      log.info("Uploading file: {} to bucket: {}", fileName, bucketName);
 
-  public String storeFile(MultipartFile file) {
-    try {
-      String fileName = System.currentTimeMillis() + "_" + file.getOriginalFilename();
-      InputStream inputStream = file.getInputStream();
-      return storeFile(inputStream, fileName, file.getContentType());
-    } catch (Exception e) {
-      throw new RuntimeException("Could not store file " + file.getOriginalFilename(), e);
-    }
-  }
-
-  public String storeFile(InputStream inputStream, String fileName, String contentType) {
-    try {
       minioClient.putObject(
           PutObjectArgs.builder().bucket(bucketName).object(fileName).stream(
-                  inputStream, -1, 10485760)
-              .contentType(contentType)
+                  file.getInputStream(), file.getSize(), -1)
+              .contentType(file.getContentType())
               .build());
 
-      // STANDARD: Return clean relative path. Frontend will prepend domain.
-      return "/api/uploads/" + fileName;
-
+      return fileName;
     } catch (Exception e) {
-      throw new RuntimeException("Failed to store file: " + fileName, e);
+      log.error("Error uploading file to MinIO: {}", e.getMessage());
+      throw new RuntimeException("Could not upload file", e);
     }
   }
 
-  // Robust File Size Check
-  public long getFileSize(String path) {
+  /**
+   * NEW: Uploads a generated HTML string as a file for SEO Materialization Sets strict
+   * Cache-Control headers for Cloudflare.
+   */
+  public void uploadHtmlFile(String fileName, InputStream stream, long size) {
     try {
-      // Remove prefixes to find object in MinIO
-      String objectName =
-          path.replace("https://backend.treishvaamgroup.com", "")
-              .replace("/api/v1/uploads/", "")
-              .replace("/api/uploads/", "")
-              .replace("/uploads/", "");
+      log.info("Uploading Materialized HTML: {} to bucket: {}", fileName, bucketName);
 
-      return minioClient
-          .statObject(StatObjectArgs.builder().bucket(bucketName).object(objectName).build())
-          .size();
+      minioClient.putObject(
+          PutObjectArgs.builder().bucket(bucketName).object(fileName).stream(stream, size, -1)
+              .contentType("text/html")
+              // Enterprise Cache-Control: Cache for 1 hour, then revalidate at edge
+              .extraHeaders(java.util.Map.of("Cache-Control", "public, max-age=3600"))
+              .build());
+
     } catch (Exception e) {
-      return -1;
+      log.error("Error uploading HTML to MinIO: {}", e.getMessage());
+      throw new RuntimeException("Could not upload HTML file", e);
     }
   }
 
@@ -102,7 +72,18 @@ public class FileStorageService {
               .expiry(7, TimeUnit.DAYS)
               .build());
     } catch (Exception e) {
-      return null;
+      log.error("Error generating presigned URL: {}", e.getMessage());
+      return "";
+    }
+  }
+
+  public void deleteFile(String objectName) {
+    try {
+      minioClient.removeObject(
+          RemoveObjectArgs.builder().bucket(bucketName).object(objectName).build());
+      log.info("Deleted file: {}", objectName);
+    } catch (Exception e) {
+      log.warn("Error deleting file {}: {}", objectName, e.getMessage());
     }
   }
 }

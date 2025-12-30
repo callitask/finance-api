@@ -54,6 +54,9 @@ public class BlogPostServiceImpl implements BlogPostService {
   @Autowired private CategoryRepository categoryRepository;
   @Autowired private ImageService imageService;
 
+  // NEW: Inject Materializer Service
+  @Autowired private HtmlMaterializerService htmlMaterializerService;
+
   @PersistenceContext private EntityManager entityManager;
 
   private String generateUniqueId() {
@@ -293,6 +296,18 @@ public class BlogPostServiceImpl implements BlogPostService {
       savedPost = blogPostRepository.save(savedPost);
     }
 
+    // NEW: Materialize HTML if Published
+    if (savedPost.getStatus() == PostStatus.PUBLISHED) {
+      try {
+        htmlMaterializerService.materializePost(savedPost);
+      } catch (Exception e) {
+        logger.warn(
+            "Failed to trigger HTML materialization for post {}: {}",
+            savedPost.getId(),
+            e.getMessage());
+      }
+    }
+
     return savedPost;
   }
 
@@ -342,6 +357,8 @@ public class BlogPostServiceImpl implements BlogPostService {
 
       try {
         messagePublisher.publishSearchIndexEvent(post.getId(), "INDEX");
+        // NEW: Materialize Scheduled Post on Publish
+        htmlMaterializerService.materializePost(post);
         logger.info("Published scheduled post with ID: {}", post.getId());
       } catch (Exception e) {
         logger.error("Failed to publish index event for scheduled post: {}", post.getId(), e);
