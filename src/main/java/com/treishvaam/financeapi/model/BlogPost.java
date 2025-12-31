@@ -1,6 +1,7 @@
 package com.treishvaam.financeapi.model;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import java.io.Serializable;
 import java.time.Instant;
@@ -71,6 +72,7 @@ public class BlogPost implements Serializable {
 
   @ManyToOne(fetch = FetchType.EAGER)
   @JoinColumn(name = "category_id")
+  @JsonIgnoreProperties({"posts", "blogPosts", "handler", "hibernateLazyInitializer"})
   private Category category;
 
   @Column private boolean featured;
@@ -98,6 +100,7 @@ public class BlogPost implements Serializable {
       orphanRemoval = true,
       fetch = FetchType.EAGER)
   @OrderBy("displayOrder ASC")
+  @JsonIgnoreProperties("blogPost")
   private List<PostThumbnail> thumbnails = new ArrayList<>();
 
   @Column(name = "thumbnail_orientation")
