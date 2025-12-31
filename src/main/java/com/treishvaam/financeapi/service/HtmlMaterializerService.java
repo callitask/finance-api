@@ -22,21 +22,15 @@ import org.springframework.web.client.RestTemplate;
 public class HtmlMaterializerService {
 
   private final FileStorageService fileStorageService;
-  private final ObjectMapper objectMapper; // ENTERPRISE: Use Jackson for robust serialization
+  private final ObjectMapper objectMapper;
   private final RestTemplate restTemplate = new RestTemplate();
 
-  // Internal Docker URL to fetch the current Frontend Shell from Nginx
-  // Ensures we match the currently deployed frontend version
   @Value("${app.frontend.internal-url:http://treishvaam-nginx}")
   private String frontendInternalUrl;
 
   @Value("${app.frontend.public-url:https://treishfin.treishvaamgroup.com}")
   private String publicUrl;
 
-  /**
-   * Core method to generate and upload static HTML Runs asynchronously to not block the user
-   * response.
-   */
   @Async
   public void materializePost(BlogPost post) {
     if (post == null || post.getUserFriendlySlug() == null) {
@@ -46,7 +40,7 @@ public class HtmlMaterializerService {
     try {
       log.info("Materializing HTML for post: {}", post.getUserFriendlySlug());
 
-      // 1. Fetch the Shell (index.html) from Nginx
+      // 1. Fetch the Shell
       String htmlShell;
       try {
         htmlShell = restTemplate.getForObject(frontendInternalUrl + "/", String.class);
@@ -60,13 +54,11 @@ public class HtmlMaterializerService {
         return;
       }
 
-      // 2. Parse with Jsoup
+      // 2. Parse
       Document doc = Jsoup.parse(htmlShell);
 
-      // 3. Inject SEO Metadata (Overrides generic template tags)
+      // 3. Inject Metadata
       doc.title(post.getTitle() + " | Treishfin");
-
-      // Clean existing generic description
       doc.select("meta[name=description]").remove();
       doc.head()
           .appendElement("meta")
@@ -75,7 +67,6 @@ public class HtmlMaterializerService {
               "content",
               post.getMetaDescription() != null ? post.getMetaDescription() : post.getTitle());
 
-      // Open Graph & Twitter
       updateMeta(doc, "property", "og:title", post.getTitle());
       updateMeta(doc, "property", "og:description", post.getMetaDescription());
       updateMeta(doc, "name", "twitter:title", post.getTitle());
@@ -90,39 +81,34 @@ public class HtmlMaterializerService {
         updateMeta(doc, "name", "twitter:image", imgUrl);
       }
 
-      // 4. Inject JSON-LD Schema (Critical for Google News)
+      // 4. Inject JSON-LD
       String jsonLd = buildJsonLd(post);
       doc.head().appendElement("script").attr("type", "application/ld+json").html(jsonLd);
 
       // 5. Inject Content (Server-Side Rendering)
-      // We inject into #server-content AND un-hide it so Google sees it immediately
       Element serverContentDiv = doc.getElementById("server-content");
       if (serverContentDiv != null) {
-        serverContentDiv.removeAttr("style"); // Remove 'display:none'
-
+        serverContentDiv.removeAttr("style");
         String fullHtmlContent =
             String.format(
                 "<article class='materialized-content'><h1>%s</h1><div class='prose'>%s</div></article>",
                 post.getTitle(), post.getContent() != null ? post.getContent() : "");
         serverContentDiv.html(fullHtmlContent);
       } else {
-        // Fallback if index.html hasn't been updated with #server-content yet
         doc.body().append(String.format("<div id='server-content'>%s</div>", post.getContent()));
       }
 
-      // 6. Pre-load State for React (Hydration)
-      // FIX: Serialize the FULL state so React doesn't crash on hydration
+      // 6. Pre-load State (Robust Serialization Fix)
       String jsonState = convertPostToJson(post);
       String stateScript = String.format("window.__PRELOADED_STATE__ = %s;", jsonState);
       doc.head().appendElement("script").html(stateScript);
 
-      // 7. Upload to MinIO
+      // 7. Upload
       byte[] contentBytes = doc.html().getBytes(StandardCharsets.UTF_8);
       String filePath = "posts/" + post.getUserFriendlySlug() + ".html";
 
       fileStorageService.uploadHtmlFile(
           filePath, new ByteArrayInputStream(contentBytes), contentBytes.length);
-
       log.info("Successfully materialized: {}", filePath);
 
     } catch (Exception e) {
@@ -133,26 +119,15 @@ public class HtmlMaterializerService {
   private void updateMeta(Document doc, String attrKey, String attrValue, String content) {
     if (content == null) return;
     Element meta = doc.select("meta[" + attrKey + "=" + attrValue + "]").first();
-    if (meta != null) {
-      meta.attr("content", content);
-    } else {
-      doc.head().appendElement("meta").attr(attrKey, attrValue).attr("content", content);
-    }
+    if (meta != null) meta.attr("content", content);
+    else doc.head().appendElement("meta").attr(attrKey, attrValue).attr("content", content);
   }
 
   private String buildJsonLd(BlogPost post) {
     String isoDate = post.getCreatedAt() != null ? post.getCreatedAt().toString() : "";
     String updatedDate = post.getUpdatedAt() != null ? post.getUpdatedAt().toString() : isoDate;
-
     return String.format(
-        "{"
-            + "\"@context\": \"https://schema.org\","
-            + "\"@type\": \"NewsArticle\","
-            + "\"headline\": \"%s\","
-            + "\"datePublished\": \"%s\","
-            + "\"dateModified\": \"%s\","
-            + "\"author\": {\"@type\": \"Organization\", \"name\": \"Treishvaam Finance\"}"
-            + "}",
+        "{\"@context\": \"https://schema.org\",\"@type\": \"NewsArticle\",\"headline\": \"%s\",\"datePublished\": \"%s\",\"dateModified\": \"%s\",\"author\": {\"@type\": \"Organization\", \"name\": \"Treishvaam Finance\"}}",
         escapeJson(post.getTitle()), isoDate, updatedDate);
   }
 
@@ -163,12 +138,10 @@ public class HtmlMaterializerService {
 
   private String convertPostToJson(BlogPost post) {
     try {
-      // ENTERPRISE FIX: Create a clean Map of all fields React needs.
-      // We manually map this to avoid Hibernate LazyLoading exceptions or circular references.
       Map<String, Object> state = new HashMap<>();
       state.put("id", post.getId());
       state.put("title", post.getTitle());
-      state.put("content", post.getContent()); // CRITICAL: Required for hydration
+      state.put("content", post.getContent());
       state.put("slug", post.getSlug());
       state.put("userFriendlySlug", post.getUserFriendlySlug());
       state.put("urlArticleId", post.getUrlArticleId());
@@ -176,10 +149,12 @@ public class HtmlMaterializerService {
       state.put("keywords", post.getKeywords());
       state.put("author", post.getAuthor());
       state.put("coverImageUrl", post.getCoverImageUrl());
-      state.put("createdAt", post.getCreatedAt());
-      state.put("updatedAt", post.getUpdatedAt());
       state.put("tenantId", post.getTenantId());
       state.put("layoutStyle", post.getLayoutStyle());
+
+      // FIX: Manually convert Instant to String to avoid Jackson configuration issues
+      state.put("createdAt", post.getCreatedAt() != null ? post.getCreatedAt().toString() : null);
+      state.put("updatedAt", post.getUpdatedAt() != null ? post.getUpdatedAt().toString() : null);
 
       if (post.getCategory() != null) {
         Map<String, Object> cat = new HashMap<>();
@@ -189,12 +164,10 @@ public class HtmlMaterializerService {
         state.put("category", cat);
       }
 
-      // Serialize to JSON using Jackson
       return objectMapper.writeValueAsString(state);
 
     } catch (Exception e) {
       log.error("Failed to serialize post state for hydration: {}", e.getMessage());
-      // Fallback to minimal state to prevent total crash, though content will be missing
       return String.format(
           "{\"id\":%d, \"title\":\"%s\", \"error\":\"Serialization Failed\"}",
           post.getId(), escapeJson(post.getTitle()));
