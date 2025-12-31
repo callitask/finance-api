@@ -341,9 +341,7 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
              finalResp.headers.set("X-Source", "Materialized-HTML");
              finalResp.headers.set("Cache-Control", "public, max-age=3600");
 
-             // FIX: INJECT BASE TAG
-             // This solves the "Plain Text" issue by forcing relative assets (styles/js) 
-             // to load from the domain root instead of the deep category path.
+             // FIX: INJECT BASE TAG (Solves "Plain Text / MIME Type" Error)
              const fixedResp = new HTMLRewriter()
                .on("head", { element(e) { e.prepend('<base href="/" />', { html: true }); } })
                .transform(finalResp);
