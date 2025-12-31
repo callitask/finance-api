@@ -1,8 +1,11 @@
 package com.treishvaam.financeapi.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treishvaam.financeapi.model.BlogPost;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
@@ -19,6 +22,7 @@ import org.springframework.web.client.RestTemplate;
 public class HtmlMaterializerService {
 
   private final FileStorageService fileStorageService;
+  private final ObjectMapper objectMapper; // ENTERPRISE: Use Jackson for robust serialization
   private final RestTemplate restTemplate = new RestTemplate();
 
   // Internal Docker URL to fetch the current Frontend Shell from Nginx
@@ -107,8 +111,9 @@ public class HtmlMaterializerService {
       }
 
       // 6. Pre-load State for React (Hydration)
-      String stateScript =
-          String.format("window.__PRELOADED_STATE__ = %s;", convertPostToJson(post));
+      // FIX: Serialize the FULL state so React doesn't crash on hydration
+      String jsonState = convertPostToJson(post);
+      String stateScript = String.format("window.__PRELOADED_STATE__ = %s;", jsonState);
       doc.head().appendElement("script").html(stateScript);
 
       // 7. Upload to MinIO
@@ -157,12 +162,42 @@ public class HtmlMaterializerService {
   }
 
   private String convertPostToJson(BlogPost post) {
-    // Minimal state for hydration
-    return String.format(
-        "{\"id\":%d, \"title\":\"%s\", \"userFriendlySlug\":\"%s\", \"urlArticleId\":\"%s\"}",
-        post.getId(),
-        escapeJson(post.getTitle()),
-        post.getUserFriendlySlug(),
-        post.getUrlArticleId());
+    try {
+      // ENTERPRISE FIX: Create a clean Map of all fields React needs.
+      // We manually map this to avoid Hibernate LazyLoading exceptions or circular references.
+      Map<String, Object> state = new HashMap<>();
+      state.put("id", post.getId());
+      state.put("title", post.getTitle());
+      state.put("content", post.getContent()); // CRITICAL: Required for hydration
+      state.put("slug", post.getSlug());
+      state.put("userFriendlySlug", post.getUserFriendlySlug());
+      state.put("urlArticleId", post.getUrlArticleId());
+      state.put("metaDescription", post.getMetaDescription());
+      state.put("keywords", post.getKeywords());
+      state.put("author", post.getAuthor());
+      state.put("coverImageUrl", post.getCoverImageUrl());
+      state.put("createdAt", post.getCreatedAt());
+      state.put("updatedAt", post.getUpdatedAt());
+      state.put("tenantId", post.getTenantId());
+      state.put("layoutStyle", post.getLayoutStyle());
+
+      if (post.getCategory() != null) {
+        Map<String, Object> cat = new HashMap<>();
+        cat.put("id", post.getCategory().getId());
+        cat.put("name", post.getCategory().getName());
+        cat.put("slug", post.getCategory().getSlug());
+        state.put("category", cat);
+      }
+
+      // Serialize to JSON using Jackson
+      return objectMapper.writeValueAsString(state);
+
+    } catch (Exception e) {
+      log.error("Failed to serialize post state for hydration: {}", e.getMessage());
+      // Fallback to minimal state to prevent total crash, though content will be missing
+      return String.format(
+          "{\"id\":%d, \"title\":\"%s\", \"error\":\"Serialization Failed\"}",
+          post.getId(), escapeJson(post.getTitle()));
+    }
   }
 }
