@@ -128,6 +128,7 @@ public class SecurityConfig {
     CorsConfiguration configuration = new CorsConfiguration();
 
     // FIX: Use AllowedOriginPatterns for better matching (handles subdomains & protocols)
+    // This allows exact matches AND wildcards, unlike setAllowedOrigins which is strict.
     if (allowedOrigins == null
         || allowedOrigins.isEmpty()
         || (allowedOrigins.size() == 1 && allowedOrigins.get(0).isEmpty())) {
