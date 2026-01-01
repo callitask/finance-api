@@ -29,11 +29,17 @@ public class RateLimitingFilter extends OncePerRequestFilter {
       HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
       throws ServletException, IOException {
 
+    // 1. SKIP OPTIONS (Pre-flight) requests
+    // Rate limiting these causes CORS errors in browsers.
+    if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+      filterChain.doFilter(request, response);
+      return;
+    }
+
     String clientIp = request.getRemoteAddr();
 
     try {
-      // Logic: Try to get bucket. If Redis fails, we catch exception and ALLOW request.
-      // This ensures stability over strict rate limiting.
+      // Logic: Try to get bucket.
       Bucket bucket = resolveBucket(clientIp);
 
       if (bucket.tryConsume(1)) {
@@ -43,8 +49,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         response.getWriter().write("Too Many Requests");
       }
     } catch (Exception e) {
-      // CRITICAL RESILIENCE: If Redis or Bucket4j fails, Log it but ALLOW the request.
-      // Do NOT crash the application.
+      // CRITICAL RESILIENCE: If Bucket4j fails, Log it but ALLOW the request.
       logger.error("Rate Limiting Service Failed (Failing Open): {}", e.getMessage());
       filterChain.doFilter(request, response);
     }

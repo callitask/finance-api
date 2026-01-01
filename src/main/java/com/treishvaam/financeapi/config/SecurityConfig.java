@@ -28,7 +28,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity
+@EnableMethodSecurity // Allows @PreAuthorize to work
 public class SecurityConfig {
 
   private final RateLimitingFilter rateLimitingFilter;
@@ -58,16 +58,16 @@ public class SecurityConfig {
         .authorizeHttpRequests(
             auth ->
                 auth
-                    // 0. Pre-flight checks
+                    // 0. Pre-flight checks (CORS) - CRITICAL
                     .requestMatchers(HttpMethod.OPTIONS, "/**")
                     .permitAll()
 
-                    // 1. System Public
+                    // 1. System, Health & Monitoring (Public)
                     .requestMatchers(
                         "/actuator/**", "/api/v1/health/**", "/api/v1/monitoring/ingest")
                     .permitAll()
 
-                    // 2. Static Public
+                    // 2. Static Assets & SEO (Public)
                     .requestMatchers(
                         HttpMethod.GET,
                         "/api/v1/uploads/**",
@@ -78,7 +78,7 @@ public class SecurityConfig {
                         "/favicon.ico")
                     .permitAll()
 
-                    // 3. API Read Public
+                    // 3. Public API Read Access
                     .requestMatchers(
                         HttpMethod.GET,
                         "/api/v1/posts/**",
@@ -89,17 +89,19 @@ public class SecurityConfig {
                         "/api/v1/logo")
                     .permitAll()
 
-                    // 4. Misc Public
+                    // 4. Market Quotes Batch (POST allowed publicly)
                     .requestMatchers(HttpMethod.POST, "/api/v1/market/quotes/batch")
                     .permitAll()
+
+                    // 5. Contact Form (Public Write)
                     .requestMatchers("/api/v1/contact/**")
                     .permitAll()
 
-                    // 5. SECURED ENDPOINTS (Explicit)
+                    // --- FIX: Auth Endpoints MUST be Authenticated ---
                     .requestMatchers("/api/v1/auth/**")
                     .authenticated()
 
-                    // 6. Admin Roles
+                    // 6. Secure Admin/Dashboard Routes
                     .requestMatchers("/api/v1/analytics/**")
                     .hasAnyAuthority("ROLE_ANALYST", "ROLE_ADMIN")
                     .requestMatchers("/api/v1/posts/admin/**")
@@ -109,7 +111,7 @@ public class SecurityConfig {
                     .requestMatchers("/api/v1/admin/**", "/api/v1/status/**")
                     .hasAuthority("ROLE_ADMIN")
 
-                    // 7. Fallback
+                    // 7. Fallback: Require authentication for anything else
                     .anyRequest()
                     .authenticated())
         .oauth2ResourceServer(
@@ -125,9 +127,7 @@ public class SecurityConfig {
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
 
-    // FIX: Use allowedOriginPatterns instead of allowedOrigins.
-    // This allows subdomains or matching strings while still supporting allowCredentials(true).
-    // If the list is empty, we default to "*" to prevent total lockout (change in prod if needed).
+    // FIX: Use AllowedOriginPatterns for better matching (handles subdomains & protocols)
     if (allowedOrigins == null
         || allowedOrigins.isEmpty()
         || (allowedOrigins.size() == 1 && allowedOrigins.get(0).isEmpty())) {
