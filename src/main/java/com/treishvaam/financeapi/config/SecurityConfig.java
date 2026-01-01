@@ -33,8 +33,6 @@ public class SecurityConfig {
   private final RateLimitingFilter rateLimitingFilter;
   private final InternalSecretFilter internalSecretFilter;
 
-  // 1. Inject Allowed Origins Dynamically from application.properties
-  // This allows 'localhost' in Dev and 'treishvaamgroup.com' in Prod automatically.
   @Value("#{'${cors.allowed-origins}'.split(',')}")
   private List<String> allowedOrigins;
 
@@ -59,7 +57,7 @@ public class SecurityConfig {
         .authorizeHttpRequests(
             auth ->
                 auth
-                    // 0. Pre-flight checks (CORS)
+                    // 0. Pre-flight checks (CORS) - CRITICAL
                     .requestMatchers(HttpMethod.OPTIONS, "/**")
                     .permitAll()
 
@@ -94,9 +92,15 @@ public class SecurityConfig {
                     .requestMatchers(HttpMethod.POST, "/api/v1/market/quotes/batch")
                     .permitAll()
 
-                    // 5. Auth & Public Write
-                    .requestMatchers("/api/v1/auth/**", "/api/v1/contact/**")
+                    // 5. Contact Form (Public Write)
+                    .requestMatchers("/api/v1/contact/**")
                     .permitAll()
+
+                    // --- FIX START: Auth Endpoints MUST be Authenticated ---
+                    // Explicitly require login for user profile data and updates.
+                    .requestMatchers("/api/v1/auth/**")
+                    .authenticated()
+                    // --- FIX END ---
 
                     // 6. Secure Admin/Dashboard Routes
                     .requestMatchers("/api/v1/analytics/**")
@@ -109,7 +113,6 @@ public class SecurityConfig {
                     .hasAuthority("ROLE_ADMIN")
 
                     // 7. Fallback: Require authentication for anything else
-                    // This covers /api/v1/posts/draft/**
                     .anyRequest()
                     .authenticated())
         .oauth2ResourceServer(
@@ -124,11 +127,8 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-
-    // 2. Use the Injected List from Properties
-    // This is the bridge between your text files and the Java security engine.
     configuration.setAllowedOrigins(allowedOrigins);
-
+    // Explicitly allowing PUT for profile updates
     configuration.setAllowedMethods(
         Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
     configuration.setAllowedHeaders(Arrays.asList("*"));
