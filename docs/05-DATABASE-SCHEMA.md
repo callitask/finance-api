@@ -25,9 +25,19 @@ erDiagram
         bigint version "Optimistic Lock"
         string title
         string slug
+        string user_friendly_slug
         string status
         string tenant_id
         timestamp scheduled_time
+    }
+
+    POST_THUMBNAILS {
+        bigint id PK
+        bigint blog_post_id FK
+        string image_url
+        int width
+        int height
+        string blur_hash
     }
 
     USERS {
@@ -66,15 +76,16 @@ erDiagram
 ### 3.2. Content Management System (CMS)
 * **`blog_posts`**: The central content table.
     * **Core**: `title`, `content` (LONGTEXT), `slug`, `user_friendly_slug`, `status` (DRAFT/PUBLISHED).
-    * **Concurrency**: `version` (BIGINT) - Used for JPA Optimistic Locking.
+    * **Concurrency**: `version` (BIGINT) - Used for JPA Optimistic Locking to prevent lost updates.
     * **SEO**: `meta_description`, `keywords`, `canonical_url`, `seo_title`.
-    * **Editorial**: `display_section`, `review_status`, `archived`.
-    * **Context**: `tenant_id`, `author_id` (FK to users), `category_id` (FK to categories).
+    * **Editorial**: `display_section`, `review_status`, `featured` (BOOLEAN).
+    * **Context**: `tenant_id`, `author`, `category_id` (FK to categories).
+    * **Automation**: `url_article_id` (Unique Article Identifier for routing).
 * **`categories`**: Content classification.
     * Columns: `id`, `name`, `slug`, `description`.
 * **`post_thumbnails`**: Media assets linked to posts.
-    * Columns: `id`, `post_id`, `image_url`, `alt_text`, `display_order`.
-    * **Metadata**: `width`, `height`, `mime_type`, `blur_hash` (Used for "blur-up" loading).
+    * Columns: `id`, `blog_post_id` (FK), `image_url`, `alt_text`, `display_order`.
+    * **Metadata**: `width`, `height`, `mime_type`, `blur_hash` (Used for "blur-up" loading on Frontend).
 * **`page_content`**: Dynamic text for static pages (e.g., 'About Us', 'Vision').
     * Columns: `id`, `page_identifier`, `content_json`.
 
@@ -82,7 +93,7 @@ erDiagram
 * **`market_data`**: Snapshot data for symbols (Indices, Stocks).
     * Columns: `id`, `symbol`, `price`, `change_percent`, `day_high`, `day_low`.
 * **`quote_data`**: Real-time quotes typically fetched from high-frequency providers.
-    * Columns: `symbol`, `price`, `volume`, `timestamp`.
+    * Columns: `symbol`, `price`, `volume`, `timestamp`, `market_cap`, `pe_ratio`.
 * **`historical_price`**: OHLC (Open-High-Low-Close) data for charting.
     * Columns: `id`, `symbol`, `date`, `open`, `high`, `low`, `close`, `volume`.
 * **`historical_data_cache`**: Tracks fetch requests to prevent API quota abuse.
@@ -92,13 +103,13 @@ erDiagram
 
 ### 3.4. Intelligence & News
 * **`news_highlights`**: Aggregated financial news items.
-    * Columns: `id`, `headline`, `summary`, `url`, `image_url`, `source`, `published_at`, `archived`.
+    * Columns: `id`, `headline`, `summary`, `description` (Long summary), `url`, `image_url`, `source`, `published_at`, `archived`.
 
 ### 3.5. System & Analytics
 * **`audit_logs`**: Security and compliance trail. Stores the "Fort Knox" audit trail.
-    * Columns: `id`, `action`, `actor`, `entity_id`, `entity_type`, `timestamp`, `ip_address`.
-* **`audience_visits`**: Web analytics data.
-    * Columns: `id`, `page_path`, `user_agent`, `visit_time`, `ip_hash`.
+    * Columns: `id`, `action`, `actor`, `entity_id`, `entity_type`, `timestamp`, `ip_address`, `details`.
+* **`audience_visits`**: Web analytics data (Faro ingestion).
+    * Columns: `id`, `page_path`, `user_agent`, `visit_time`, `ip_hash`, `geo_country`, `geo_city`.
 * **`contact_messages`**: Inbound user queries.
     * Columns: `id`, `name`, `email`, `subject`, `message`, `created_at`.
 * **`api_fetch_status`**: Operational health of external integrations. Used by the "Watchdog" to monitor resilience.
@@ -114,6 +125,7 @@ erDiagram
 | **V21** | Added `historical_data_cache` for Smart Sync logic. |
 | **V26** | Created `audience_visits` for analytics ingestion. |
 | **V30** | Added `api_fetch_status` for monitoring external quotas. |
+| **V34** | Added extensive metadata (`width`, `height`, `blur_hash`) to `post_thumbnails`. |
 | **V36** | Added `audit_logs` for security compliance. |
 | **V38** | Added `archived` flag to `news_highlights`. |
 | **V39** | Added `description` field to `news_highlights`. |

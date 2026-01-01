@@ -10,7 +10,7 @@ status: Active
 
 The Treishvaam Finance API is a **High-Performance Enterprise Backend** built with Spring Boot 3.4 and Java 21. It serves as the "Financial Intelligence Engine" for the platform, engineered for **Zero Latency**, **Decimal Precision**, and **Zero Trust Security**.
 
-Unlike standard CRUD apps, this system utilizes **Java 21 Virtual Threads**, **Off-Heap Streaming**, and a hybrid **Java/Python Architecture** to handle high-frequency market data and media processing without blocking.
+Unlike standard CRUD apps, this system utilizes **Java 21 Virtual Threads**, **Off-Heap Streaming**, and a **Hybrid SSG Architecture** to serve millions of indexable pages with sub-second latency.
 
 ## Development Status & Branching Strategy
 
@@ -50,11 +50,12 @@ This codebase implements advanced industry patterns to solve common scaling issu
 * **Optimistic Locking**: Implements strict version control (`@Version`) on database entities. If two admins edit a post simultaneously, the second write is rejected with `409 Conflict`, preventing "Lost Updates".
 
 ### 3. Resilience & Stability
+* **API Crash Prevention**: Entities utilize `@JsonIgnore` and `@JsonIgnoreProperties` to prevent Infinite Recursion (StackOverflow) during serialization, guaranteeing API stability.
 * **Circuit Breakers (Resilience4j)**:
     * **External APIs**: FMP/AlphaVantage calls have a 5s timeout and 50% failure threshold.
     * **Python Engine**: The market data script has a 120s timeout to prevent zombie processes.
 * **Fail-Open Rate Limiting**: If Redis fails, the Rate Limiter (`Bucket4j`) is architected to "Fail Open", prioritizing application availability over restriction.
-* **Database Batching**: Hibernate is configured to group `INSERT`/`UPDATE` statements into batches of 50, eliminating the "N+1" problem during bulk data syncs or sitemap generation.
+* **Database Batching**: Hibernate is configured to group `INSERT`/`UPDATE` statements into batches of 50, eliminating the "N+1" problem during bulk data syncs.
 
 ### 4. Fort Knox Security
 * **Zero-Trust Networking**: No internal ports (3306, 6379, 9200) are exposed to the host. All communication happens strictly within the `treish_net` Docker network.
@@ -62,10 +63,12 @@ This codebase implements advanced industry patterns to solve common scaling issu
 * **MIME Validation**: **Apache Tika** analyzes binary signatures ("Magic Numbers") to reject spoofed file extensions (e.g., malware renamed as `.jpg`).
 * **Secret Injection**: No hardcoded passwords. Secrets are injected into the process environment at runtime via Infisical.
 
-### 5. Enterprise SEO & Edge Architecture
-* **Materialized HTML (SSG)**: Implements "Publish-Time Static Generation". When an editor saves a post, the backend fetches the React shell, injects the full content body and JSON-LD schema, and uploads a static `.html` file to MinIO.
-* **Edge Intelligence**: The Cloudflare Worker acts as a smart router, serving the pre-generated static HTML to bots and users (Strategy A) while falling back to API hydration (Strategy B) if necessary.
-* **Zero-Flicker Hydration**: The React frontend detects server-injected content (`window.__PRELOADED_STATE__`) and uses `hydrateRoot` to attach event listeners without destroying the DOM.
+### 5. Enterprise SEO & Hybrid SSG Architecture
+* **Materialized HTML (SSG Strategy A)**: Implements "Publish-Time Static Generation". When an editor saves a post, the backend fetches the React shell, injects the full content body and JSON-LD schema, and uploads a static `.html` file to MinIO.
+* **Edge Intelligence**: The Cloudflare Worker acts as a smart router:
+    * **Primary:** Serves the pre-generated static HTML (Strategy A) with `<base href="/">` injection to ensure correct asset loading on deep URLs.
+    * **Fallback:** Falls back to API hydration (Strategy B) if the static file is missing.
+* **Zero-Flicker Rendering**: The React frontend detects `window.__PRELOADED_STATE__` and uses `createRoot` to render instantly, while automatically cleaning up duplicate static content.
 
 ## Quick Start Guide
 

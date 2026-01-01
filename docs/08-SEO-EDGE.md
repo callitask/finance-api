@@ -5,9 +5,9 @@ To achieve 100% indexability and sub-second load times while maintaining a dynam
 
 ### The Problem
 Traditional SPAs serve an empty `<div>` and rely on client-side JS to render content. This causes:
-1.  **Poor SEO**: Bots see "Thin Content" and penalize the ranking.
-2.  **Slow FCP**: Users stare at a white screen or spinner while JS downloads.
-3.  **Flicker**: Even with "Edge Hydration", React often wipes the DOM before re-rendering.
+1.  **Poor SEO**: Bots see "Thin Content" or fail to index deep links.
+2.  **MIME Type Errors**: Deep URLs (e.g., `/category/tech/ai`) break relative asset paths.
+3.  **Hydration Errors**: React crashes (Error #418/#423) when the server HTML doesn't perfectly match the client render.
 
 ### The Solution: "Publish-Time Materialization"
 Instead of generating HTML *when a user visits* (Server-Side Rendering / SSR), we generate it **once** when the editor clicks "Publish".
@@ -27,13 +27,14 @@ Instead of generating HTML *when a user visits* (Server-Side Rendering / SSR), w
 2.  **Cloudflare Worker (The Router):**
     * Intercepts requests to `/category/...`.
     * Implements a **Cache-First Strategy**:
-        * **Strategy A (Static Hit):** Checks MinIO for `posts/{slug}.html`. If found, serves the pre-baked HTML file.
+        * **Strategy A (Static Hit):** Checks MinIO (via Nginx) for `posts/{slug}.html`.
+            * **CRITICAL:** Injects `<base href="/">` into the `<head>`. This forces the browser to load CSS/JS from the root domain, preventing MIME type errors on deep URLs.
         * **Strategy B (Fallback):** If missing (or Backend down), falls back to fetching API JSON and injecting it into the empty shell (Edge Hydration).
 
 3.  **Client (Browser/Googlebot):**
     * **Googlebot:** Sees fully rendered HTML immediately (`<body>...content...</body>`).
     * **User:** Sees content immediately (FCP < 0.5s).
-    * **React:** Detects `window.__PRELOADED_STATE__` and performs **Hydration** instead of Rendering, preventing content flicker.
+    * **React:** Detects `window.__PRELOADED_STATE__`, builds the interactive app in `<div id="root">`, and **removes** the static `<div id="server-content">` to prevent duplication.
 
 ---
 
@@ -41,26 +42,31 @@ Instead of generating HTML *when a user visits* (Server-Side Rendering / SSR), w
 
 ### Backend (Java/Spring Boot)
 * **Service:** `HtmlMaterializerService.java`
-* **Trigger:** `BlogPostServiceImpl.save()` (on Publish/Update) and `checkAndPublishScheduledPosts()`.
-* **Dependencies:** `Jsoup` (for robust DOM manipulation).
-* **Live Sync:** Fetches the template from `http://treishvaam-nginx/` to ensure the static page always matches the currently deployed Frontend design version.
+* **Trigger:** `BlogPostServiceImpl.save()` (on Publish/Update).
+* **Serialization Fix:** Manually serializes `Instant` fields to Strings to prevent Jackson configuration crashes (HTTP 500).
+* **Storage Path:** Uploads to `posts/{userFriendlySlug}.html` in MinIO.
 
 ### Edge (Cloudflare Worker)
 * **Smart Routing:**
     * Parses URL to extract the `slug`.
-    * Checks existence of `/api/v1/uploads/posts/{slug}.html`.
-    * Adds header `X-Source: Materialized-HTML` on success.
-* **Security Headers:** Injects HSTS, CSP, and X-Content-Type-Options into the static HTML response.
+    * **Path:** Requests `/api/uploads/posts/{slug}.html` (Direct Nginx Static Asset path, bypassing Spring Boot `/v1` API).
+    * **Headers:** Adds `X-Source: Materialized-HTML` on success.
+* **Asset Integrity:** The `<base href="/">` injection is performed using `HTMLRewriter`. This is mandatory for the "Plain Text" fix.
 
 ### Frontend (React)
-* **Entry Logic:** `index.js` inspects `window.__PRELOADED_STATE__`.
-* **Hydration Switch:**
+* **Root Strategy:** We use `ReactDOM.createRoot` (Client-Side Rendering) instead of `hydrateRoot`.
+    * **Why:** `hydrateRoot` expects the DOM to match perfectly. Since we inject SEO content into a separate container (`#server-content`) while React builds in `#root`, using `hydrateRoot` causes React Errors #418 & #423.
+    * **Performance:** With `window.__PRELOADED_STATE__`, `createRoot` renders instantly without fetching data, mimicking the speed of hydration without the fragility.
+* **Cleanup Logic (`SinglePostPage.js`):**
     ```javascript
-    if (window.__PRELOADED_STATE__) {
-      ReactDOM.hydrateRoot(container, <App />); // Attach to existing HTML
-    } else {
-      ReactDOM.createRoot(container).render(<App />); // Render from scratch
-    }
+    useEffect(() => {
+        // Immediately remove the static SEO content to avoid "Double Content"
+        const serverContent = document.getElementById('server-content');
+        if (serverContent) serverContent.remove();
+        
+        // Hydrate state
+        if (window.__PRELOADED_STATE__) { ... }
+    }, []);
     ```
 
 ---
@@ -71,21 +77,18 @@ Instead of generating HTML *when a user visits* (Server-Side Rendering / SSR), w
 
 ## 4. Verification & Debugging
 
-We provide an automated script to verify the entire pipeline (Backend -> Storage -> Edge -> Client).
-
 **Script:** `scripts/verify_seo.sh <slug>`
 
 **Checks Performed:**
 1.  **MinIO Check:** Verifies the `.html` file exists in the public bucket.
-2.  **Worker Check:** Curls the public URL with `User-Agent: Googlebot` and checks for `X-Source: Materialized-HTML`.
-3.  **Content Check:** Greps for the injected body content.
-4.  **State Check:** Greps for the JSON hydration payload.
+2.  **Worker Check:** Curls the public URL with `User-Agent: Googlebot`.
+3.  **Header Check:** Confirms `X-Source: Materialized-HTML`.
+4.  **Base Tag Check:** Confirms `<base href="/">` is present (preventing broken styles).
 
 **Example Output:**
 ```bash
 $ ./verify_seo.sh market-rally-2025
 1. Checking HTML File generation... SUCCESS (200 OK)
 2. Checking Cloudflare Worker routing... SUCCESS (Served Pre-rendered HTML)
-3. Checking SEO Content Body... SUCCESS (Content Found)
-4. Checking React Hydration State... SUCCESS (State Injected)
-```
+3. Checking Base Tag Injection... SUCCESS (Base Tag Found)
+4. Checking React State... SUCCESS (State Injected)

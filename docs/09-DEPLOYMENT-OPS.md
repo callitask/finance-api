@@ -156,3 +156,28 @@ Access the Redis container directly:
 docker exec -it treishvaam-redis redis-cli FLUSHALL
 ```
 *Note: This will temporarily spike DB load as caches rebuild.*
+
+---
+
+## 8. Hybrid SSG Operations (SEO & Content)
+
+### The Materialization Trigger & CSS Synchronization
+Our **Hybrid SSG** architecture relies on pre-generated HTML files stored in MinIO/S3 to provide instant load times (Strategy A). These files contain hardcoded links to CSS and JS bundles.
+
+**Scenario:** When you deploy a new version of the Frontend, the build tools (Webpack/Vite) generate new filenames for CSS bundles (e.g., `main.a1b2c3.css` becomes `main.x9y8z7.css`) to bust browser caches.
+
+**The Problem:** Existing static HTML files in MinIO will still point to the *old* CSS filenames (`main.a1b2c3.css`), which no longer exist on the server. This causes the "Plain Text" / "MIME Type Error" visual glitch.
+
+**Resolution Procedure (The "Update" Trigger):**
+To align the static content with the new Frontend build, you must force a re-materialization:
+1.  Log in to the **Admin Dashboard**.
+2.  Navigate to **Manage Posts**.
+3.  **Edit** the affected post.
+4.  Click **Update** (you do not need to change any text).
+
+**What happens internally:**
+* The Backend `HtmlMaterializerService` activates.
+* It fetches the **new** live React shell from Nginx (which now points to the new CSS).
+* It re-injects the content and data state.
+* It overwrites the old `.html` file in MinIO/S3.
+* **Result:** The post is now synchronized with the latest deployment, and CSS loads correctly.

@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### [tfin-financeapi-Develop.0.0.0.4] - Phase 9: Hybrid SSG & Production Stabilization
+### Critical Architecture Fixes (The "Plain Text" & "500 Error" Patch)
+-   **Fix (Visual Integrity)**: Resolved the "Plain Text" issue on deep URLs (`/category/tech/...`) by injecting `<base href="/">` via Cloudflare Worker. This forces the browser to load CSS/JS from the root domain, preventing MIME type errors.
+-   **Fix (Backend Stability)**: Resolved the "500 Internal Server Error" crash caused by Infinite JSON Recursion. Added `@JsonIgnore` to `PostThumbnail` and `@JsonIgnoreProperties` to `BlogPost` entities to break the bidirectional loops.
+-   **Fix (Frontend Hydration)**: Switched from `hydrateRoot` to `createRoot` in `index.js`. This resolves React Errors #418 & #423 caused by hydrating an empty container while SEO content resides in a sibling div.
+-   **Fix (Serialization)**: Updated `HtmlMaterializerService` to manually serialize `Instant` fields (e.g., `createdAt`) to Strings, preventing Jackson configuration crashes during static file generation.
+-   **UX (Cleanup)**: Implemented automatic cleanup in `SinglePostPage.js` to immediately remove the duplicate `#server-content` div upon mounting, ensuring users never see the raw SEO text.
+
 ### [2025-10-30] SEO Architecture Overhaul (Phase 1-4)
 - **Feat (Backend)**: Added `HtmlMaterializerService` to generate static HTML files for blog posts on publish.
 - **Feat (Edge)**: Updated Cloudflare Worker to serve static HTML files from MinIO if available (SSG behavior).

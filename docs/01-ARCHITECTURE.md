@@ -1,7 +1,7 @@
 # System Architecture
 
 ## System Overview
-Treishvaam Finance is an Enterprise-Grade Financial Intelligence Platform deployed on an Ubuntu Server (VirtualBox) using Docker Compose. The system implements a **Strict Zero Trust Network** architecture fortified by the **Fort Knox Security Suite**.
+Treishvaam Finance is an Enterprise-Grade Financial Intelligence Platform deployed on an Ubuntu Server (VirtualBox) using Docker Compose. The system implements a **Hybrid Static Site Generation (SSG)** architecture fortified by a **Strict Zero Trust Network** and the **Fort Knox Security Suite**.
 
 **Key Architectural Security Feature:**
 Unlike standard deployments, this system exposes **zero** internal ports. The database, cache, search engine, and storage services are **invisible** to the host machine and the public internet, accessible *only* via the internal Docker network (`treish_net`).
@@ -12,10 +12,11 @@ Unlike standard deployments, this system exposes **zero** internal ports. The da
 * **Backend API**: Spring Boot 3.4 (Java 21)
     * **Port**: 8080 (Internal Only - Proxied by Nginx).
     * **Role**: Core business logic, OAuth2 resource server, data aggregation.
+    * **Key Service**: **`HtmlMaterializerService`** - Generates static HTML files (Hybrid SSG) immediately upon post publication/update to ensure 100% SEO availability.
     * **Concurrency**: Utilizes **Java 21 Virtual Threads** for high-throughput, non-blocking image processing and parallel tasks.
     * **Resilience**: Integrated **Resilience4j Circuit Breakers** to handle external API failures gracefully.
 * **Edge Worker**: Cloudflare Worker
-    * **Role**: Global Edge Logic for **Edge-Side Hydration**, SEO injection, security headers, and bot mitigation.
+    * **Role**: Intelligent **Edge Router** that decides between **Strategy A (Static HTML)** and **Strategy B (Dynamic Fallback)**. Handles security headers, `<base>` tag injection, and bot mitigation.
 
 ### 2. Data Layer (The "Vault" - No Exposed Ports)
 * **Database**: MariaDB 10.6
@@ -29,6 +30,7 @@ Unlike standard deployments, this system exposes **zero** internal ports. The da
     * **Networking**: Accessible ONLY by `backend`. Port 9200 is removed.
 * **Object Storage**: MinIO (S3 Compatible)
     * **Networking**: Accessible ONLY by `backend` and `nginx`. Ports 9000/9001 are removed.
+    * **Role**: Stores media uploads (images) AND **Materialized HTML** files for the SSG strategy.
 * **Messaging**: RabbitMQ
     * **Networking**: Internal Event Bus. Ports 5672/15672 are removed.
 
@@ -36,7 +38,7 @@ Unlike standard deployments, this system exposes **zero** internal ports. The da
 * **Identity Provider**: Keycloak 23
     * **Role**: Centralized Auth (SSO). Running internally, exposed only via Nginx Gateway.
 * **Gateway**: Nginx + ModSecurity (OWASP CRS)
-    * **Role**: The **ONLY** container with exposed ports (80/443). Handles WAF, Rate Limiting, SSL Termination, and **Static Asset Offloading**.
+    * **Role**: The **ONLY** container with exposed ports (80/443). Handles WAF, Rate Limiting, SSL Termination, and **Static Asset Offloading** (for both Images and HTML).
 * **Tunnel**: Cloudflare Tunnel (`cloudflared`)
     * **Role**: Secure ingress for Admin Dashboards (Grafana, MinIO Console) without opening firewall ports.
 * **Secrets Management**: Environment Injection
@@ -70,11 +72,12 @@ graph TD
     subgraph Public_Internet
         Client[Client (Browser/Mobile)]
         Admin[Admin User]
+        Google[GoogleBot]
     end
 
     subgraph Edge_Layer
         CF[Cloudflare Network]
-        Worker[CF Worker (Edge Hydration & SEO)]
+        Worker[CF Worker (Router: Strategy A / B)]
         Tunnel[Cloudflare Tunnel]
     end
 
@@ -85,6 +88,7 @@ graph TD
 
         subgraph Internal_Treish_Net ["Docker Network (treish_net) - NO EXTERNAL ACCESS"]
             API[Spring Boot Backend]
+            Materializer[HtmlMaterializerService]
             KC[Keycloak (Auth)]
             
             DB[(MariaDB)]
@@ -97,57 +101,69 @@ graph TD
         end
     end
 
-    Client --> CF --> Worker --> Tunnel --> NG
+    Client --> CF --> Worker
+    Google --> CF --> Worker
+    Worker --> Tunnel --> NG
     Admin -- "Zero Trust Access" --> CF --> Tunnel --> Grafana/MinIO_Console
     
     NG --> API
     NG --> KC
     
+    API --> Materializer
+    Materializer -- "Upload Static HTML" --> S3
+    
     API --> DB
     API -- "Read-Through Cache" --> RD
     API --> ES
     API -- "Writes (S3 Protocol)" --> S3
-    NG -- "Reads (Static Offload)" --> S3
+    NG -- "Reads (Static Offload: Images & HTML)" --> S3
     API --> MQ
     
     API -- "Logs/Metrics" --> Log
 ```
 
-## Request Flow
+## Request Flow (Hybrid SSG Strategy)
 
-**1. Edge Processing (Cloudflare Worker - Phase 3 Optimization):**
-A client request hits the Cloudflare Worker first.
-- **Edge Hydration (Zero Latency)**: For blog posts and market data pages, the Worker actively fetches the API data from the backend and injects it into the HTML head as `window.__PRELOADED_STATE__`. This eliminates the need for the browser to make a second API call, resulting in instant rendering.
-- **Security**: Injects HSTS, X-Content-Type-Options, and strictly defined Content-Security-Policy (CSP) headers.
-- **SEO**: Dynamic JSON-LD Schema injection for rich snippets.
-- **Routing**: Traffic is routed through the Cloudflare Tunnel to the origin server.
+**1. Edge Processing (Cloudflare Worker - The Router):**
+A client request hits the Cloudflare Worker first. The Worker decides the serving strategy:
+
+* **Strategy A: Materialized HTML (Primary)**
+    * The Worker attempts to fetch the pre-generated HTML file from MinIO (via Nginx) at `/api/uploads/posts/{slug}.html`.
+    * **HIT:** If found, it serves the static HTML immediately.
+    * **Transformation:** It injects `<base href="/">` into the `<head>` to ensure relative assets (CSS/JS) load correctly even on deep URLs.
+    * **Benefit:** Zero DB Load, Instant TTFB, 100% SEO Indexability.
+
+* **Strategy B: Edge Hydration (Fallback)**
+    * **MISS:** If the static file is missing (e.g., MinIO down, file not generated), the Worker calls the Spring Boot API (`/api/v1/posts/url/{id}`).
+    * **Hydration:** It fetches the JSON data and injects it into `window.__PRELOADED_STATE__`.
+    * **Benefit:** High Availability. The site works even if the static generation failed.
 
 **2. Zero Trust Gateway (Nginx):**
 The request emerges from the Tunnel and hits Nginx container (listening on port 80/443).
-- **Static Asset Offloading (Phase 1)**: READ requests for images (`/api/uploads/*`) are intercepted by Nginx and served **directly** from MinIO storage, bypassing the Java Backend entirely. This reduces JVM load and latency.
+- **Static Asset Offloading**: READ requests for images OR static HTML (`/api/uploads/*`) are intercepted by Nginx and served **directly** from MinIO storage, bypassing the Java Backend entirely.
 - **WAF**: ModSecurity inspects the payload for SQL Injection or XSS attacks.
-- **Proxy**: Nginx forwards API requests to the Backend container via the internal `treish_net` network.
+- **Proxy**: API requests fall through to the Backend container.
 
 **3. Backend Processing (Enterprise I/O Strategy):**
 The Spring Boot application processes the request using advanced patterns:
 
-- **Secure Streaming I/O (Phase 1)**:
-    - **Memory Safety**: Large file uploads are streamed directly to `Files.createTempFile` instead of loading into RAM (`byte[]`), preventing Out-Of-Memory (OOM) crashes under load.
-    - **Security Validation**: **Apache Tika** analyzes the binary signature (magic numbers) of uploads to strictly enforce MIME types, rejecting spoofed extensions (e.g., `.exe` renamed to `.jpg`).
-    - **Transaction Boundary**: Network I/O to MinIO happens **outside** the database transaction. The DB transaction opens *only* after a successful upload ("Plan First, Commit Later").
+-   **Publish-Time Materialization (Phase 6)**:
+    -   When an admin clicks "Publish" or "Update", the `HtmlMaterializerService` activates.
+    -   It fetches the React "Shell", injects the Article Content, Metadata, JSON-LD, and Preloaded State.
+    -   It uploads this finalized `.html` file to MinIO. This is what makes Strategy A possible.
 
-- **Concurrency & Precision (Phase 2 & 3)**:
-    - **Optimistic Locking**: Implements a strict "Version Handshake". Updates must include the version number of the record being edited.
-    - **Conflict Resolution**: If the version in the DB is newer than the client's version (indicating another admin saved changes), the request is rejected with **409 Conflict**, preventing "Lost Updates".
-    - **Circuit Breakers**: External API calls (FMP, AlphaVantage) and the Python Market Engine are protected by **Resilience4j**. If a service is slow, the circuit opens to prevent thread pool exhaustion, serving fallback/stale data instead of crashing.
-    - **Financial Precision**: All monetary calculations utilize `BigDecimal` (Java) and `decimal.Decimal` (Python) to ensure 8-decimal precision and prevent IEEE 754 floating-point errors.
+-   **Secure Streaming I/O**:
+    -   **Memory Safety**: Large file uploads are streamed directly to `Files.createTempFile` preventing OOM crashes.
+    -   **Security Validation**: **Apache Tika** enforces strict MIME type checking.
 
-- **High-Performance Database I/O (Phase 1)**:
-    - **JDBC Batching**: Hibernate is configured to group INSERT/UPDATE statements into batches of 50. This prevents the "N+1 Select/Insert" problem during bulk operations like Sitemap generation or Market Data backfilling.
-    - **Read-Through Cache**: API read operations hit Redis first. If the key exists, data is returned in **<5ms**.
+-   **Concurrency & Precision**:
+    -   **Recursion Protection**: Entities (`BlogPost`, `PostThumbnail`) utilize `@JsonIgnoreProperties` to prevent infinite recursion during JSON serialization, ensuring API stability (preventing 500 errors).
+    -   **Optimistic Locking**: Implements "Version Handshake" to prevent lost updates.
+    -   **Circuit Breakers**: External API calls are protected by **Resilience4j**.
 
-**4. Admin Access (Grafana/MinIO):**
-Admins access dashboards (Grafana, MinIO Console) via **Cloudflare Tunnel Public Hostnames** (e.g., `grafana.treishfin.treishvaamgroup.com`). This puts them behind Cloudflare Access (SSO), eliminating the need for open ports.
+**4. Frontend Hydration (Phase 9 Fix):**
+-   The React app uses `ReactDOM.createRoot` (instead of `hydrateRoot`) to handle the transition from the Static Server Content (`<div id="server-content">`) to the Interactive App (`<div id="root">`).
+-   It automatically detects and removes the duplicate "Plain Text" content upon mounting to ensure a seamless visual experience.
 
 ---
 
@@ -165,4 +181,4 @@ Nginx is configured to explicitly handle Cross-Origin Resource Sharing (CORS).
 ---
 
 ## SEO Edge Logic
-See `docs/08-SEO-EDGE.md` for full details on how the Cloudflare Worker handles **Edge Hydration**, Bot Detection, and Meta Injection.
+See `docs/08-SEO-EDGE.md` for full details on how the Cloudflare Worker handles **Strategy A/B**, Bot Detection, and Meta Injection.

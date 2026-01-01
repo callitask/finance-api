@@ -101,12 +101,20 @@ To prevent database connection pool exhaustion—a common failure mode in Enterp
 * **Effect**: 1,000 records are inserted in ~20 network round-trips instead of 1,000.
 
 ### 5.4. SEO Materialization (Hybrid SSG)
-* **Problem**: SPAs (Single Page Applications) often suffer from poor SEO and high Time-To-Interactive (TTI) because the browser must download JS before rendering content.
+* **Problem**: SPAs (Single Page Applications) often suffer from poor SEO and high Time-To-Interactive (TTI).
 * **Solution**: We implement **"Publish-Time Materialization"**.
     1.  **Trigger**: When a post is published, the `HtmlMaterializerService` activates.
-    2.  **Generation**: It fetches the current React shell (`index.html`), uses **Jsoup** to inject the actual content HTML into the body, and embeds the JSON state.
-    3.  **Storage**: The resulting `.html` file is uploaded to MinIO/S3.
-    4.  **Delivery**: Cloudflare serves this static file, providing the speed of a static site with the dynamism of a CMS.
+    2.  **Generation**: It fetches the current React shell (`index.html`) from the internal Nginx gateway.
+    3.  **Injection**: It injects the full HTML content into `<div id="server-content">` and the JSON state into `window.__PRELOADED_STATE__`.
+    4.  **Robust Serialization**: To prevent 500 errors during materialization, the service manually converts `Instant` fields (e.g., `createdAt`) to Strings before serialization, ensuring the JSON payload is strictly compatible with the Frontend's hydration logic.
+    5.  **Storage**: The resulting `.html` file is uploaded to MinIO/S3 at `posts/{slug}.html` for direct serving by Cloudflare.
+
+### 5.5. API Stability & Recursion Protection
+* **Problem**: Complex entity relationships (e.g., `BlogPost` <-> `Category`, `BlogPost` <-> `PostThumbnail`) can cause Infinite Recursion (StackOverflowError) during JSON serialization, crashing the API (HTTP 500).
+* **Solution**: We enforce strict **JSON Back-References**:
+    * **Thumbnails**: The `PostThumbnail` entity uses `@JsonIgnore` on the `blogPost` field.
+    * **Categories**: The `BlogPost` entity uses `@JsonIgnoreProperties` on the `category` field to ignore bidirectional links.
+    * **Result**: The API is mathematically guaranteed to produce a DAG (Directed Acyclic Graph) JSON structure, preventing recursion crashes.
 
 ## 6. Resilience & Reliability
 
