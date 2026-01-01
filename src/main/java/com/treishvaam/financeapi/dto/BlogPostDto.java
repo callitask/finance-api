@@ -14,6 +14,7 @@ public class BlogPostDto {
   private String metaDescription;
   private String keywords;
   private String author;
+  private String authorName; // Phase 1: Added for Display Name support
   private String category;
   private List<String> tags;
   private String thumbnailUrl;
@@ -98,6 +99,14 @@ public class BlogPostDto {
 
   public void setAuthor(String author) {
     this.author = author;
+  }
+
+  public String getAuthorName() {
+    return authorName;
+  }
+
+  public void setAuthorName(String authorName) {
+    this.authorName = authorName;
   }
 
   public String getCategory() {

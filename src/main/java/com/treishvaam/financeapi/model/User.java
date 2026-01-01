@@ -1,5 +1,6 @@
 package com.treishvaam.financeapi.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.HashSet;
@@ -26,7 +27,12 @@ public class User {
   @Column(nullable = false)
   private String email;
 
+  // Phase 1: New Profile Name field for SEO
+  @Column(name = "display_name")
+  private String displayName;
+
   @Column(nullable = false)
+  @JsonIgnore // Phase 1 Fix: Prevent Security Leak & Recursion
   private String password;
 
   @Column(nullable = false)
@@ -40,6 +46,7 @@ public class User {
   private Set<Role> roles = new HashSet<>();
 
   @Column(name = "linkedin_access_token", length = 1024)
+  @JsonIgnore // Phase 1 Fix: Prevent Token Leak
   private String linkedinAccessToken;
 
   @Column(name = "linkedin_token_expiry")
@@ -74,6 +81,14 @@ public class User {
 
   public void setUsername(String username) {
     this.username = username;
+  }
+
+  public String getDisplayName() {
+    return displayName;
+  }
+
+  public void setDisplayName(String displayName) {
+    this.displayName = displayName;
   }
 
   public String getEmail() {

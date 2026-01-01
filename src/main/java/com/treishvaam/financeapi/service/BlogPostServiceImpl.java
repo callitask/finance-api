@@ -9,8 +9,10 @@ import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.Category;
 import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.model.PostThumbnail;
+import com.treishvaam.financeapi.model.User; // Added Import
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.repository.CategoryRepository;
+import com.treishvaam.financeapi.repository.UserRepository; // Added Import
 import com.treishvaam.financeapi.service.ImageService.ImageMetadataDto;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -53,6 +55,9 @@ public class BlogPostServiceImpl implements BlogPostService {
 
   @Autowired private CategoryRepository categoryRepository;
   @Autowired private ImageService imageService;
+
+  // PHASE 1 FIX: Injected UserRepository to resolve Display Names
+  @Autowired private UserRepository userRepository;
 
   // NEW: Inject Materializer Service
   @Autowired private HtmlMaterializerService htmlMaterializerService;
@@ -142,8 +147,18 @@ public class BlogPostServiceImpl implements BlogPostService {
     newPost.setMetaDescription(blogPostDto.getMetaDescription());
     newPost.setKeywords(blogPostDto.getKeywords());
     newPost.setStatus(PostStatus.DRAFT);
+
+    // PHASE 1 FIX: Use Display Name if available, otherwise fallback to username
     String username = SecurityContextHolder.getContext().getAuthentication().getName();
-    newPost.setAuthor(username);
+    // Try to find user to get display name
+    Optional<User> userOpt = userRepository.findByUsername(username);
+    if (userOpt.isPresent()
+        && userOpt.get().getDisplayName() != null
+        && !userOpt.get().getDisplayName().isEmpty()) {
+      newPost.setAuthor(userOpt.get().getDisplayName());
+    } else {
+      newPost.setAuthor(username);
+    }
 
     String currentTenant = TenantContext.getTenantId();
     newPost.setTenantId(
