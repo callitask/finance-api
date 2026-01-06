@@ -97,11 +97,25 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     # Force newline to prevent variable merging
     echo "" >> "$ENV_FILE"
 
-    if infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv >> "$ENV_FILE"; then
-        echo "  > Secrets injected."
+    # CAPTURE OUTPUT TO TEMP FILE FOR VALIDATION (Fix for Garbage Injection)
+    TEMP_SECRETS=$(mktemp)
+    
+    # Run Infisical. 
+    # 1. We redirect stderr to null to avoid noise in the logic check (logs still catch it via exec above)
+    # 2. We use || true to prevent immediate crash if set -e was on (it's not, but good practice)
+    infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$TEMP_SECRETS" 2>/dev/null
+    EXIT_CODE=$?
+
+    # VALIDATION: Check if file contains interactive prompt text or is empty
+    if [ $EXIT_CODE -eq 0 ] && [ -s "$TEMP_SECRETS" ] && ! grep -qE "arrow keys|Select project|login" "$TEMP_SECRETS"; then
+        cat "$TEMP_SECRETS" >> "$ENV_FILE"
+        echo "  > Secrets injected successfully."
+        rm "$TEMP_SECRETS"
     else
-        echo "CRITICAL: Infisical fetch failed. ABORTING DEPLOYMENT to prevent crash."
-        # FIX: Exit immediately if secrets fail, preserving the current running state (if any)
+        echo "CRITICAL: Infisical fetch failed or returned interactive prompt."
+        echo "  > Possible Cause: Machine is not authenticated. Please run 'infisical login'."
+        echo "  > ABORTING DEPLOYMENT to prevent crashing production with empty/corrupt secrets."
+        rm "$TEMP_SECRETS"
         exit 1
     fi
 
