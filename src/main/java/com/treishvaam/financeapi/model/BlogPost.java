@@ -17,7 +17,8 @@ import org.hibernate.annotations.ParamDef;
 @Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
 public class BlogPost implements Serializable {
 
-  private static final long serialVersionUID = 1L;
+  // UPDATED: Increment version to force cache invalidation for older serialized objects
+  private static final long serialVersionUID = 2L;
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)

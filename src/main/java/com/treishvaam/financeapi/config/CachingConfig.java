@@ -1,14 +1,21 @@
 package com.treishvaam.financeapi.config;
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CachingConfigurer;
 import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.interceptor.CacheErrorHandler;
+import org.springframework.cache.interceptor.SimpleCacheErrorHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
@@ -20,7 +27,9 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 @Configuration
 @EnableCaching
-public class CachingConfig {
+public class CachingConfig implements CachingConfigurer {
+
+  private static final Logger logger = LoggerFactory.getLogger(CachingConfig.class);
 
   public static final String BLOG_POST_CACHE = "blogPostHtml";
   public static final String MARKET_WIDGET_CACHE = "marketWidget";
@@ -31,6 +40,11 @@ public class CachingConfig {
     // 1. Configure ObjectMapper with JavaTimeModule for LocalDateTime support
     ObjectMapper objectMapper = new ObjectMapper();
     objectMapper.registerModule(new JavaTimeModule());
+
+    // ENTERPRISE FIX: Fail Safe Deserialization
+    // This prevents crashes if the cached JSON has fields the Java class doesn't know about yet
+    objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
     // Enable polymorphic type handling so Redis knows which class to deserialize into
     objectMapper.activateDefaultTyping(
         LaissezFaireSubTypeValidator.instance,
@@ -61,5 +75,52 @@ public class CachingConfig {
         .cacheDefaults(defaultConfig)
         .withInitialCacheConfigurations(cacheConfigurations)
         .build();
+  }
+
+  /**
+   * ENTERPRISE PATTERN: Fault-Tolerant Cache Error Handler If Redis is down or data is
+   * corrupt/incompatible, we log it and treat it as a cache miss rather than crashing the request
+   * with a 500 error.
+   */
+  @Override
+  public CacheErrorHandler errorHandler() {
+    return new SimpleCacheErrorHandler() {
+      @Override
+      public void handleCacheGetError(RuntimeException exception, Cache cache, Object key) {
+        logger.warn(
+            "Cache GET failure in cache '{}' for key '{}'. Treating as Cache Miss. Error: {}",
+            cache.getName(),
+            key,
+            exception.getMessage());
+        // We catch the exception and do nothing, effectively treating it as a miss.
+      }
+
+      @Override
+      public void handleCachePutError(
+          RuntimeException exception, Cache cache, Object key, Object value) {
+        logger.warn(
+            "Cache PUT failure in cache '{}' for key '{}'. Error: {}",
+            cache.getName(),
+            key,
+            exception.getMessage());
+      }
+
+      @Override
+      public void handleCacheEvictError(RuntimeException exception, Cache cache, Object key) {
+        logger.warn(
+            "Cache EVICT failure in cache '{}' for key '{}'. Error: {}",
+            cache.getName(),
+            key,
+            exception.getMessage());
+      }
+
+      @Override
+      public void handleCacheClearError(RuntimeException exception, Cache cache) {
+        logger.warn(
+            "Cache CLEAR failure in cache '{}'. Error: {}",
+            cache.getName(),
+            exception.getMessage());
+      }
+    };
   }
 }
