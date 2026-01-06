@@ -35,15 +35,14 @@ public class CachingConfig implements CachingConfigurer {
   public static final String MARKET_WIDGET_CACHE = "marketWidget";
   public static final String QUOTES_BATCH_CACHE = "quotesBatch";
 
-  @Autowired
-  private RedisConnectionFactory redisConnectionFactory;
+  @Autowired private RedisConnectionFactory redisConnectionFactory;
 
   @Override
   public CacheManager cacheManager() {
     // 1. Configure ObjectMapper with JavaTimeModule for LocalDateTime support
     ObjectMapper objectMapper = new ObjectMapper();
     objectMapper.registerModule(new JavaTimeModule());
-    
+
     // ENTERPRISE FIX: Fail Safe Deserialization
     objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
@@ -92,7 +91,8 @@ public class CachingConfig implements CachingConfigurer {
       }
 
       @Override
-      public void handleCachePutError(RuntimeException exception, Cache cache, Object key, Object value) {
+      public void handleCachePutError(
+          RuntimeException exception, Cache cache, Object key, Object value) {
         logger.warn(
             "Cache PUT failure in cache '{}' for key '{}'. Error: {}",
             cache.getName(),
