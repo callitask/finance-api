@@ -65,7 +65,6 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     echo "[System] Syncing files with origin/$TARGET_BRANCH..."
     
     # ROBUST SWITCHING: Create branch if missing, or force switch
-    # This fixes the issue where 'checkout' fails and 'reset' corrupts the current branch
     if git rev-parse --verify "$TARGET_BRANCH" >/dev/null 2>&1; then
         git checkout "$TARGET_BRANCH"
     else
@@ -101,7 +100,9 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     if infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv >> "$ENV_FILE"; then
         echo "  > Secrets injected."
     else
-        echo "CRITICAL: Infisical fetch failed. Service restart may fail."
+        echo "CRITICAL: Infisical fetch failed. ABORTING DEPLOYMENT to prevent crash."
+        # FIX: Exit immediately if secrets fail, preserving the current running state (if any)
+        exit 1
     fi
 
     # --- 5. PERMISSION REPAIR (CRITICAL FIX FOR NON-ROOT CONTAINER) ---
