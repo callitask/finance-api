@@ -12,8 +12,6 @@ This document provides a comprehensive reference for the REST API surface of the
 ### Blog Post Controller (`BlogPostController`)
 **Base Path**: `/posts`
 
-**Concurrency Note:** All update operations (`PUT`) implement **Optimistic Locking**. The client *must* send the `version` field received from the last `GET` request. If the server's version is higher than the client's, a `409 Conflict` error is returned.
-
 | Method | Endpoint | Role | Description |
 | :--- | :--- | :--- | :--- |
 | **GET** | `/` | Public | List published posts with pagination. |
@@ -52,6 +50,14 @@ This document provides a comprehensive reference for the REST API surface of the
 | :--- | :--- | :--- | :--- |
 | **POST** | `/upload` | **ADMIN** | Upload an image/file to MinIO. **Security:** Validates MIME type via **Apache Tika** and streams to disk to prevent OOM. |
 | **GET** | `/{filename}` | Public | Serve the file content (if not served directly via Nginx). |
+
+### Contact Controller (`ContactController`)
+**Base Path**: `/contact`
+
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **POST** | `/` | Public | Submit a contact form. Persists message to database. |
+| **GET** | `/info` | Public | Get contact information (email, phone, address). |
 
 ## 2. Market Data & News
 
@@ -92,6 +98,7 @@ This document provides a comprehensive reference for the REST API surface of the
 
 | Method | Endpoint | Role | Description |
 | :--- | :--- | :--- | :--- |
+| **GET** | `/` | **ADMIN** | Get historical audience data (filterable by date, country, region, city, OS, etc.). |
 | **GET** | `/visits` | **ADMIN** | Get daily/monthly visit counts. |
 | **GET** | `/posts/top` | **ADMIN** | Get most viewed posts. |
 
@@ -100,7 +107,7 @@ This document provides a comprehensive reference for the REST API surface of the
 
 | Method | Endpoint | Role | Description |
 | :--- | :--- | :--- | :--- |
-| **GET** | `/` | Public | Simple "UP" status for Docker/Load Balancer probes. |
+| **GET** | `/` | Public | Health check endpoint. |
 
 ### API Status Controller (`ApiStatusController`)
 **Base Path**: `/status`
@@ -120,56 +127,16 @@ This document provides a comprehensive reference for the REST API surface of the
 | **POST** | `/reindex` | **ADMIN** | Rebuild the Elasticsearch index from the Database. |
 
 ### Sitemap Controller (`SitemapController`)
-**Base Path**: `/sitemaps` (Root level in some configs)
+**Base Path**: `/`
 
 | Method | Endpoint | Role | Description |
 | :--- | :--- | :--- | :--- |
-| **GET** | `/sitemap.xml` | Public | Main sitemap index. |
-| **GET** | `/posts.xml` | Public | Sitemap for blog posts. |
-| **GET** | `/news.xml` | Public | Google News compatible sitemap. |
+| **GET** | `/sitemap.xml` | Public | Master sitemap index (XML). |
+| **GET** | `/sitemap-news.xml` | Public | Google News sitemap (last 48h, XML). |
+| **GET** | `/sitemaps/static.xml` | Public | Sitemap for static pages (XML). |
+| **GET** | `/sitemaps/categories.xml` | Public | Sitemap for categories (XML). |
+| **GET** | `/sitemaps/posts-{page}.xml` | Public | Sharded post sitemaps (XML, paginated). |
 
-## 5. Security & Authentication
+---
 
-### Auth Controller (`AuthController`)
-**Base Path**: `/auth`
-
-*Note: Most authentication logic is handled by Keycloak. These endpoints exist for specific frontend helper flows or legacy support.*
-
-| Method | Endpoint | Role | Description |
-| :--- | :--- | :--- | :--- |
-| **GET** | `/user/me` | Authenticated | Get details of the currently logged-in user (from JWT). |
-| **POST** | `/logout` | Authenticated | Trigger logout (Frontend should also clear tokens). |
-
-### Internal Lock (The Fort Knox Protocol)
-Certain high-risk internal endpoints (e.g., specific batch operations or inter-service POST requests) are protected by the **Internal Secret Filter**.
-* **Header Required**: `X-Internal-Secret`
-* **Value**: Must match the `APP_SECURITY_INTERNAL_SECRET` injected via Infisical.
-* **Effect**: Requests without this header on protected internal routes will be rejected `403 Forbidden` regardless of the user's JWT roles.
-
-## Request & Response Formats
-
-### Standard Success Response
-```json
-{
-  "status": "SUCCESS",
-  "data": { ... },
-  "timestamp": "2023-10-27T10:00:00Z"
-}
-```
-
-### Standard Error Response (Conflict Example)
-```json
-{
-  "status": "ERROR",
-  "message": "Optimistic locking failure...",
-  "errorCode": "CONFLICT",
-  "timestamp": "2023-10-27T10:00:00Z"
-}
-```
-
-## Rate Limiting Headers
-Public endpoints are protected by `RateLimitingFilter`.
-**Note:** In the event of a cache infrastructure outage (e.g., Redis down), the system implements a **"Fail-Open" Strategy** to maintain availability, and these headers may temporarily be omitted.
-
-* `X-RateLimit-Remaining`: Requests left in the current window.
-* `X-RateLimit-Retry-After`: Seconds to wait if blocked (HTTP 429).
+*This document is auto-synchronized with the codebase as of January 2026.*

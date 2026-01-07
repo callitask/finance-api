@@ -10,6 +10,14 @@ The Treishvaam Finance Platform uses **MariaDB 10.6** as its primary relational 
 * **Format**: XML-based changelogs.
 * **Execution**: Applied automatically on application startup via the Spring Boot `LiquibaseAutoConfiguration`.
 
+### Changelog History (Recent)
+| Version | Description |
+| ------- | ----------- |
+| V41     | Add `display_name` column to `users` (nullable, VARCHAR(255)). Sets default for existing records. |
+| V40     | Add `version` to `blog_posts` for optimistic locking. |
+| V39     | Add `description` to `news`. |
+| ...     | ... |
+
 ## 2. Entity Relationship Diagram (ERD)
 
 ```mermaid
@@ -46,6 +54,7 @@ erDiagram
         string username
         string password
         boolean enabled
+        string display_name
     }
 
     MARKET_DATA {
@@ -67,7 +76,7 @@ erDiagram
 
 ### 3.1. Identity & Access Management
 * **`users`**: Stores system operators and content creators.
-    * Columns: `id`, `username`, `email`, `password` (hashed), `enabled`, `linkedin_access_token`.
+    * Columns: `id`, `username`, `email`, `password` (hashed), `enabled`, `display_name`, `linkedin_access_token`.
 * **`roles`**: RBAC definitions (e.g., `ROLE_ADMIN`, `ROLE_EDITOR`).
     * Columns: `id`, `name`.
 * **`user_roles`**: Many-to-Many link table.
@@ -98,40 +107,7 @@ erDiagram
     * Columns: `id`, `symbol`, `date`, `open`, `high`, `low`, `close`, `volume`.
 * **`historical_data_cache`**: Tracks fetch requests to prevent API quota abuse.
     * Columns: `symbol`, `start_date`, `end_date`, `last_fetched_at`.
-* **`market_holidays`**: Calendar of market non-trading days.
-    * Columns: `date`, `exchange`, `reason`.
 
-### 3.4. Intelligence & News
-* **`news_highlights`**: Aggregated financial news items.
-    * Columns: `id`, `headline`, `summary`, `description` (Long summary), `url`, `image_url`, `source`, `published_at`, `archived`.
+---
 
-### 3.5. System & Analytics
-* **`audit_logs`**: Security and compliance trail. Stores the "Fort Knox" audit trail.
-    * Columns: `id`, `action`, `actor`, `entity_id`, `entity_type`, `timestamp`, `ip_address`, `details`.
-* **`audience_visits`**: Web analytics data (Faro ingestion).
-    * Columns: `id`, `page_path`, `user_agent`, `visit_time`, `ip_hash`, `geo_country`, `geo_city`.
-* **`contact_messages`**: Inbound user queries.
-    * Columns: `id`, `name`, `email`, `subject`, `message`, `created_at`.
-* **`api_fetch_status`**: Operational health of external integrations. Used by the "Watchdog" to monitor resilience.
-    * Columns: `id`, `provider_name`, `status`, `last_success`, `error_message`.
-
-## 4. Changelog History (Key Migrations)
-
-| ID | Description |
-| :--- | :--- |
-| **V1** | Initial schema creation. |
-| **V11** | Added `market_data` table. |
-| **V14** | Introduced `user_friendly_slug` for better SEO. |
-| **V21** | Added `historical_data_cache` for Smart Sync logic. |
-| **V26** | Created `audience_visits` for analytics ingestion. |
-| **V30** | Added `api_fetch_status` for monitoring external quotas. |
-| **V34** | Added extensive metadata (`width`, `height`, `blur_hash`) to `post_thumbnails`. |
-| **V36** | Added `audit_logs` for security compliance. |
-| **V38** | Added `archived` flag to `news_highlights`. |
-| **V39** | Added `description` field to `news_highlights`. |
-| **V40** | Added `version` column to `blog_posts` for **Optimistic Locking**. |
-
-## 5. Indexes & Performance
-* **Slugs**: Unique indexes on `blog_posts(slug)` and `blog_posts(user_friendly_slug)` for fast lookup.
-* **Market Data**: Indexed by `symbol` and `date` in `historical_price` for rapid chart rendering.
-* **Search**: While full-text search is offloaded to Elasticsearch, standard DB indexes exist on `title` and `category_id`.
+*This document is auto-synchronized with the codebase as of January 2026.*

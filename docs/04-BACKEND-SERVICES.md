@@ -105,70 +105,33 @@ This service implements the "Hybrid Static Site Generation" logic.
     3.  **Upload**: Streams the generated HTML string directly to MinIO (bucket: `treish-public`) with `Cache-Control` headers.
 * **Async Execution**: Runs in a separate thread (`@Async`) to avoid slowing down the Admin UI save operation.
 
-## 4. Search Service (`SearchController` & Repositories)
+## 4. Data Initialization (`DataInitializer`)
 
-Provides high-performance full-text search capabilities using **Elasticsearch**.
+The `DataInitializer` is a startup component responsible for bootstrapping the system with essential roles and an admin user if they do not already exist. It runs automatically on application startup (except in test profile) and depends on Liquibase migrations being complete.
 
-* **Document**: `PostDocument` mirrors the `BlogPost` entity but is optimized for indexing.
-* **Sync Mechanism**:
-    * **Real-time**: When a post is published/updated in MariaDB, an event is fired.
-    * **Listener**: `MessageListener` catches the event and updates the Elasticsearch index via `PostSearchRepository`.
-    * **Re-indexing**: `AdminActionsController` provides a `/reindex` endpoint to wipe and rebuild the Elasticsearch index from the primary database if data becomes inconsistent.
+- **Roles Bootstrapping:**
+  - Ensures `ROLE_ADMIN` and `ROLE_USER` exist in the `roles` table. If missing, inserts them.
+- **Admin User Creation:**
+  - Reads admin username, email, and password from application properties (`app.admin.*`).
+  - If no user with the admin username exists, creates a new user with encoded password and assigns the `ROLE_ADMIN` role.
+- **Security:**
+  - Passwords are securely hashed using the configured `PasswordEncoder`.
+  - No-op if the admin user already exists.
 
-## 5. Media & File Management
+## 5. Market Data Scheduler (`MarketDataScheduler`)
 
-### 5.1. Storage (`FileStorageService`)
-* **Provider**: MinIO (S3 Compatible).
-* **Operations**: Handles `putObject` for uploads and presigned URL generation for private access (if configured).
-* **Static Offloading**: While uploads go through Java (for security validation), **READ** requests (`/api/uploads/**`) are intercepted by Nginx and served directly from MinIO, bypassing the Java application layer entirely for zero-latency delivery.
+The `MarketDataScheduler` automates periodic market data ingestion and synchronization using Spring’s `@Scheduled` annotation.
 
-### 5.2. Image Processing (`ImageService`)
-This service acts as the **Source of Truth** for image quality and security.
+- **US Market Movers Fetch:**
+  - **Schedule:** Runs Monday–Friday at 10 PM UTC (after US market close).
+  - **Action:** Calls `marketDataService.fetchAndStoreMarketData("US", "SCHEDULED")` to update top gainers/losers.
+- **Global Market Data Sync:**
+  - **Schedule:** Runs every 4 hours (00:00, 04:00, 08:00, etc. UTC).
+  - **Action:** Triggers the Python data engine for global indices and historical data via `marketDataService.runPythonHistoryAndQuoteUpdate("SCHEDULED")`.
+  - **Notes:** The Python script uses smart incremental sync logic, so frequent runs are safe and efficient.
+- **Error Handling:**
+  - Logs errors to the console if any scheduled task fails, but does not interrupt other scheduled executions.
 
-* **Secure Pipeline**:
-    * **Input**: Uses `Files.createTempFile` to handle uploads, ensuring **Zero RAM Allocation** for incoming streams.
-    * **Validation**: **Apache Tika** performs strict MIME detection to reject spoofed files (e.g., malware renamed as `.jpg`).
-* **Java 21 Virtual Threads**: Utilizes `Executors.newVirtualThreadPerTaskExecutor()` to process image resizing tasks in parallel.
-* **Quality**:
-    * **Output**: Generates optimized WebP variants (Master, Desktop, Tablet, Mobile).
-    * **Source**: Frontend sends raw PNGs; server handles all compression to avoid generation loss.
-* **BlurHash**: Generates a compact string representation for "blur-up" loading effects.
+---
 
-## 6. Event-Driven Architecture (RabbitMQ)
-
-The system uses an internal event bus to decouple services.
-
-* **Publisher**: `MessagePublisher` sends `EventMessage` objects to the `internal-events` exchange.
-* **Listener**: `MessageListener` subscribes to specific queues.
-* **Use Cases**:
-    * **Search Indexing**: Triggered when a post is created/updated.
-    * **Audit Logging**: Asynchronous recording of user actions.
-    * **Cache Eviction**: Clearing Redis keys when master data changes.
-    * **Sitemap Regeneration**: Triggered after publication to ensure Googlebot sees fresh URLs.
-
-## 7. External Integrations
-
-### 7.1. LinkedIn Integration (`LinkedInService`)
-* **Auth**: Manages OAuth2 tokens for LinkedIn users.
-* **Sharing**: Allows Admins to share a published blog post directly to their LinkedIn profile or Company Page.
-* **Flow**: Constructs a rich media share payload (Title, Thumbnail, Link) and posts to the LinkedIn API.
-
-### 7.2. Analytics (`AnalyticsService`)
-* **Ingestion**: Records `AudienceVisit` data (IP hash, User Agent, Page URL).
-* **Aggregation**: Provides aggregated stats (Daily Visits, Top Posts) for the Admin Dashboard.
-
-## 8. SEO & Sitemaps (`SitemapService`)
-
-* **Dynamic Generation**: XML sitemaps are generated on-the-fly based on the current database state.
-* **Endpoints**:
-    * `/sitemap.xml`: Main index.
-    * `/sitemap-news.xml`: Google News specific format (includes `<news:publication_date>`).
-    * `/feed.xml`: RSS 2.0 feed for aggregators.
-* **Edge Integration**: These endpoints are primarily consumed by the Cloudflare Worker, which caches and serves them to bots with correct headers.
-
-## 9. Fort Knox Security Implementation
-
-The Service Layer integrates directly with the Fort Knox Security Suite.
-
-* **Internal Locking**: The `InternalSecretFilter` protects POST services by verifying the `X-Internal-Secret` against the injected environment variable. This ensures that even if an attacker bypasses the frontend, they cannot invoke critical write operations without the key.
-* **Fail-Open Logic**: In `RateLimitingFilter.java`, a `try-catch` block specifically wraps the Redis bucket logic. If Redis throws a connection exception, the filter logs an error but **allows the request to proceed**. This architectural decision favors Platform Availability over Security during catastrophic infrastructure failures.
+*This document is auto-synchronized with the codebase as of January 2026.*
