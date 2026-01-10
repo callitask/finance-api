@@ -8,6 +8,7 @@ export default {
     // Fallbacks provided only for safety; these should come from Cloudflare Variables.
     const BACKEND_URL = env.BACKEND_URL || "https://backend.treishvaamgroup.com";
     const FRONTEND_URL = env.FRONTEND_URL || "https://treishfin.treishvaamgroup.com";
+    const PARENT_ORG_URL = "https://treishvaamgroup.com";
 
     const backendConfig = new URL(BACKEND_URL);
 
@@ -71,7 +72,6 @@ export default {
     // HELPER: SAFE JSON INJECTION (Prevents XSS in Preloaded State)
     // =================================================================================
     const safeStringify = (data) => {
-      // FIX: Strict check to prevent "Cannot read properties of undefined" crash
       if (data === undefined || data === null) return 'null';
       return JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
     };
@@ -228,16 +228,83 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
     // 7. SEO INTELLIGENCE & EDGE HYDRATION
     // =================================================================================
     
-    // SCENARIO A: HOMEPAGE
+    // SCENARIO A: HOMEPAGE (UPDATED: Added Image to Parent Org)
     if (url.pathname === "/" || url.pathname === "") {
-      const pageTitle = "Treishfin · Treishvaam Finance | Financial News & Analysis";
-      const pageDesc = "Stay ahead with the latest financial news, market updates, and expert analysis from Treishvaam Finance.";
+      const pageTitle = "Treishvaam Finance (TreishFin) | Global Financial Analysis & News";
+      const pageDesc = "Treishvaam Finance (TreishFin) provides real-time market data, financial news, and expert analysis. A subsidiary of Treishvaam Group.";
       
       const homeSchema = {
         "@context": "https://schema.org",
-        "@type": "WebSite",
+        "@type": "FinancialService",
         "name": "Treishvaam Finance",
+        "alternateName": "TreishFin",
         "url": FRONTEND_URL + "/",
+        "logo": "https://treishvaamgroup.com/logo512.webp",
+        "image": "https://treishvaamgroup.com/logo512.webp",
+        "description": pageDesc,
+        "priceRange": "$$",
+        "telephone": "+91 81785 29633",
+        "email": "treishfin.treishvaamgroup@gmail.com",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "Electronic City",
+          "addressLocality": "Bangalore",
+          "addressRegion": "Karnataka",
+          "postalCode": "560100",
+          "addressCountry": "IN"
+        },
+        "sameAs": [
+            "https://www.linkedin.com/company/treishvaamfinance",
+            "https://twitter.com/treishvaamfinance",
+            "https://x.com/treishvaamfinance",
+            "https://www.instagram.com/treishvaamfinance"
+        ],
+        "contactPoint": {
+          "@type": "ContactPoint",
+          "contactType": "customer service",
+          "telephone": "+91 81785 29633",
+          "email": "treishfin.treishvaamgroup@gmail.com",
+          "areaServed": "Global",
+          "availableLanguage": "English"
+        },
+        "parentOrganization": {
+          "@type": "Corporation",
+          "name": "Treishvaam Group",
+          "url": PARENT_ORG_URL,
+          "email": "treishvaamgroup@gmail.com",
+          "telephone": "+91 81785 29633",
+          "logo": "https://treishvaamgroup.com/logo512.webp",
+          // ADDED: Fixes the missing image warning
+          "image": "https://treishvaamgroup.com/logo512.webp", 
+          "sameAs": [
+            "https://www.linkedin.com/company/treishvaamgroup",
+            "https://twitter.com/treishvaamgroup",
+            "https://x.com/treishvaamgroup",
+            "https://www.instagram.com/treishvaamgroup"
+          ],
+          "address": {
+            "@type": "PostalAddress",
+            "streetAddress": "Electronic City",
+            "addressLocality": "Bangalore",
+            "addressRegion": "Karnataka",
+            "postalCode": "560100",
+            "addressCountry": "IN"
+          }
+        },
+        "founder": {
+          "@type": "Person",
+          "name": "Amitsagar Kandpal",
+          "jobTitle": "Founder & Chairman",
+          "email": "callitask@gmail.com",
+          "telephone": "+91 81785 29633",
+          "url": "https://treishvaamgroup.com/",
+          "sameAs": [
+              "https://www.linkedin.com/in/amitsagarkandpal",
+              "https://twitter.com/treishvaam",
+              "https://x.com/treishvaam",
+              "https://www.instagram.com/treishvaam"
+          ]
+        },
         "potentialAction": {
           "@type": "SearchAction",
           "target": `${FRONTEND_URL}/?q={search_term_string}`,
@@ -264,7 +331,7 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
     const staticPages = {
       "/about": {
         title: "About Us | Treishfin",
-        description: "Learn about Treishvaam Finance, our mission to democratize financial literacy, and our founder Amitsagar Kandpal (Treishvaam).",
+        description: "Learn about Treishvaam Finance, our mission to democratize financial literacy, and our founder Amitsagar Kandpal.",
         image: `${FRONTEND_URL}/logo.webp`
       },
       "/vision": {
@@ -290,6 +357,10 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
         "publisher": {
           "@type": "Organization",
           "name": "Treishvaam Finance",
+          "parentOrganization": {
+            "@type": "Corporation",
+            "name": "Treishvaam Group"
+          },
           "logo": { "@type": "ImageObject", "url": `${FRONTEND_URL}/logo.webp` }
         }
       };
@@ -354,15 +425,12 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
         if (!apiResp.ok) return addSecurityHeaders(response);
         const post = await apiResp.json();
 
-        // PHASE 1 FIX: Fallback Image Logic (Fixes GSC Schema Error)
         const imageUrl = post.coverImageUrl 
             ? `${BACKEND_URL}/api/uploads/${post.coverImageUrl}.webp`
             : `${FRONTEND_URL}/logo.webp`;
 
-        // PHASE 1 FIX: Humanized Author Name (Removes UUIDs)
         const authorName = post.authorName || post.author || "Treishvaam Team";
 
-        // Schema.org Data
         const schema = {
              "@context": "https://schema.org",
              "@type": "NewsArticle",
@@ -374,7 +442,15 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
                  "@type": "Person",
                  "name": authorName,
                  "url": `${FRONTEND_URL}/about`
-             }]
+             }],
+             "publisher": {
+                 "@type": "Organization",
+                 "name": "Treishvaam Finance",
+                 "logo": {
+                   "@type": "ImageObject",
+                   "url": `${FRONTEND_URL}/logo.webp`
+                 }
+             }
         };
 
         const rewritten = new HTMLRewriter()
@@ -416,7 +492,6 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
         const pageTitle = `${quote.name} (${quote.ticker}) Price, News & Analysis | Treishfin`;
         const pageDesc = `Real-time stock price for ${quote.name} (${quote.ticker}). Market cap: ${quote.marketCap}. Detailed financial analysis on Treishvaam Finance.`;
         
-        // Phase 1 Fix: Fallback for Logo
         const logoUrl = quote.logoUrl || `${FRONTEND_URL}/logo.webp`;
 
         const schema = {
