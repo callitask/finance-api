@@ -5,7 +5,7 @@ export default {
     // =================================================================================
     // 0. CONFIGURATION (Zero Trust / Environment Agnostic)
     // =================================================================================
-    // Fallbacks provided only for safety; these should come from Cloudflare Variables.
+    // Cloudflare Variables are authoritative. Fallbacks provided for local dev safety.
     const BACKEND_URL = env.BACKEND_URL || "https://backend.treishvaamgroup.com";
     const FRONTEND_URL = env.FRONTEND_URL || "https://treishfin.treishvaamgroup.com";
     const PARENT_ORG_URL = "https://treishvaamgroup.com";
@@ -228,7 +228,7 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
     // 7. SEO INTELLIGENCE & EDGE HYDRATION
     // =================================================================================
     
-    // SCENARIO A: HOMEPAGE (UPDATED: Added Image to Parent Org)
+    // SCENARIO A: HOMEPAGE
     if (url.pathname === "/" || url.pathname === "") {
       const pageTitle = "Treishvaam Finance (TreishFin) | Global Financial Analysis & News";
       const pageDesc = "Treishvaam Finance (TreishFin) provides real-time market data, financial news, and expert analysis. A subsidiary of Treishvaam Group.";
@@ -274,7 +274,6 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
           "email": "treishvaamgroup@gmail.com",
           "telephone": "+91 81785 29633",
           "logo": "https://treishvaamgroup.com/logo512.webp",
-          // ADDED: Fixes the missing image warning
           "image": "https://treishvaamgroup.com/logo512.webp", 
           "sameAs": [
             "https://www.linkedin.com/company/treishvaamgroup",
