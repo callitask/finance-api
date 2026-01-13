@@ -27,12 +27,11 @@ import org.springframework.web.multipart.MultipartFile;
 /**
  * AI-CONTEXT: Purpose: Handles image ingestion, security scanning, and multi-format resizing. *
  * ------------------------------------------------------------------ CRITICAL OPTIMIZATION HISTORY:
- * 1. PAYLOAD REDUCTION (2026-01-13): - Previous Quality: 0.90 (Master), 0.80 (Mobile). Result:
- * 666KB files (Too Heavy). - New Quality: 0.85 (Master), 0.65 (Mobile). Result: ~80KB files
- * (100/100 Score). - Rationale: WebP at 0.65 is visually indistinguishable for news thumbnails but
- * 5x smaller. ------------------------------------------------------------------ Non-Negotiables: -
- * Must use Virtual Threads for parallel resizing. - Must use Tika for security detection. - Must
- * produce WebP format for all variants.
+ * 1. PAYLOAD REDUCTION (ECO-MODE): - Previous settings (0.85/0.65) still resulted in ~600KB
+ * payloads for complex images. - NEW SETTINGS: - Mobile (480w): 0.50 (Aggressive) -> Target <50KB -
+ * Tablet (800w): 0.60 (Moderate) -> Target <100KB - Desktop (1200w): 0.70 (Balanced) - Master
+ * (1920w): 0.75 (Backup) - Rationale: News thumbnails prioritize load speed over pixel-perfect
+ * fidelity. ------------------------------------------------------------------
  */
 @Service
 public class ImageService {
@@ -139,22 +138,21 @@ public class ImageService {
       // 4. Java 21 Virtual Threads for High Concurrency Resizing
       final Path sourcePath = tempFile;
 
-      // AI-NOTE: TUNED COMPRESSION SETTINGS FOR 100/100 PERFORMANCE SCORE
-      // Master: 0.90 -> 0.85 (High Res Backup)
-      // Desktop: 0.85 -> 0.75 (Balanced)
-      // Tablet: 0.80 -> 0.70 (Aggressive)
-      // Mobile: 0.80 -> 0.65 (Max Compression for 4G networks)
+      // AI-NOTE: AGGRESSIVE COMPRESSION FOR 90+ SCORE
       try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
         var futures =
             new CompletableFuture<?>[] {
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(sourcePath, 1920, masterName, 0.85), executor),
+                  () -> uploadResizedSafe(sourcePath, 1920, masterName, 0.75), executor), // Backup
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(sourcePath, 1200, desktopName, 0.75), executor),
+                  () -> uploadResizedSafe(sourcePath, 1200, desktopName, 0.70),
+                  executor), // Desktop
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(sourcePath, 800, tabletName, 0.70), executor),
+                  () -> uploadResizedSafe(sourcePath, 800, tabletName, 0.60),
+                  executor), // Tablet/Hero
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(sourcePath, 480, mobileName, 0.65), executor)
+                  () -> uploadResizedSafe(sourcePath, 480, mobileName, 0.50),
+                  executor) // Mobile/Thumb
             };
 
         CompletableFuture.allOf(futures).join();
