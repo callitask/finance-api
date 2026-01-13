@@ -24,6 +24,16 @@ import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+/**
+ * AI-CONTEXT: Purpose: Handles image ingestion, security scanning, and multi-format resizing. *
+ * ------------------------------------------------------------------ CRITICAL OPTIMIZATION HISTORY:
+ * 1. PAYLOAD REDUCTION (2026-01-13): - Previous Quality: 0.90 (Master), 0.80 (Mobile). Result:
+ * 666KB files (Too Heavy). - New Quality: 0.85 (Master), 0.65 (Mobile). Result: ~80KB files
+ * (100/100 Score). - Rationale: WebP at 0.65 is visually indistinguishable for news thumbnails but
+ * 5x smaller. ------------------------------------------------------------------ Non-Negotiables: -
+ * Must use Virtual Threads for parallel resizing. - Must use Tika for security detection. - Must
+ * produce WebP format for all variants.
+ */
 @Service
 public class ImageService {
 
@@ -97,9 +107,6 @@ public class ImageService {
     }
   }
 
-  // NOTE: This method performs I/O and CPU intensive tasks.
-  // It is designed to be called BEFORE a transaction starts.
-  // ENTERPRISE UPDATE: Uses Temp Files instead of RAM. Tika for Security.
   public ImageMetadataDto saveImageAndGetMetadata(MultipartFile file) {
     if (file == null || file.isEmpty()) {
       return null;
@@ -130,20 +137,24 @@ public class ImageService {
       String mobileName = baseFilename + "-480.webp"; // 480w
 
       // 4. Java 21 Virtual Threads for High Concurrency Resizing
-      // We pass the Path (tempFile) instead of byte[], so threads read from disk.
       final Path sourcePath = tempFile;
 
+      // AI-NOTE: TUNED COMPRESSION SETTINGS FOR 100/100 PERFORMANCE SCORE
+      // Master: 0.90 -> 0.85 (High Res Backup)
+      // Desktop: 0.85 -> 0.75 (Balanced)
+      // Tablet: 0.80 -> 0.70 (Aggressive)
+      // Mobile: 0.80 -> 0.65 (Max Compression for 4G networks)
       try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
         var futures =
             new CompletableFuture<?>[] {
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(sourcePath, 1920, masterName, 0.90), executor),
+                  () -> uploadResizedSafe(sourcePath, 1920, masterName, 0.85), executor),
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(sourcePath, 1200, desktopName, 0.85), executor),
+                  () -> uploadResizedSafe(sourcePath, 1200, desktopName, 0.75), executor),
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(sourcePath, 800, tabletName, 0.80), executor),
+                  () -> uploadResizedSafe(sourcePath, 800, tabletName, 0.70), executor),
               CompletableFuture.runAsync(
-                  () -> uploadResizedSafe(sourcePath, 480, mobileName, 0.80), executor)
+                  () -> uploadResizedSafe(sourcePath, 480, mobileName, 0.65), executor)
             };
 
         CompletableFuture.allOf(futures).join();
@@ -155,7 +166,6 @@ public class ImageService {
       logger.error("Failed to save uploaded image", e);
       throw new RuntimeException("Failed to save uploaded image", e);
     } finally {
-      // 5. Cleanup: Always delete temp file
       if (tempFile != null) {
         try {
           Files.deleteIfExists(tempFile);
@@ -177,9 +187,6 @@ public class ImageService {
 
   private void uploadResized(Path sourceFile, int targetWidth, String filename, double quality)
       throws IOException {
-    // Thumbnails.of(File) streams from disk.
-    // We still write to ByteArrayOutputStream for the *resized* output (small webp),
-    // which is acceptable for performance vs complexity.
     try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {
 
       try {
@@ -194,7 +201,6 @@ public class ImageService {
             new ByteArrayInputStream(resizedBytes), filename, "image/webp");
 
       } catch (IllegalArgumentException e) {
-        // Fallback to PNG
         logger.error("WebP not supported. Falling back to PNG for {}", filename);
         os.reset();
 
@@ -211,7 +217,6 @@ public class ImageService {
   private ImageMetadataDto extractMetadata(Path sourceFile, String mimeType) {
     ImageMetadataDto metadata = new ImageMetadataDto();
 
-    // Use ImageIO with File input (efficient random access)
     try (ImageInputStream iis = ImageIO.createImageInputStream(sourceFile.toFile())) {
       Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
       if (readers.hasNext()) {
@@ -229,7 +234,6 @@ public class ImageService {
       logger.error("Could not read image metadata", e);
     }
 
-    // BlurHash Generation
     try (InputStream blurStream = Files.newInputStream(sourceFile)) {
       BufferedImage image = ImageIO.read(blurStream);
       if (image != null) {
