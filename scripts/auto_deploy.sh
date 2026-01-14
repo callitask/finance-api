@@ -1,13 +1,47 @@
 #!/bin/bash
 
 # ==============================================================================
-# TREISHVAAM FINANCE - ENTERPRISE WATCHDOG (AUTO DEPLOY)
+# AI-CONTEXT:
+#
+# Purpose:
+#   - Automated deployment watchdog that monitors Git branches.
+#   - Handles self-healing, secret injection (Infisical), and service restarts.
+#
+# Scope:
+#   - Infrastructure orchestration, Permission management, Docker lifecycle.
+#   - Must NEVER handle application logic, only ops.
+#
+# Critical Dependencies:
+#   - Docker Compose
+#   - Git
+#   - Infisical CLI
+#   - Nginx (for reload triggers)
+#
+# Security Constraints:
+#   - Secrets must never be persisted to disk (Flash & Wipe strategy).
+#   - .env file is transient.
+#
+# Non-Negotiables:
+#   - Must run every minute via cron.
+#   - Must handle permission errors gracefully.
+#
+# Change Intent:
+#   - Hardened permission handling and Nginx reload strategy to fix 404s/deployment stalls.
+#
+# Future AI Guidance:
+#   - Do not remove the permission fix (sudo chown) without verifying non-root container user mapping.
+#
+# IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+#   - ADDED:
+#     • Initial deployment logic
+#   - EDITED:
+#     • Added Pre-Flight Permission Fix (sudo chown) to prevent Git lockouts.
+#     • Upgraded Nginx restart to 'force-recreate' to guarantee config reload.
+#     • Reason: Fix 404s caused by stale Nginx config and permission denied errors.
 # ==============================================================================
-# Role: 
-#   1. Watches Git for infrastructure/config changes.
-#   2. Auto-selects the most recent branch (main vs staging vs develop).
-#   3. Updates the server files (Self-Healing).
-#   4. Injects secrets securely (Flash & Wipe) to restart services if needed.
+
+# ==============================================================================
+# TREISHVAAM FINANCE - ENTERPRISE WATCHDOG (AUTO DEPLOY)
 # ==============================================================================
 
 # --- Configuration ---
@@ -25,6 +59,16 @@ cd "$PROJECT_DIR" || { echo "CRITICAL: Could not find project directory $PROJECT
 
 # Start Logging
 exec > >(tee -a "$LOG_FILE") 2>&1
+
+# --- 0. PRE-FLIGHT PERMISSION FIX (CRITICAL) ---
+# Prevents "Permission Denied" during git operations if files were touched by root/docker
+if command -v sudo >/dev/null 2>&1; then
+    # Only run if we are not root but sudo is available
+    if [ "$EUID" -ne 0 ]; then
+        echo "[System] Fixing file permissions..."
+        sudo chown -R $USER:$USER .
+    fi
+fi
 
 # --- 1. BRANCH INTELLIGENCE ---
 # Objective: Find which branch was updated most recently (highest Unix timestamp)
@@ -101,8 +145,6 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     TEMP_SECRETS=$(mktemp)
     
     # Run Infisical. 
-    # 1. We redirect stderr to null to avoid noise in the logic check (logs still catch it via exec above)
-    # 2. We use || true to prevent immediate crash if set -e was on (it's not, but good practice)
     infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$TEMP_SECRETS" 2>/dev/null
     EXIT_CODE=$?
 
@@ -138,9 +180,10 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     sleep 10
     
     # D. CONDITIONAL RESTARTS
+    # IMPROVED: Force recreate nginx to ensure config volume is refreshed
     if echo "$CHANGED_FILES" | grep -qE "^nginx/"; then
-        echo "[Config] Nginx configuration changed. Restarting..."
-        docker restart treishvaam-nginx
+        echo "[Config] Nginx configuration changed. Force-Reloading..."
+        docker compose up -d --force-recreate --no-deps nginx
     fi
 
     if echo "$CHANGED_FILES" | grep -q "config/"; then
