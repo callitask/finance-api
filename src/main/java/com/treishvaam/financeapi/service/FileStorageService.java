@@ -1,5 +1,6 @@
 package com.treishvaam.financeapi.service;
 
+import io.minio.GetObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
@@ -17,6 +18,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+/**
+ * AI-CONTEXT: Purpose: Manages file operations against MinIO Object Storage.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Added loadFileAsStream() for direct
+ * MinIO streaming • Reason: Fix 404 errors by serving files directly from cloud storage instead of
+ * local disk
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
@@ -28,17 +36,15 @@ public class FileStorageService {
   private String bucketName;
 
   // =================================================================================
-  // 1. LEGACY/EXISTING METHODS (Restored to fix Compilation Errors)
+  // 1. LEGACY/EXISTING METHODS
   // =================================================================================
 
-  /** Stores a MultipartFile with a generated unique name. RESTORED: Used by FileController */
   public String storeFile(MultipartFile file) {
     String originalFileName = StringUtils.cleanPath(file.getOriginalFilename());
     String extension = "";
     if (originalFileName.contains(".")) {
       extension = originalFileName.substring(originalFileName.lastIndexOf("."));
     }
-    // Generate unique ID
     String fileName = UUID.randomUUID().toString() + extension;
 
     try {
@@ -49,11 +55,6 @@ public class FileStorageService {
     }
   }
 
-  /**
-   * Stores a file from an InputStream with explicit content type. RESTORED: Used by ImageService
-   * and NewsHighlightService FIX: Returns String (fileName) instead of void to satisfy legacy API
-   * contracts.
-   */
   public String storeFile(ByteArrayInputStream stream, String fileName, String contentType) {
     try {
       long size = stream.available();
@@ -70,7 +71,6 @@ public class FileStorageService {
     }
   }
 
-  /** Gets the size of a stored file. RESTORED: Used by NewsHighlightService */
   public long getFileSize(String fileName) {
     try {
       return minioClient
@@ -83,10 +83,9 @@ public class FileStorageService {
   }
 
   // =================================================================================
-  // 2. CORE & NEW METHODS (Phase 1 SEO Support)
+  // 2. CORE METHODS
   // =================================================================================
 
-  /** Standard upload for MultipartFile (used internally by storeFile and others) */
   public String uploadFile(MultipartFile file, String fileName) {
     try {
       log.info("Uploading file: {} to bucket: {}", fileName, bucketName);
@@ -104,10 +103,6 @@ public class FileStorageService {
     }
   }
 
-  /**
-   * NEW: Uploads a generated HTML string as a file for SEO Materialization Sets strict
-   * Cache-Control headers for Cloudflare.
-   */
   public void uploadHtmlFile(String fileName, InputStream stream, long size) {
     try {
       log.info("Uploading Materialized HTML: {} to bucket: {}", fileName, bucketName);
@@ -115,13 +110,26 @@ public class FileStorageService {
       minioClient.putObject(
           PutObjectArgs.builder().bucket(bucketName).object(fileName).stream(stream, size, -1)
               .contentType("text/html")
-              // Enterprise Cache-Control: Cache for 1 hour, then revalidate at edge
               .extraHeaders(java.util.Map.of("Cache-Control", "public, max-age=3600"))
               .build());
 
     } catch (Exception e) {
       log.error("Error uploading HTML to MinIO: {}", e.getMessage());
       throw new RuntimeException("Could not upload HTML file", e);
+    }
+  }
+
+  /**
+   * NEW: Streams a file directly from MinIO. Used by FileController to serve images that are not on
+   * local disk.
+   */
+  public InputStream loadFileAsStream(String fileName) {
+    try {
+      return minioClient.getObject(
+          GetObjectArgs.builder().bucket(bucketName).object(fileName).build());
+    } catch (Exception e) {
+      log.error("Error streaming file from MinIO: {}", fileName, e);
+      throw new RuntimeException("Could not retrieve file " + fileName, e);
     }
   }
 
