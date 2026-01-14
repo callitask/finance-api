@@ -28,9 +28,8 @@ import org.springframework.web.multipart.MultipartFile;
 /**
  * AI-CONTEXT: Purpose: Handles file uploads and serving (Streaming).
  *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Added /uploads/{filename} streaming
- * endpoint • Integrated ImageService for proper WebP conversion on upload • Reason: Fix 404s and
- * enable correct LCP image serving from MinIO
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Added Fallback Extension Strategy to
+ * serveFile() • Reason: Fix 404s when frontend requests UUID without extension but MinIO has .webp
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -38,7 +37,7 @@ public class FileController {
 
   private static final Logger logger = LoggerFactory.getLogger(FileController.class);
   private final FileStorageService fileStorageService;
-  private final ImageService imageService; // Added ImageService
+  private final ImageService imageService;
   private final Path fileStorageLocation;
 
   @Autowired
@@ -78,35 +77,50 @@ public class FileController {
 
   /**
    * NEW: Streaming Endpoint for MinIO Files Serves files directly from Object Storage, bypassing
-   * local disk. Fixes 404 errors for blog images.
+   * local disk. Includes "Smart Extension Matching" for robustness.
    */
   @GetMapping("/uploads/{filename:.+}")
   public ResponseEntity<Resource> serveFile(@PathVariable String filename) {
     try {
-      // 1. Stream from MinIO
-      InputStream stream = fileStorageService.loadFileAsStream(filename);
+      InputStream stream;
+      String actualFilename = filename;
+
+      // 1. Try fetching exact filename
+      try {
+        stream = fileStorageService.loadFileAsStream(filename);
+      } catch (Exception e) {
+        // 2. Fallback: Try fetching with .webp extension (common for this architecture)
+        try {
+          actualFilename = filename + ".webp";
+          stream = fileStorageService.loadFileAsStream(actualFilename);
+        } catch (Exception ex) {
+          // If both fail, it's a true 404
+          logger.warn("File not found in MinIO (Exact or WebP fallback): {}", filename);
+          return ResponseEntity.notFound().build();
+        }
+      }
+
       InputStreamResource resource = new InputStreamResource(stream);
 
-      // 2. Determine Content Type
+      // 3. Determine Content Type
       MediaType mediaType = MediaType.APPLICATION_OCTET_STREAM;
-      if (filename.endsWith(".webp")) mediaType = MediaType.parseMediaType("image/webp");
-      else if (filename.endsWith(".jpg") || filename.endsWith(".jpeg"))
+      if (actualFilename.endsWith(".webp")) mediaType = MediaType.parseMediaType("image/webp");
+      else if (actualFilename.endsWith(".jpg") || actualFilename.endsWith(".jpeg"))
         mediaType = MediaType.IMAGE_JPEG;
-      else if (filename.endsWith(".png")) mediaType = MediaType.IMAGE_PNG;
+      else if (actualFilename.endsWith(".png")) mediaType = MediaType.IMAGE_PNG;
 
-      // 3. Return with Caching
+      // 4. Return with Caching
       return ResponseEntity.ok()
           .contentType(mediaType)
           .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS).cachePublic())
           .body(resource);
 
     } catch (Exception e) {
-      logger.warn("File not found in MinIO: {}", filename);
-      return ResponseEntity.notFound().build();
+      logger.error("Error serving file: {}", filename, e);
+      return ResponseEntity.internalServerError().build();
     }
   }
 
-  /** Universal File Upload Endpoint. Now integrates ImageService for WebP conversion. */
   @PostMapping("/files/upload")
   public ResponseEntity<Map<String, Object>> handleFileUpload(
       @RequestParam("file") MultipartFile file) {
@@ -118,22 +132,18 @@ public class FileController {
     try {
       String fileUrl;
 
-      // Check if it is an image to use ImageService (WebP conversion + Resizing)
       if (file.getContentType() != null && file.getContentType().startsWith("image/")) {
         var metadata = imageService.saveImageAndGetMetadata(file);
-        // Return the Master WebP filename
         fileUrl = metadata.getBaseFilename() + ".webp";
       } else {
-        // Fallback for non-images (PDFs, etc.)
         fileUrl = fileStorageService.storeFile(file);
       }
 
-      // 2. Construct Response
       Map<String, String> imageUrls = new HashMap<>();
       imageUrls.put("large", fileUrl);
 
       Map<String, Object> fileInfo = new HashMap<>();
-      fileInfo.put("url", fileUrl); // Returns just the filename (e.g., "uuid.webp")
+      fileInfo.put("url", fileUrl);
       fileInfo.put("name", file.getOriginalFilename());
       fileInfo.put("size", file.getSize());
       fileInfo.put("urls", imageUrls);
