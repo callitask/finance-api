@@ -3,7 +3,7 @@ package com.treishvaam.financeapi.newshighlight;
 import com.treishvaam.financeapi.newshighlight.dto.NewsDataArticle;
 import com.treishvaam.financeapi.newshighlight.dto.NewsDataResponse;
 import com.treishvaam.financeapi.service.FileStorageService;
-import java.io.ByteArrayInputStream;
+import com.treishvaam.financeapi.service.ImageService;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -12,9 +12,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
-import java.util.UUID;
 import java.util.stream.Collectors;
-import net.coobird.thumbnailator.Thumbnails;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -41,7 +39,8 @@ public class NewsHighlightService {
   private static final Logger logger = LoggerFactory.getLogger(NewsHighlightService.class);
 
   private final NewsHighlightRepository repository;
-  private final FileStorageService fileStorageService;
+  private final FileStorageService fileStorageService; // Kept for legacy healing if needed
+  private final ImageService imageService; // NEW: Enterprise Image Authority
   private final RestTemplate restTemplate;
 
   @Value("${newsdata.api.key}")
@@ -69,9 +68,12 @@ public class NewsHighlightService {
           "business standard");
 
   public NewsHighlightService(
-      NewsHighlightRepository repository, FileStorageService fileStorageService) {
+      NewsHighlightRepository repository,
+      FileStorageService fileStorageService,
+      ImageService imageService) {
     this.repository = repository;
     this.fileStorageService = fileStorageService;
+    this.imageService = imageService;
     this.restTemplate = new RestTemplate();
   }
 
@@ -81,7 +83,6 @@ public class NewsHighlightService {
       logger.info("📰 News DB Empty. Triggering initial fetch...");
       fetchAndStoreNews();
     } else {
-      // Run a gentle heal on startup
       healLegacyImages();
     }
   }
@@ -93,36 +94,17 @@ public class NewsHighlightService {
   // --- Image Healer (Runs every 15 mins) ---
   @Scheduled(fixedRate = 900000)
   public void healLegacyImages() {
-    logger.debug("🚑 Starting News Image Healer (Routine Check)...");
-
-    // Safety Limit: Only check the most recent 50 articles
+    // Only checks for broken links, doesn't re-download healthy legacy images
+    // to avoid slamming the ImageService with 1000s of requests on startup.
     Pageable limit = PageRequest.of(0, 50, Sort.by(Sort.Direction.DESC, "publishedAt"));
     List<NewsHighlight> recentNews =
         repository.findByIsArchivedFalseOrderByPublishedAtDesc(limit).getContent();
 
-    int fixedCount = 0;
     for (NewsHighlight news : recentNews) {
-      boolean needsRepair = false;
-      String currentUrl = news.getImageUrl();
-
-      // 1. Check for null or empty
-      if (currentUrl == null || currentUrl.isEmpty()) {
-        needsRepair = true;
-      }
-      // 2. Check for local paths that might be corrupt (0 bytes or missing)
-      else if (currentUrl.startsWith("/api/uploads/") || currentUrl.startsWith("/uploads/")) {
-        long size = fileStorageService.getFileSize(currentUrl);
-        if (size <= 0) {
-          needsRepair = true;
-        }
-      }
-
-      if (needsRepair) {
+      if (news.getImageUrl() == null || news.getImageUrl().isEmpty()) {
         repairSingleNewsItem(news);
-        fixedCount++;
       }
     }
-    if (fixedCount > 0) logger.info("✅ Healer processed {} items.", fixedCount);
   }
 
   private void repairSingleNewsItem(NewsHighlight news) {
@@ -130,21 +112,20 @@ public class NewsHighlightService {
       String scrapedImageUrl = scrapeImageFromUrl(news.getLink());
       if (scrapedImageUrl != null && !scrapedImageUrl.isEmpty()) {
         String newLocalPath = downloadAndOptimizeImage(scrapedImageUrl);
-        String finalUrl = (newLocalPath != null) ? newLocalPath : scrapedImageUrl;
-        news.setImageUrl(finalUrl);
-        repository.save(news);
+        if (newLocalPath != null) {
+          news.setImageUrl(newLocalPath);
+          repository.save(news);
+        }
       }
     } catch (Exception e) {
-      // Silent fail is fine here
+      /* Silent fail */
     }
   }
 
-  // --- Main Fetch Cycle: Every 15 Minutes ---
   @Scheduled(fixedRate = 900000)
   public void fetchAndStoreNews() {
     logger.info("🌍 Starting News Fetch Cycle...");
     try {
-      // API call to NewsData.io
       String url =
           "https://newsdata.io/api/1/news?apikey=" + apiKey + "&category=business&language=en";
       ResponseEntity<NewsDataResponse> response =
@@ -154,58 +135,32 @@ public class NewsHighlightService {
 
       List<NewsDataArticle> articles = response.getBody().getResults();
       int newCount = 0;
-      int duplicateCount = 0;
 
       for (NewsDataArticle article : articles) {
         if (!isAllowedSource(article.getSourceId())) continue;
-
-        // Attempt to save
-        boolean saved = saveArticleSafe(article);
-        if (saved) {
-          newCount++;
-        } else {
-          duplicateCount++;
-        }
+        if (saveArticleSafe(article)) newCount++;
       }
-      logger.info(
-          "✅ Cycle Complete. Fetched: {}, New: {}, Skipped/Dup: {}",
-          articles.size(),
-          newCount,
-          duplicateCount);
-
+      logger.info("✅ Cycle Complete. New Items: {}", newCount);
       archiveOldStories();
     } catch (Exception e) {
       logger.error("❌ News Fetch Cycle Error: {}", e.getMessage());
     }
   }
 
-  /**
-   * Safe save method that handles duplicates gracefully without exploding logs. Uses a new
-   * transaction to ensure isolation.
-   */
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public boolean saveArticleSafe(NewsDataArticle apiArticle) {
     try {
       String rawLink = apiArticle.getLink();
       if (rawLink == null) return false;
-
-      // Normalize link
       String normalizedLink = rawLink.trim();
 
-      // 1. Check if Link exists (Primary Constraint)
-      if (repository.existsByLink(normalizedLink)) {
+      if (repository.existsByLink(normalizedLink)) return false;
+      if (apiArticle.getTitle() != null && repository.existsByTitle(apiArticle.getTitle()))
         return false;
-      }
-
-      // 2. Check if Title exists (Secondary Duplicate Check)
-      // This helps avoid same story from same source with slightly different URL params
-      if (apiArticle.getTitle() != null && repository.existsByTitle(apiArticle.getTitle())) {
-        return false;
-      }
 
       NewsHighlight news = new NewsHighlight();
       news.setTitle(apiArticle.getTitle());
-      news.setLink(normalizedLink); // Save the normalized link
+      news.setLink(normalizedLink);
       news.setSource(formatSourceName(apiArticle.getSourceId()));
       news.setDescription(apiArticle.getDescription());
 
@@ -220,6 +175,7 @@ public class NewsHighlightService {
         news.setPublishedAt(LocalDateTime.now());
       }
 
+      // Enterprise Image Processing
       String bestImageUrl = resolveBestImage(apiArticle);
       news.setImageUrl(bestImageUrl);
       news.setArchived(false);
@@ -228,9 +184,6 @@ public class NewsHighlightService {
       return true;
 
     } catch (DataIntegrityViolationException e) {
-      // This catches the database constraint violation if the race condition occurs
-      // We return false to indicate it wasn't saved, but we DO NOT log an error.
-      // This silences the "Duplicate entry" log noise in the application logs.
       return false;
     } catch (Exception e) {
       logger.error("⚠️ Failed to save article: {}", e.getMessage());
@@ -243,7 +196,6 @@ public class NewsHighlightService {
     if (candidateUrl == null || candidateUrl.isEmpty()) {
       candidateUrl = scrapeImageFromUrl(article.getLink());
     }
-
     if (candidateUrl != null && !candidateUrl.isEmpty()) {
       String localFilename = downloadAndOptimizeImage(candidateUrl);
       return (localFilename != null) ? localFilename : candidateUrl;
@@ -256,24 +208,26 @@ public class NewsHighlightService {
       Document doc =
           Jsoup.connect(articleUrl)
               .userAgent(
-                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)")
               .timeout(5000)
               .get();
       Element metaOg = doc.selectFirst("meta[property='og:image']");
       if (metaOg != null) return metaOg.attr("content");
-      Element metaTwitter = doc.selectFirst("meta[name='twitter:image']");
-      if (metaTwitter != null) return metaTwitter.attr("content");
     } catch (Exception e) {
       /* Ignore */
     }
     return null;
   }
 
+  /**
+   * REFACTORED: Now delegates to ImageService for Multi-Variant generation. Uses prefix 'news-mv-'
+   * to distinguish Enterprise News from Legacy News.
+   */
   private String downloadAndOptimizeImage(String imageUrl) {
     try {
       URL url = new URL(imageUrl);
       HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-      conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+      conn.setRequestProperty("User-Agent", "Mozilla/5.0");
       conn.setConnectTimeout(5000);
       conn.setReadTimeout(5000);
 
@@ -289,36 +243,20 @@ public class NewsHighlightService {
 
         if (imageBytes.length == 0) return null;
 
-        ByteArrayOutputStream os = new ByteArrayOutputStream();
-        String extension = "webp";
-        String contentType = "image/webp";
+        // ENTERPRISE INTEGRATION: Call ImageService
+        // Prefix: "news-mv-" (News Multi-Variant)
+        // Profile: NEWS (Aggressive compression)
+        ImageService.ImageMetadataDto metadata =
+            imageService.processImage(
+                imageBytes, "news-mv-", ImageService.OptimizationProfile.NEWS);
 
-        // Try WebP first
-        try {
-          Thumbnails.of(new ByteArrayInputStream(imageBytes))
-              .size(800, 600)
-              .outputFormat("webp")
-              .outputQuality(0.85)
-              .toOutputStream(os);
-        } catch (Exception e) {
-          os.reset();
-          extension = "jpg";
-          contentType = "image/jpeg";
-          Thumbnails.of(new ByteArrayInputStream(imageBytes))
-              .size(800, 600)
-              .outputFormat("jpg")
-              .outputQuality(0.85)
-              .toOutputStream(os);
-        }
-
-        byte[] finalBytes = os.toByteArray();
-        if (finalBytes.length == 0) return null;
-
-        String filename = "news-" + UUID.randomUUID() + "." + extension;
-        return fileStorageService.storeFile(
-            new ByteArrayInputStream(finalBytes), filename, contentType);
+        // Return the simple filename (e.g., "news-mv-uuid.webp")
+        // The FileController expects the file to be in the standard uploads directory.
+        // ImageService.saveImageAndGetMetadata/processImage handles the storage to that directory.
+        return "api/v1/uploads/" + metadata.getFullPath();
       }
     } catch (Exception e) {
+      // Fallback: If download fails, return null so we use the external URL or placeholder
       return null;
     }
   }
