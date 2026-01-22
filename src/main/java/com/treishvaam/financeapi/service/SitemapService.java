@@ -1,10 +1,11 @@
 package com.treishvaam.financeapi.service;
 
+import com.treishvaam.financeapi.marketdata.MarketData;
+import com.treishvaam.financeapi.marketdata.MarketDataRepository;
 import com.treishvaam.financeapi.model.BlogPost;
-import com.treishvaam.financeapi.model.MarketData;
 import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
-import com.treishvaam.financeapi.repository.MarketDataRepository;
+// FIX: Corrected imports for Market Data components
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -47,7 +48,8 @@ import org.springframework.stereotype.Service;
  * • Added pagination logic for 10M+ scale. • Excluded NewsHighlight explicitly. • Phase 2 - Hybrid
  * Architecture. - EDITED: • Added getSitemapMetadata() to support Flat Indexing in Worker. •
  * Replaced nested index generation with JSON metadata exposure. • Phase 3 - Flattening & Offline
- * Survival.
+ * Survival. - FIX: • Corrected imports for MarketData and MarketDataRepository (moved to
+ * .marketdata package).
  */
 @Service
 @RequiredArgsConstructor
