@@ -3,6 +3,8 @@ package com.treishvaam.financeapi.controller;
 import com.treishvaam.financeapi.service.SitemapService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -23,10 +25,11 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>Security Constraints: - Must be openly accessible (no Auth required). - Read-only.
  *
- * <p>Non-Negotiables: - Content-Type must be application/xml.
+ * <p>Non-Negotiables: - Content-Type must be application/xml (for files) or json (for meta).
  *
  * <p>IMMUTABLE CHANGE HISTORY: - EDITED: • Added endpoints for Dynamic Index, Blog Parts, and
- * Market Parts. • Phase 2 - Hybrid Architecture.
+ * Market Parts. • Phase 2 - Hybrid Architecture. - EDITED: • Added /meta endpoint for JSON metadata
+ * retrieval. • Phase 3 - Flattening.
  */
 @RestController
 @RequestMapping("/api/public/sitemap")
@@ -36,10 +39,10 @@ public class SitemapController {
 
   private final SitemapService sitemapService;
 
-  @Operation(summary = "Get the Dynamic Sitemap Index")
-  @GetMapping(value = "/index", produces = MediaType.APPLICATION_XML_VALUE)
-  public ResponseEntity<String> getDynamicIndex() {
-    return ResponseEntity.ok(sitemapService.generateDynamicIndex());
+  @Operation(summary = "Get the Sitemap Metadata (JSON)")
+  @GetMapping(value = "/meta", produces = MediaType.APPLICATION_JSON_VALUE)
+  public ResponseEntity<Map<String, List<String>>> getSitemapMetadata() {
+    return ResponseEntity.ok(sitemapService.getSitemapMetadata());
   }
 
   @Operation(summary = "Get a segment of Blog URLs")
