@@ -16,8 +16,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * AI-CONTEXT:
  *
- * <p>Purpose: - Public API endpoints for retrieving Sitemap XML chunks. - Consumed by Cloudflare
- * Worker for aggregation.
+ * <p>Purpose: - Public API endpoints for retrieving Sitemap XML chunks and Metadata. - Consumed by
+ * Cloudflare Worker for aggregation.
  *
  * <p>Scope: - /api/public/sitemap/**
  *
@@ -25,11 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>Security Constraints: - Must be openly accessible (no Auth required). - Read-only.
  *
- * <p>Non-Negotiables: - Content-Type must be application/xml (for files) or json (for meta).
- *
- * <p>IMMUTABLE CHANGE HISTORY: - EDITED: • Added endpoints for Dynamic Index, Blog Parts, and
- * Market Parts. • Phase 2 - Hybrid Architecture. - EDITED: • Added /meta endpoint for JSON metadata
- * retrieval. • Phase 3 - Flattening.
+ * <p>IMMUTABLE CHANGE HISTORY: - EDITED: • Implemented /meta endpoint for Worker. • Implemented
+ * segmented XML endpoints. • Replaced old monolithic generation.
  */
 @RestController
 @RequestMapping("/api/public/sitemap")

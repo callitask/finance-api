@@ -17,40 +17,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
-/**
- * AI-CONTEXT:
- *
- * <p>Purpose: - Generates segmented, scalable XML sitemaps for dynamic content (10M+ records). -
- * Serves as the source of truth for "sitemap-dynamic" parts.
- *
- * <p>Scope: - Responsible for: Blogs, Market Data. - EXCLUDED: News (NewsHighlight) - as they
- * redirect to external/internal sources. - EXCLUDED: Static pages (handled by Frontend
- * sitemap-static.xml).
- *
- * <p>Critical Dependencies: - Backend: BlogPostRepository, MarketDataRepository. - Worker: Consumed
- * by Cloudflare Worker via /api/public/sitemap endpoints.
- *
- * <p>Security Constraints: - Publicly accessible data only. No internal dashboards or auth-gated
- * routes.
- *
- * <p>Non-Negotiables: - Must use pagination (batch size 50,000) to respect Google Sitemap limits. -
- * Must never block the main thread (use efficient db paging). - News must remain excluded to
- * prevent Soft 404s.
- *
- * <p>Change Intent: - Implementing Enterprise Hybrid Sitemap logic.
- *
- * <p>Future AI Guidance: - If adding new dynamic entities (e.g. Products), add a new segment type.
- * - Do not merge this back into a single monolithic XML file.
- *
- * <p>IMMUTABLE CHANGE HISTORY: - EDITED: • Implemented segmented sitemap generation (Market, Blog).
- * • Added pagination logic for 10M+ scale. • Excluded NewsHighlight explicitly. • Phase 2 - Hybrid
- * Architecture. - EDITED: • Added getSitemapMetadata() to support Flat Indexing in Worker. •
- * Replaced nested index generation with JSON metadata exposure. • Phase 3 - Flattening & Offline
- * Survival. - FIX: • Corrected imports for MarketData and MarketDataRepository (moved to
- * .marketdata package). - FIX: • Restored clearCaches() method to satisfy MessageListener
- * dependency. • Corrected findAllByStatus repository call. • Fixed Instant date formatting to use
- * ISO-8601 toString(). • Fixed getSymbol() to getTicker() for MarketData.
- */
+/** AI-CONTEXT: Purpose: Generates segmented sitemaps and metadata for Cloudflare Worker. */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -60,25 +27,18 @@ public class SitemapService {
   private final MarketDataRepository marketDataRepository;
 
   private static final String BASE_URL = "https://treishfin.treishvaamgroup.com";
-  private static final int SITEMAP_BATCH_SIZE = 50000; // Google's limit per file
+  private static final int SITEMAP_BATCH_SIZE = 50000;
 
-  /**
-   * Required by MessageListener and AdminActionsController. Clears internal caches if any. Note:
-   * Primary caching is now handled by Cloudflare Edge, so this is largely a no-op or could be used
-   * to invalidate internal Spring caches if added later.
-   */
+  /** Clears internal caches. Kept for dependency compatibility. */
   public void clearCaches() {
-    log.info("Sitemap clearCaches invoked. Edge cache expiration is handled via TTL.");
+    log.info("Sitemap clearCaches invoked. Edge handling active.");
   }
 
-  /**
-   * Returns a JSON-friendly map of all available sitemap files. Consumed by Cloudflare Worker to
-   * build the Master Index.
-   */
+  /** Returns a JSON-friendly map of all available sitemap files. */
   public Map<String, List<String>> getSitemapMetadata() {
     Map<String, List<String>> meta = new HashMap<>();
 
-    // 1. Calculate Blog Files
+    // 1. Blogs
     long totalBlogs = blogPostRepository.countByStatus(PostStatus.PUBLISHED);
     int blogPages = (int) Math.ceil((double) totalBlogs / SITEMAP_BATCH_SIZE);
     if (blogPages == 0) blogPages = 1;
@@ -89,7 +49,7 @@ public class SitemapService {
     }
     meta.put("blogs", blogFiles);
 
-    // 2. Calculate Market Files
+    // 2. Markets
     long totalMarket = marketDataRepository.count();
     int marketPages = (int) Math.ceil((double) totalMarket / SITEMAP_BATCH_SIZE);
     if (marketPages == 0) marketPages = 1;
@@ -105,7 +65,6 @@ public class SitemapService {
 
   public String generateBlogSitemap(int page) {
     Pageable pageable = PageRequest.of(page, SITEMAP_BATCH_SIZE);
-    // FIX: Changed findByStatus to findAllByStatus
     Page<BlogPost> posts = blogPostRepository.findAllByStatus(PostStatus.PUBLISHED, pageable);
 
     return buildUrlSet(
@@ -113,7 +72,6 @@ public class SitemapService {
             .map(
                 post -> {
                   String slug = post.getSlug() != null ? post.getSlug() : post.getId().toString();
-                  // FIX: Use toString() for ISO-8601 formatting of Instant
                   String date =
                       post.getUpdatedAt() != null
                           ? post.getUpdatedAt().toString()
@@ -131,7 +89,6 @@ public class SitemapService {
         data.getContent().stream()
             .map(
                 market -> {
-                  // FIX: Changed getSymbol() to getTicker()
                   String slug = market.getTicker();
                   return new SitemapEntry(BASE_URL + "/market/" + slug, null, "daily", "0.6");
                 })

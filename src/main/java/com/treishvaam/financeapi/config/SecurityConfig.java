@@ -75,7 +75,9 @@ public class SecurityConfig {
                         "/sitemap-news.xml",
                         "/feed.xml",
                         "/sitemaps/**",
-                        "/favicon.ico")
+                        "/favicon.ico",
+                        // --- FIX: Allow Cloudflare Worker to fetch Sitemap Metadata (Public) ---
+                        "/api/public/**")
                     .permitAll()
 
                     // 3. Public API Read Access
@@ -97,7 +99,7 @@ public class SecurityConfig {
                     .requestMatchers("/api/v1/contact/**")
                     .permitAll()
 
-                    // --- FIX: Auth Endpoints MUST be Authenticated ---
+                    // --- Auth Endpoints MUST be Authenticated ---
                     .requestMatchers("/api/v1/auth/**")
                     .authenticated()
 
@@ -127,7 +129,7 @@ public class SecurityConfig {
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
 
-    // FIX: Use AllowedOriginPatterns for better matching (handles subdomains & protocols)
+    // Use AllowedOriginPatterns for better matching (handles subdomains & protocols)
     // This allows exact matches AND wildcards, unlike setAllowedOrigins which is strict.
     if (allowedOrigins == null
         || allowedOrigins.isEmpty()
