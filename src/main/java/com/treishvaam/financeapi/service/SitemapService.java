@@ -5,8 +5,6 @@ import com.treishvaam.financeapi.marketdata.MarketDataRepository;
 import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
-// FIX: Corrected imports for Market Data components
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -49,7 +47,9 @@ import org.springframework.stereotype.Service;
  * Architecture. - EDITED: • Added getSitemapMetadata() to support Flat Indexing in Worker. •
  * Replaced nested index generation with JSON metadata exposure. • Phase 3 - Flattening & Offline
  * Survival. - FIX: • Corrected imports for MarketData and MarketDataRepository (moved to
- * .marketdata package).
+ * .marketdata package). - FIX: • Restored clearCaches() method to satisfy MessageListener
+ * dependency. • Corrected findAllByStatus repository call. • Fixed Instant date formatting to use
+ * ISO-8601 toString(). • Fixed getSymbol() to getTicker() for MarketData.
  */
 @Service
 @RequiredArgsConstructor
@@ -61,6 +61,15 @@ public class SitemapService {
 
   private static final String BASE_URL = "https://treishfin.treishvaamgroup.com";
   private static final int SITEMAP_BATCH_SIZE = 50000; // Google's limit per file
+
+  /**
+   * Required by MessageListener and AdminActionsController. Clears internal caches if any. Note:
+   * Primary caching is now handled by Cloudflare Edge, so this is largely a no-op or could be used
+   * to invalidate internal Spring caches if added later.
+   */
+  public void clearCaches() {
+    log.info("Sitemap clearCaches invoked. Edge cache expiration is handled via TTL.");
+  }
 
   /**
    * Returns a JSON-friendly map of all available sitemap files. Consumed by Cloudflare Worker to
@@ -96,17 +105,19 @@ public class SitemapService {
 
   public String generateBlogSitemap(int page) {
     Pageable pageable = PageRequest.of(page, SITEMAP_BATCH_SIZE);
-    Page<BlogPost> posts = blogPostRepository.findByStatus(PostStatus.PUBLISHED, pageable);
+    // FIX: Changed findByStatus to findAllByStatus
+    Page<BlogPost> posts = blogPostRepository.findAllByStatus(PostStatus.PUBLISHED, pageable);
 
     return buildUrlSet(
         posts.getContent().stream()
             .map(
                 post -> {
                   String slug = post.getSlug() != null ? post.getSlug() : post.getId().toString();
+                  // FIX: Use toString() for ISO-8601 formatting of Instant
                   String date =
                       post.getUpdatedAt() != null
-                          ? post.getUpdatedAt().format(DateTimeFormatter.ISO_DATE)
-                          : post.getCreatedAt().format(DateTimeFormatter.ISO_DATE);
+                          ? post.getUpdatedAt().toString()
+                          : post.getCreatedAt().toString();
                   return new SitemapEntry(BASE_URL + "/post/" + slug, date, "weekly", "0.8");
                 })
             .collect(Collectors.toList()));
@@ -120,7 +131,8 @@ public class SitemapService {
         data.getContent().stream()
             .map(
                 market -> {
-                  String slug = market.getSymbol();
+                  // FIX: Changed getSymbol() to getTicker()
+                  String slug = market.getTicker();
                   return new SitemapEntry(BASE_URL + "/market/" + slug, null, "daily", "0.6");
                 })
             .collect(Collectors.toList()));
