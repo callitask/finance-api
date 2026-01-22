@@ -6,6 +6,10 @@ import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.repository.MarketDataRepository;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,7 +45,9 @@ import org.springframework.stereotype.Service;
  *
  * <p>IMMUTABLE CHANGE HISTORY: - EDITED: • Implemented segmented sitemap generation (Market, Blog).
  * • Added pagination logic for 10M+ scale. • Excluded NewsHighlight explicitly. • Phase 2 - Hybrid
- * Architecture.
+ * Architecture. - EDITED: • Added getSitemapMetadata() to support Flat Indexing in Worker. •
+ * Replaced nested index generation with JSON metadata exposure. • Phase 3 - Flattening & Offline
+ * Survival.
  */
 @Service
 @RequiredArgsConstructor
@@ -55,47 +61,35 @@ public class SitemapService {
   private static final int SITEMAP_BATCH_SIZE = 50000; // Google's limit per file
 
   /**
-   * Generates the Dynamic Index pointing to all child sitemaps.
-   *
-   * @return XML string <sitemapindex>
+   * Returns a JSON-friendly map of all available sitemap files. Consumed by Cloudflare Worker to
+   * build the Master Index.
    */
-  public String generateDynamicIndex() {
-    StringBuilder xml = new StringBuilder();
-    xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    xml.append("<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
+  public Map<String, List<String>> getSitemapMetadata() {
+    Map<String, List<String>> meta = new HashMap<>();
 
-    // 1. Calculate Blog Pages
+    // 1. Calculate Blog Files
     long totalBlogs = blogPostRepository.countByStatus(PostStatus.PUBLISHED);
     int blogPages = (int) Math.ceil((double) totalBlogs / SITEMAP_BATCH_SIZE);
-    if (blogPages == 0) blogPages = 1; // Ensure at least one exists even if empty
+    if (blogPages == 0) blogPages = 1;
 
+    List<String> blogFiles = new ArrayList<>();
     for (int i = 0; i < blogPages; i++) {
-      xml.append("  <sitemap>\n");
-      xml.append("    <loc>")
-          .append(BASE_URL)
-          .append("/sitemap-dynamic/blog/")
-          .append(i)
-          .append(".xml</loc>\n");
-      xml.append("  </sitemap>\n");
+      blogFiles.add("/sitemap-dynamic/blog/" + i + ".xml");
     }
+    meta.put("blogs", blogFiles);
 
-    // 2. Calculate Market Pages
+    // 2. Calculate Market Files
     long totalMarket = marketDataRepository.count();
     int marketPages = (int) Math.ceil((double) totalMarket / SITEMAP_BATCH_SIZE);
     if (marketPages == 0) marketPages = 1;
 
+    List<String> marketFiles = new ArrayList<>();
     for (int i = 0; i < marketPages; i++) {
-      xml.append("  <sitemap>\n");
-      xml.append("    <loc>")
-          .append(BASE_URL)
-          .append("/sitemap-dynamic/market/")
-          .append(i)
-          .append(".xml</loc>\n");
-      xml.append("  </sitemap>\n");
+      marketFiles.add("/sitemap-dynamic/market/" + i + ".xml");
     }
+    meta.put("markets", marketFiles);
 
-    xml.append("</sitemapindex>");
-    return xml.toString();
+    return meta;
   }
 
   public String generateBlogSitemap(int page) {
@@ -107,7 +101,6 @@ public class SitemapService {
             .map(
                 post -> {
                   String slug = post.getSlug() != null ? post.getSlug() : post.getId().toString();
-                  // Assuming getLastModifiedAt() exists, otherwise use getCreatedAt()
                   String date =
                       post.getUpdatedAt() != null
                           ? post.getUpdatedAt().format(DateTimeFormatter.ISO_DATE)
@@ -125,9 +118,7 @@ public class SitemapService {
         data.getContent().stream()
             .map(
                 market -> {
-                  // Market Symbol as slug
                   String slug = market.getSymbol();
-                  // Market data changes frequently
                   return new SitemapEntry(BASE_URL + "/market/" + slug, null, "daily", "0.6");
                 })
             .collect(Collectors.toList()));
