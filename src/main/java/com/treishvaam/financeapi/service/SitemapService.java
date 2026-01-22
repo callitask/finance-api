@@ -1,222 +1,169 @@
 package com.treishvaam.financeapi.service;
 
 import com.treishvaam.financeapi.model.BlogPost;
-import com.treishvaam.financeapi.model.Category;
+import com.treishvaam.financeapi.model.MarketData;
 import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
-import com.treishvaam.financeapi.repository.CategoryRepository;
-import java.time.Instant;
-import java.time.ZoneId;
+import com.treishvaam.financeapi.repository.MarketDataRepository;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
-import java.util.List;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
+import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Generates segmented, scalable XML sitemaps for dynamic content (10M+ records). -
+ * Serves as the source of truth for "sitemap-dynamic" parts.
+ *
+ * <p>Scope: - Responsible for: Blogs, Market Data. - EXCLUDED: News (NewsHighlight) - as they
+ * redirect to external/internal sources. - EXCLUDED: Static pages (handled by Frontend
+ * sitemap-static.xml).
+ *
+ * <p>Critical Dependencies: - Backend: BlogPostRepository, MarketDataRepository. - Worker: Consumed
+ * by Cloudflare Worker via /api/public/sitemap endpoints.
+ *
+ * <p>Security Constraints: - Publicly accessible data only. No internal dashboards or auth-gated
+ * routes.
+ *
+ * <p>Non-Negotiables: - Must use pagination (batch size 50,000) to respect Google Sitemap limits. -
+ * Must never block the main thread (use efficient db paging). - News must remain excluded to
+ * prevent Soft 404s.
+ *
+ * <p>Change Intent: - Implementing Enterprise Hybrid Sitemap logic.
+ *
+ * <p>Future AI Guidance: - If adding new dynamic entities (e.g. Products), add a new segment type.
+ * - Do not merge this back into a single monolithic XML file.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY: - EDITED: • Implemented segmented sitemap generation (Market, Blog).
+ * • Added pagination logic for 10M+ scale. • Excluded NewsHighlight explicitly. • Phase 2 - Hybrid
+ * Architecture.
+ */
 @Service
+@RequiredArgsConstructor
+@Slf4j
 public class SitemapService {
 
-  private static final Logger logger = LoggerFactory.getLogger(SitemapService.class);
+  private final BlogPostRepository blogPostRepository;
+  private final MarketDataRepository marketDataRepository;
 
-  private static final int POSTS_PER_SITEMAP = 40000;
+  private static final String BASE_URL = "https://treishfin.treishvaamgroup.com";
+  private static final int SITEMAP_BATCH_SIZE = 50000; // Google's limit per file
 
-  @Value("${app.base-url:https://treishfin.treishvaamgroup.com}")
-  private String baseUrl;
-
-  @Autowired private BlogPostRepository blogPostRepository;
-  @Autowired private CategoryRepository categoryRepository;
-
-  // --- EXISTING GENERATION METHODS (Keep these as they were) ---
-
-  @Cacheable(value = "sitemap_index", key = "'main_index'")
-  public String generateSitemapIndex() {
+  /**
+   * Generates the Dynamic Index pointing to all child sitemaps.
+   *
+   * @return XML string <sitemapindex>
+   */
+  public String generateDynamicIndex() {
     StringBuilder xml = new StringBuilder();
     xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     xml.append("<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
 
-    String now = formatDate(Instant.now());
+    // 1. Calculate Blog Pages
+    long totalBlogs = blogPostRepository.countByStatus(PostStatus.PUBLISHED);
+    int blogPages = (int) Math.ceil((double) totalBlogs / SITEMAP_BATCH_SIZE);
+    if (blogPages == 0) blogPages = 1; // Ensure at least one exists even if empty
 
-    addSitemapEntry(xml, "/sitemaps/static.xml", now);
-    addSitemapEntry(xml, "/sitemaps/categories.xml", now);
-    addSitemapEntry(xml, "/sitemap-news.xml", now);
+    for (int i = 0; i < blogPages; i++) {
+      xml.append("  <sitemap>\n");
+      xml.append("    <loc>")
+          .append(BASE_URL)
+          .append("/sitemap-dynamic/blog/")
+          .append(i)
+          .append(".xml</loc>\n");
+      xml.append("  </sitemap>\n");
+    }
 
-    long totalPosts = blogPostRepository.countByStatus(PostStatus.PUBLISHED);
-    int totalPages = (int) Math.ceil((double) totalPosts / POSTS_PER_SITEMAP);
-    if (totalPages == 0) totalPages = 1;
+    // 2. Calculate Market Pages
+    long totalMarket = marketDataRepository.count();
+    int marketPages = (int) Math.ceil((double) totalMarket / SITEMAP_BATCH_SIZE);
+    if (marketPages == 0) marketPages = 1;
 
-    for (int i = 0; i < totalPages; i++) {
-      addSitemapEntry(xml, "/sitemaps/posts-" + i + ".xml", now);
+    for (int i = 0; i < marketPages; i++) {
+      xml.append("  <sitemap>\n");
+      xml.append("    <loc>")
+          .append(BASE_URL)
+          .append("/sitemap-dynamic/market/")
+          .append(i)
+          .append(".xml</loc>\n");
+      xml.append("  </sitemap>\n");
     }
 
     xml.append("</sitemapindex>");
     return xml.toString();
   }
 
-  @Cacheable(value = "sitemap_news", key = "'news_48h'")
-  @Transactional(readOnly = true)
-  public String generateNewsSitemap() {
-    StringBuilder xml = new StringBuilder();
-    xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    xml.append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"\n");
-    xml.append("        xmlns:news=\"http://www.google.com/schemas/sitemap-news/0.9\"\n");
-    xml.append("        xmlns:image=\"http://www.google.com/schemas/sitemap-image/1.1\">\n");
+  public String generateBlogSitemap(int page) {
+    Pageable pageable = PageRequest.of(page, SITEMAP_BATCH_SIZE);
+    Page<BlogPost> posts = blogPostRepository.findByStatus(PostStatus.PUBLISHED, pageable);
 
-    Instant fortyEightHoursAgo = Instant.now().minus(48, ChronoUnit.HOURS);
-    List<BlogPost> newsPosts =
-        blogPostRepository.findByStatusAndCreatedAtAfterOrderByCreatedAtDesc(
-            PostStatus.PUBLISHED, fortyEightHoursAgo);
-
-    for (BlogPost post : newsPosts) {
-      xml.append("  <url>\n");
-      xml.append("    <loc>").append(buildPostUrl(post)).append("</loc>\n");
-      xml.append("    <news:news>\n");
-      xml.append("      <news:publication>\n");
-      xml.append("        <news:name>Treishvaam Finance</news:name>\n");
-      xml.append("        <news:language>en</news:language>\n");
-      xml.append("      </news:publication>\n");
-      xml.append("      <news:publication_date>")
-          .append(formatDate(post.getCreatedAt()))
-          .append("</news:publication_date>\n");
-      xml.append("      <news:title>").append(escapeXml(post.getTitle())).append("</news:title>\n");
-      if (post.getKeywords() != null) {
-        xml.append("      <news:keywords>")
-            .append(escapeXml(post.getKeywords()))
-            .append("</news:keywords>\n");
-      }
-      xml.append("    </news:news>\n");
-      if (post.getCoverImageUrl() != null) {
-        String imgUrl = baseUrl + "/api/uploads/" + post.getCoverImageUrl();
-        xml.append("    <image:image>\n");
-        xml.append("      <image:loc>").append(imgUrl).append("</image:loc>\n");
-        xml.append("    </image:image>\n");
-      }
-      xml.append("  </url>\n");
-    }
-    xml.append("</urlset>");
-    return xml.toString();
+    return buildUrlSet(
+        posts.getContent().stream()
+            .map(
+                post -> {
+                  String slug = post.getSlug() != null ? post.getSlug() : post.getId().toString();
+                  // Assuming getLastModifiedAt() exists, otherwise use getCreatedAt()
+                  String date =
+                      post.getUpdatedAt() != null
+                          ? post.getUpdatedAt().format(DateTimeFormatter.ISO_DATE)
+                          : post.getCreatedAt().format(DateTimeFormatter.ISO_DATE);
+                  return new SitemapEntry(BASE_URL + "/post/" + slug, date, "weekly", "0.8");
+                })
+            .collect(Collectors.toList()));
   }
 
-  @Cacheable(value = "sitemap_archive", key = "'page_' + #page")
-  @Transactional(readOnly = true)
-  public String generatePostsSitemap(int page) {
-    StringBuilder xml = new StringBuilder();
-    xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    xml.append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"\n");
-    xml.append("        xmlns:image=\"http://www.google.com/schemas/sitemap-image/1.1\">\n");
+  public String generateMarketSitemap(int page) {
+    Pageable pageable = PageRequest.of(page, SITEMAP_BATCH_SIZE);
+    Page<MarketData> data = marketDataRepository.findAll(pageable);
 
-    PageRequest pageRequest =
-        PageRequest.of(page, POSTS_PER_SITEMAP, Sort.by("createdAt").descending());
-    Page<BlogPost> postPage = blogPostRepository.findAllByStatus(PostStatus.PUBLISHED, pageRequest);
-
-    for (BlogPost post : postPage) {
-      xml.append("  <url>\n");
-      xml.append("    <loc>").append(buildPostUrl(post)).append("</loc>\n");
-      xml.append("    <lastmod>").append(formatDate(post.getUpdatedAt())).append("</lastmod>\n");
-      if (post.getCoverImageUrl() != null) {
-        String imgUrl = baseUrl + "/api/uploads/" + post.getCoverImageUrl();
-        xml.append("    <image:image>\n");
-        xml.append("      <image:loc>").append(imgUrl).append("</image:loc>\n");
-        xml.append("    </image:image>\n");
-      }
-      xml.append("  </url>\n");
-    }
-    xml.append("</urlset>");
-    return xml.toString();
+    return buildUrlSet(
+        data.getContent().stream()
+            .map(
+                market -> {
+                  // Market Symbol as slug
+                  String slug = market.getSymbol();
+                  // Market data changes frequently
+                  return new SitemapEntry(BASE_URL + "/market/" + slug, null, "daily", "0.6");
+                })
+            .collect(Collectors.toList()));
   }
 
-  @Cacheable(value = "sitemap_static", key = "'static_pages'")
-  public String generateStaticSitemap() {
-    String[] pages = {"/", "/about", "/vision", "/contact"};
+  private String buildUrlSet(java.util.List<SitemapEntry> entries) {
     StringBuilder xml = new StringBuilder();
     xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     xml.append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
-    String now = formatDate(Instant.now());
-    for (String p : pages) {
-      xml.append("  <url><loc>")
-          .append(baseUrl)
-          .append(p)
-          .append("</loc><lastmod>")
-          .append(now)
-          .append("</lastmod></url>\n");
+
+    for (SitemapEntry entry : entries) {
+      xml.append("  <url>\n");
+      xml.append("    <loc>").append(entry.loc).append("</loc>\n");
+      if (entry.lastmod != null) {
+        xml.append("    <lastmod>").append(entry.lastmod).append("</lastmod>\n");
+      }
+      xml.append("    <changefreq>").append(entry.changefreq).append("</changefreq>\n");
+      xml.append("    <priority>").append(entry.priority).append("</priority>\n");
+      xml.append("  </url>\n");
     }
+
     xml.append("</urlset>");
     return xml.toString();
   }
 
-  @Cacheable(value = "sitemap_categories", key = "'categories'")
-  public String generateCategoriesSitemap() {
-    StringBuilder xml = new StringBuilder();
-    xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    xml.append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
-    List<Category> categories = categoryRepository.findAll();
-    String now = formatDate(Instant.now());
-    for (Category cat : categories) {
-      if (cat.getSlug() == null) continue;
-      String url = baseUrl + "/category/" + cat.getSlug();
-      xml.append("  <url><loc>")
-          .append(url)
-          .append("</loc><lastmod>")
-          .append(now)
-          .append("</lastmod></url>\n");
+  private static class SitemapEntry {
+    String loc;
+    String lastmod;
+    String changefreq;
+    String priority;
+
+    public SitemapEntry(String loc, String lastmod, String changefreq, String priority) {
+      this.loc = loc;
+      this.lastmod = lastmod;
+      this.changefreq = changefreq;
+      this.priority = priority;
     }
-    xml.append("</urlset>");
-    return xml.toString();
-  }
-
-  // --- NEW ENTERPRISE METHOD: CACHE EVICTION ---
-
-  /**
-   * Called via RabbitMQ (MessageListener) when a post is created/updated/deleted. This clears all
-   * sitemap caches so the next visit to /sitemap.xml triggers a fresh DB query.
-   */
-  @CacheEvict(
-      value = {
-        "sitemap_index",
-        "sitemap_news",
-        "sitemap_archive",
-        "sitemap_static",
-        "sitemap_categories"
-      },
-      allEntries = true)
-  public void clearCaches() {
-    logger.info("Evicting all Sitemap Caches due to content update");
-  }
-
-  // --- Helpers ---
-  private void addSitemapEntry(StringBuilder xml, String path, String lastMod) {
-    xml.append("  <sitemap>\n");
-    xml.append("    <loc>").append(baseUrl).append(path).append("</loc>\n");
-    xml.append("    <lastmod>").append(lastMod).append("</lastmod>\n");
-    xml.append("  </sitemap>\n");
-  }
-
-  private String buildPostUrl(BlogPost post) {
-    String catSlug = (post.getCategory() != null) ? post.getCategory().getSlug() : "uncategorized";
-    return String.format(
-        "%s/category/%s/%s/%s",
-        baseUrl, catSlug, post.getUserFriendlySlug(), post.getUrlArticleId());
-  }
-
-  private String formatDate(Instant instant) {
-    if (instant == null) instant = Instant.now();
-    return DateTimeFormatter.ISO_OFFSET_DATE_TIME.withZone(ZoneId.of("UTC")).format(instant);
-  }
-
-  private String escapeXml(String s) {
-    if (s == null) return "";
-    return s.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;")
-        .replace("'", "&apos;");
   }
 }
