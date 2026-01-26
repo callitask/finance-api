@@ -1,3 +1,46 @@
+/**
+ * AI-CONTEXT:
+ *
+ * Purpose:
+ * - Enterprise Edge Controller for Treishvaam Finance.
+ * - Handles: Zero-Trust Security, SEO Edge Hydration, Flattened Sitemap Aggregation, and High-Availability Fallback.
+ *
+ * Scope:
+ * - Intercepts all traffic to treishfin.treishvaamgroup.com
+ * - Manages routing between Static Frontend (Pages) and Dynamic Backend (API).
+ * - Enforces security headers and bot protection.
+ *
+ * Critical Dependencies:
+ * - Backend: https://api.treishvaamgroup.com (via env.BACKEND_URL)
+ * - Frontend: Cloudflare Pages (Static Assets)
+ * - Sitemap: Aggregates Internal Static XML + /sitemap-dynamic/* (Backend)
+ *
+ * Security Constraints:
+ * - Strict Content-Security-Policy (CSP).
+ * - HSTS enforcement.
+ * - No hardcoded secrets.
+ *
+ * Non-Negotiables:
+ * - SITEMAP: Must always serve Static Sitemap if Backend is down.
+ * - SEO: Must hydrate HTML for Bots to prevent "blank page" indexing.
+ * - AVAILABILITY: Must serve cached content on 5xx errors.
+ * - FREE TIER: Must use standard Cache API.
+ *
+ * IMMUTABLE CHANGE HISTORY:
+ * - ADDED: Hybrid Sitemap Aggregation (Static + Dynamic).
+ * - EDITED: Consolidated all previous logic (SEO, Security, Fallback) into single file.
+ * - EDITED: Enhanced fallback logic for dynamic sitemap segments.
+ * - EDITED:
+ * • FLATTENED Sitemap Index (No nested indices).
+ * • Added Aggressive Image Caching (Free Tier compatible).
+ * • Added Offline Resilience for Sitemap Metadata.
+ * • Phase 3 - Flattening & Speed.
+ * - EDITED:
+ * • ADDED INTERNAL STATIC SITEMAP GENERATION (Zero-Dependency).
+ * • Worker now serves /sitemap-static.xml directly from memory.
+ * • Fixes "0 Discovered Pages" by guaranteeing valid XML.
+ */
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -5,8 +48,7 @@ export default {
     // =================================================================================
     // 0. CONFIGURATION (Zero Trust / Environment Agnostic)
     // =================================================================================
-    // Cloudflare Variables are authoritative. Fallbacks provided for local dev safety.
-    const BACKEND_URL = env.BACKEND_URL || "https://backend.treishvaamgroup.com";
+    const BACKEND_URL = env.BACKEND_URL || "https://api.treishvaamgroup.com";
     const FRONTEND_URL = env.FRONTEND_URL || "https://treishfin.treishvaamgroup.com";
     const PARENT_ORG_URL = "https://treishvaamgroup.com";
 
@@ -110,59 +152,35 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
     }
 
     // ----------------------------------------------
-    // 3. DYNAMIC SITEMAP PROXY
+    // 3. FLATTENED SITEMAP AGGREGATOR (NEW LOGIC)
     // ----------------------------------------------
-    if (
-      url.pathname === "/sitemap.xml" ||
-      url.pathname === "/sitemap-news.xml" ||
-      url.pathname === "/feed.xml" ||
-      url.pathname.startsWith("/sitemaps/")
-    ) {
-      const targetUrl = new URL(request.url);
-      targetUrl.hostname = backendConfig.hostname;
-      targetUrl.protocol = backendConfig.protocol;
+    
+    // A. ROOT SITEMAP INDEX (/sitemap.xml)
+    if (url.pathname === '/sitemap.xml') {
+        return handleFlattenedSitemapIndex(env, FRONTEND_URL, BACKEND_URL, ctx);
+    }
 
-      const sitemapHeaders = new Headers(enhancedHeaders);
-      sitemapHeaders.set("Host", new URL(FRONTEND_URL).hostname);
-      sitemapHeaders.set(
-        "User-Agent",
-        `Cloudflare-Worker-SitemapFetcher/2.0 (+${FRONTEND_URL})`
-      );
+    // B. [NEW] STATIC SITEMAP GENERATOR (/sitemap-static.xml)
+    // Generated internally to guarantee existence.
+    if (url.pathname === '/sitemap-static.xml') {
+        return handleStaticSitemap(FRONTEND_URL);
+    }
 
-      const proxyReq = new Request(targetUrl.toString(), {
-        method: request.method,
-        headers: sitemapHeaders,
-        body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer(),
-        redirect: "manual"
-      });
-
-      try {
-        const backendResp = await fetch(proxyReq);
-        const respHeaders = new Headers(backendResp.headers);
-
-        if (url.pathname.endsWith(".xml")) {
-          respHeaders.set("Content-Type", "text/xml; charset=utf-8");
-        } else if (url.pathname === "/feed.xml") {
-          respHeaders.set("Content-Type", "application/rss+xml; charset=utf-8");
+    // C. DYNAMIC CHILD SITEMAPS PROXY
+    // Matches: /sitemap-dynamic/blog/0.xml
+    if (url.pathname.startsWith('/sitemap-dynamic/')) {
+        const parts = url.pathname.split('/');
+        // Expected: /sitemap-dynamic/{type}/{file}
+        if (parts.length >= 4) {
+            const type = parts[2];
+            const filename = parts[3];
+            const backendPath = `/api/public/sitemap/${type}/${filename}`;
+            return fetchBackendWithCache(BACKEND_URL + backendPath, ctx);
         }
-
-        respHeaders.set("Cache-Control", "public, max-age=60, s-maxage=60");
-
-        const finalResp = new Response(await backendResp.arrayBuffer(), {
-          status: backendResp.status,
-          statusText: backendResp.statusText,
-          headers: respHeaders
-        });
-        
-        return addSecurityHeaders(finalResp);
-
-      } catch (e) {
-        return new Response("Service Unavailable", { status: 503 });
-      }
     }
 
     // ----------------------------------------------
-    // 4. API PROXY (Secure Routing)
+    // 4. API PROXY + IMAGE ACCELERATION (NEW LOGIC)
     // ----------------------------------------------
     if (url.pathname.startsWith("/api")) {
       const targetUrl = new URL(request.url);
@@ -175,6 +193,37 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
         body: request.body,
         redirect: request.redirect
       });
+
+      // --- [NEW] IMAGE ACCELERATION (FREE TIER CACHE) ---
+      // Caches API images at the edge to fix "loading too slow"
+      if (url.pathname.match(/\.(jpg|jpeg|png|gif|webp)$/) || url.pathname.includes("/uploads/")) {
+        const cache = caches.default;
+        const cacheKey = new Request(url.toString(), request);
+        
+        // 1. Check Cache
+        let cachedResponse = await cache.match(cacheKey);
+        if (cachedResponse) {
+             const cachedRes = new Response(cachedResponse.body, cachedResponse);
+             cachedRes.headers.set("X-Cache-Status", "HIT");
+             return addSecurityHeaders(cachedRes);
+        }
+
+        // 2. Fetch from Backend
+        const apiResp = await fetch(proxyReq);
+        
+        // 3. Store in Cache (if success)
+        if (apiResp.ok) {
+             const responseToCache = new Response(apiResp.body, apiResp);
+             // Cache for 1 year (Immutable)
+             responseToCache.headers.set("Cache-Control", "public, max-age=31536000, immutable");
+             responseToCache.headers.set("X-Cache-Status", "MISS");
+             
+             ctx.waitUntil(cache.put(cacheKey, responseToCache.clone()));
+             return addSecurityHeaders(responseToCache);
+        }
+        return apiResp;
+      }
+      // --- END IMAGE ACCELERATION ---
 
       const apiResp = await fetch(proxyReq);
       return apiResp;
@@ -225,7 +274,7 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
     }
 
     // =================================================================================
-    // 7. SEO INTELLIGENCE & EDGE HYDRATION
+    // 7. SEO INTELLIGENCE & EDGE HYDRATION (ORIGINAL LOGIC RESTORED)
     // =================================================================================
     
     // SCENARIO A: HOMEPAGE
@@ -532,3 +581,171 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
     return addSecurityHeaders(response);
   }
 };
+
+// =================================================================================
+// 8. HELPER FUNCTIONS
+// =================================================================================
+
+/**
+ * GENERATES FLATTENED SITEMAP INDEX
+ * Uses Cache API to survive Backend Outages.
+ */
+async function handleFlattenedSitemapIndex(env, frontendUrl, backendUrl, ctx) {
+    const cache = caches.default;
+    const cacheKey = new Request(`${frontendUrl}/sitemap-metadata-cache`); // Custom key
+    
+    let metadata = null;
+
+    // 1. Try Cache
+    const cachedMeta = await cache.match(cacheKey);
+    if (cachedMeta) {
+        try { metadata = await cachedMeta.json(); } catch(e){}
+    }
+
+    // 2. If no cache, fetch from Backend
+    if (!metadata) {
+        try {
+            const resp = await fetch(`${backendUrl}/api/public/sitemap/meta`, {
+                headers: { 'User-Agent': 'Cloudflare-Worker-Sitemap' }
+            });
+            if (resp.ok) {
+                metadata = await resp.json();
+                // Cache for 24 hours
+                const metaResponse = new Response(JSON.stringify(metadata), {
+                    headers: { "Cache-Control": "public, max-age=86400" }
+                });
+                ctx.waitUntil(cache.put(cacheKey, metaResponse));
+            }
+        } catch (e) {
+            console.error("Backend Metadata Fetch Failed", e);
+        }
+    }
+
+    // 3. Construct FLATTENED XML
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap>
+    <loc>${frontendUrl}/sitemap-static.xml</loc>
+  </sitemap>`;
+
+    // Append Dynamic Children directly (Flattening)
+    if (metadata) {
+        if (metadata.blogs) {
+            metadata.blogs.forEach(file => {
+                xml += `
+  <sitemap>
+    <loc>${frontendUrl}${file}</loc>
+  </sitemap>`;
+            });
+        }
+        if (metadata.markets) {
+            metadata.markets.forEach(file => {
+                xml += `
+  <sitemap>
+    <loc>${frontendUrl}${file}</loc>
+  </sitemap>`;
+            });
+        }
+    }
+
+    xml += `
+</sitemapindex>`;
+
+    return new Response(xml, {
+        headers: { 
+            "Content-Type": "application/xml",
+            "Cache-Control": "public, max-age=3600"
+        }
+    });
+}
+
+/**
+ * [NEW] GENERATES STATIC SITEMAP (Zero-Dependency)
+ * Guaranteed to exist regardless of frontend/backend state.
+ */
+function handleStaticSitemap(frontendUrl) {
+    // Current date for LastMod
+    const today = new Date().toISOString().split('T')[0];
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${frontendUrl}/</loc>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>${frontendUrl}/about</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>${frontendUrl}/vision</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>${frontendUrl}/contact</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>${frontendUrl}/businesses</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>${frontendUrl}/sustainability</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>${frontendUrl}/investors</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>${frontendUrl}/terms</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>${frontendUrl}/privacy</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+</urlset>`;
+
+    return new Response(xml, {
+        headers: {
+            "Content-Type": "application/xml",
+            "Cache-Control": "public, max-age=86400" // Cache for 1 day
+        }
+    });
+}
+
+/**
+ * Fetch helper with Caching for Sitemap Files
+ */
+async function fetchBackendWithCache(url, ctx) {
+    const cache = caches.default;
+    const cacheKey = new Request(url);
+    
+    // 1. Check Cache
+    const cached = await cache.match(cacheKey);
+    if (cached) return cached;
+
+    // 2. Fetch
+    try {
+        const resp = await fetch(url);
+        if (resp.ok) {
+            // Cache for 1 hour
+            const resToCache = new Response(resp.body, resp);
+            resToCache.headers.set("Cache-Control", "public, max-age=3600");
+            ctx.waitUntil(cache.put(cacheKey, resToCache.clone()));
+            return resToCache;
+        }
+    } catch(e) {}
+
+    return new Response("Sitemap segment unavailable", { status: 404 });
+}
