@@ -36,9 +36,9 @@
  * • Added Offline Resilience for Sitemap Metadata.
  * • Phase 3 - Flattening & Speed.
  * - EDITED:
- * • ADDED INTERNAL STATIC SITEMAP GENERATION (Zero-Dependency).
- * • Worker now serves /sitemap-static.xml directly from memory.
- * • Fixes "0 Discovered Pages" by guaranteeing valid XML.
+ * • REMOVED STATIC INTERCEPTORS (Pass-Through Architecture).
+ * • Robots.txt and sitemap-static.xml now served directly from Frontend Pages.
+ * • Worker only handles Index Aggregation and API Proxying.
  */
 
 export default {
@@ -119,54 +119,16 @@ export default {
     };
 
     // ----------------------------------------------
-    // 2. HIGH AVAILABILITY ROBOTS.TXT (Edge-Served)
-    // ----------------------------------------------
-    if (url.pathname === "/robots.txt") {
-      const robotsTxt = `User-agent: *
-Allow: /
-
-# --- ENTERPRISE SEO: Allow Googlebot to fetch API data for rendering ---
-Allow: /api/posts
-Allow: /api/categories
-Allow: /api/market
-Allow: /api/news
-
-# Disallow crawlers from indexing Auth, Admin, and internal search paths
-Disallow: /api/auth/
-Disallow: /api/contact/
-Disallow: /api/admin/
-Disallow: /dashboard/
-Disallow: /?q=*
-Disallow: /silent-check-sso.html
-Disallow: /login
-
-# Sitemap Index
-Sitemap: ${FRONTEND_URL}/sitemap.xml`;
-
-      return new Response(robotsTxt, {
-        headers: {
-          "Content-Type": "text/plain; charset=utf-8",
-          "Cache-Control": "public, max-age=86400"
-        }
-      });
-    }
-
-    // ----------------------------------------------
-    // 3. FLATTENED SITEMAP AGGREGATOR (NEW LOGIC)
+    // 2. FLATTENED SITEMAP AGGREGATOR
     // ----------------------------------------------
     
     // A. ROOT SITEMAP INDEX (/sitemap.xml)
+    // This remains dynamic to aggregate Static Pages + Dynamic Backend Segments
     if (url.pathname === '/sitemap.xml') {
         return handleFlattenedSitemapIndex(env, FRONTEND_URL, BACKEND_URL, ctx);
     }
 
-    // B. [NEW] STATIC SITEMAP GENERATOR (/sitemap-static.xml)
-    // Generated internally to guarantee existence.
-    if (url.pathname === '/sitemap-static.xml') {
-        return handleStaticSitemap(FRONTEND_URL);
-    }
-
-    // C. DYNAMIC CHILD SITEMAPS PROXY
+    // B. DYNAMIC CHILD SITEMAPS PROXY
     // Matches: /sitemap-dynamic/blog/0.xml
     if (url.pathname.startsWith('/sitemap-dynamic/')) {
         const parts = url.pathname.split('/');
@@ -179,8 +141,12 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
         }
     }
 
+    // NOTE: /robots.txt and /sitemap-static.xml are intentionally REMOVED from here.
+    // They will fall through to logic block #5 (Static Assets) and be served 
+    // directly from Cloudflare Pages (Frontend Code).
+
     // ----------------------------------------------
-    // 4. API PROXY + IMAGE ACCELERATION (NEW LOGIC)
+    // 3. API PROXY + IMAGE ACCELERATION
     // ----------------------------------------------
     if (url.pathname.startsWith("/api")) {
       const targetUrl = new URL(request.url);
@@ -194,7 +160,7 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
         redirect: request.redirect
       });
 
-      // --- [NEW] IMAGE ACCELERATION (FREE TIER CACHE) ---
+      // --- IMAGE ACCELERATION (FREE TIER CACHE) ---
       // Caches API images at the edge to fix "loading too slow"
       if (url.pathname.match(/\.(jpg|jpeg|png|gif|webp)$/) || url.pathname.includes("/uploads/")) {
         const cache = caches.default;
@@ -230,15 +196,16 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
     }
 
     // ----------------------------------------------
-    // 5. STATIC ASSETS
+    // 4. STATIC ASSETS
     // ----------------------------------------------
-    if (url.pathname.match(/\.(jpg|jpeg|png|gif|webp|css|js|json|ico|xml)$/)) {
+    // Matches .xml, .txt, images, css, js
+    if (url.pathname.match(/\.(jpg|jpeg|png|gif|webp|css|js|json|ico|xml|txt)$/)) {
       const assetResp = await fetch(baseEnhancedRequest);
       return addSecurityHeaders(assetResp);
     }
 
     // ----------------------------------------------
-    // 6. FETCH HTML SHELL WITH CACHING
+    // 5. FETCH HTML SHELL WITH CACHING
     // ----------------------------------------------
     let response;
     const cacheKey = new Request(url.origin + "/", request);
@@ -274,7 +241,7 @@ Sitemap: ${FRONTEND_URL}/sitemap.xml`;
     }
 
     // =================================================================================
-    // 7. SEO INTELLIGENCE & EDGE HYDRATION (ORIGINAL LOGIC RESTORED)
+    // 6. SEO INTELLIGENCE & EDGE HYDRATION
     // =================================================================================
     
     // SCENARIO A: HOMEPAGE
@@ -655,71 +622,6 @@ async function handleFlattenedSitemapIndex(env, frontendUrl, backendUrl, ctx) {
         headers: { 
             "Content-Type": "application/xml",
             "Cache-Control": "public, max-age=3600"
-        }
-    });
-}
-
-/**
- * [NEW] GENERATES STATIC SITEMAP (Zero-Dependency)
- * Guaranteed to exist regardless of frontend/backend state.
- */
-function handleStaticSitemap(frontendUrl) {
-    // Current date for LastMod
-    const today = new Date().toISOString().split('T')[0];
-
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>${frontendUrl}/</loc>
-    <changefreq>daily</changefreq>
-    <priority>1.0</priority>
-  </url>
-  <url>
-    <loc>${frontendUrl}/about</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>${frontendUrl}/vision</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>${frontendUrl}/contact</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>${frontendUrl}/businesses</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>${frontendUrl}/sustainability</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>${frontendUrl}/investors</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>${frontendUrl}/terms</loc>
-    <changefreq>yearly</changefreq>
-    <priority>0.3</priority>
-  </url>
-  <url>
-    <loc>${frontendUrl}/privacy</loc>
-    <changefreq>yearly</changefreq>
-    <priority>0.3</priority>
-  </url>
-</urlset>`;
-
-    return new Response(xml, {
-        headers: {
-            "Content-Type": "application/xml",
-            "Cache-Control": "public, max-age=86400" // Cache for 1 day
         }
     });
 }
