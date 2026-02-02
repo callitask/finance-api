@@ -3,6 +3,7 @@ package com.treishvaam.financeapi.service;
 import com.treishvaam.financeapi.marketdata.MarketData;
 import com.treishvaam.financeapi.marketdata.MarketDataRepository;
 import com.treishvaam.financeapi.model.BlogPost;
+import com.treishvaam.financeapi.model.Category;
 import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import java.util.ArrayList;
@@ -17,7 +18,12 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
-/** AI-CONTEXT: Purpose: Generates segmented sitemaps and metadata for Cloudflare Worker. */
+/**
+ * AI-CONTEXT: Purpose: Generates segmented sitemaps and metadata for Cloudflare Worker.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY: - UPDATED: URL Construction to match Frontend Router:
+ * /category/{catSlug}/{userSlug}/{articleId} - ADDED: Null-safe fallbacks for slugs and categories.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -68,17 +74,30 @@ public class SitemapService {
     Page<BlogPost> posts = blogPostRepository.findAllByStatus(PostStatus.PUBLISHED, pageable);
 
     return buildUrlSet(
-        posts.getContent().stream()
-            .map(
-                post -> {
-                  String slug = post.getSlug() != null ? post.getSlug() : post.getId().toString();
-                  String date =
-                      post.getUpdatedAt() != null
-                          ? post.getUpdatedAt().toString()
-                          : post.getCreatedAt().toString();
-                  return new SitemapEntry(BASE_URL + "/post/" + slug, date, "weekly", "0.8");
-                })
-            .collect(Collectors.toList()));
+        posts.getContent().stream().map(this::constructBlogPostUrl).collect(Collectors.toList()));
+  }
+
+  /** Helper to construct the exact Frontend Route URL */
+  private SitemapEntry constructBlogPostUrl(BlogPost post) {
+    // Extract fields with safety checks
+    Category cat = post.getCategory();
+    String categorySlug = (cat != null && cat.getSlug() != null) ? cat.getSlug() : "general";
+    String userSlug =
+        post.getUserFriendlySlug() != null ? post.getUserFriendlySlug() : post.getSlug();
+    String articleId =
+        post.getUrlArticleId() != null
+            ? post.getUrlArticleId()
+            : (post.getSlug() != null ? post.getSlug() : String.valueOf(post.getId()));
+
+    // Construct Format: /category/:categorySlug/:userFriendlySlug/:urlArticleId
+    String loc = String.format("%s/category/%s/%s/%s", BASE_URL, categorySlug, userSlug, articleId);
+
+    String date =
+        post.getUpdatedAt() != null
+            ? post.getUpdatedAt().toString()
+            : post.getCreatedAt().toString();
+
+    return new SitemapEntry(loc, date, "weekly", "0.8");
   }
 
   public String generateMarketSitemap(int page) {
