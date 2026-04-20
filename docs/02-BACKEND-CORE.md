@@ -1,3 +1,37 @@
+/**
+ * AI-CONTEXT:
+ *
+ * Purpose:
+ * - Details the core runtime, security, concurrency, multi-tenancy, and I/O strategies of the Spring Boot Backend.
+ *
+ * Scope:
+ * - Covers OAuth2/RBAC, TenantInterceptor boundaries, Virtual Threads, JPA batching, and SSG Materialization.
+ *
+ * Critical Dependencies:
+ * - Keycloak (Auth), MariaDB (Persistence), Redis (Cache), MinIO (Storage).
+ * - Cloudflare Edge Workers (for injecting X-Tenant-ID).
+ *
+ * Security Constraints:
+ * - Multi-tenant data isolation must be enforced via TenantInterceptor and TenantContext ThreadLocals.
+ * - Subprocess/Startup tasks must explicitly declare their TenantContext to prevent data cross-contamination.
+ * - Docker Compose `.env` parsing requires raw strings (no quotes).
+ *
+ * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+ * - ADDED: Initial Treishvaam Finance Core Backend documentation.
+ * - EDITED:
+ * • Phase 3 Update: Upgraded Multi-Tenancy Architecture documentation.
+ * • Detailed TenantInterceptor whitelisting ('finance', 'agro').
+ * • Detailed MDC logging injection for tenant tracking.
+ * • Added MarketDataInitializer TenantContext isolation constraints.
+ * • Added Docker Compose .env quoting restriction to Configuration Management to prevent HikariCP parse failures.
+ * • Documented Edge Worker KV caching and SPA fallback integration with the backend.
+ *
+ * - DO-NOT-DELETE RULE:
+ * This IMMUTABLE CHANGE HISTORY section must never be deleted,
+ * truncated, rewritten, or regenerated.
+ * Future AI must append only.
+ */
+
 # Backend Core Architecture
 
 ## 1. Runtime Environment
@@ -31,7 +65,7 @@ We map Keycloak Realm Roles to Spring Security Authorities using a custom conver
 ### 2.3. Security Filter Chain (`SecurityConfig.java`)
 The filter chain is configured with strict ordering to ensure safety before any business logic executes.
 
-1.  **CORS Filter**: Applied globally. Allows origins defined in `application-prod.properties` (e.g., `https://treishfin.treishvaamgroup.com`).
+1.  **CORS Filter**: Applied globally. Allows origins defined in `application-prod.properties` (e.g., `https://treishfin.treishvaamgroup.com`, `https://treishvaamagro.com`).
 2.  **CSRF**: Disabled (Stateless API does not use session cookies for auth).
 3.  **Session Management**: Set to `STATELESS`.
 4.  **Authorization Rules**:
@@ -48,13 +82,17 @@ The backend invokes a Python subsystem for complex financial analysis.
 
 ## 3. Multi-Tenancy Architecture
 
-The application is built to support multiple sub-brands (tenants) from a single deployment.
+The application is built to support multiple sub-brands (tenants) from a single deployment (e.g., Finance, Agro).
 
-### 3.1. Tenant Context
-* **Header**: Clients must send the `X-Tenant-ID` header (e.g., `TREISHFIN`, `TREISHAGRO`).
-* **Interceptor**: `TenantInterceptor` captures this header before the controller is reached.
-* **Context Holder**: `TenantContext` uses a `ThreadLocal` variable to store the Tenant ID for the duration of the request.
-* **Data Isolation**: Service layers use the `TenantContext` to filter database queries (e.g., `WHERE tenant_id = ?`), ensuring data segregation.
+### 3.1. Tenant Context & Interception (`TenantInterceptor`)
+* **Header**: Clients (specifically the Zero-Trust Edge Workers) must send the `X-Tenant-ID` header (e.g., `finance`, `agro`).
+* **Validation**: The `TenantInterceptor` intercepts requests, sanitizes the input (regex `[^a-zA-Z0-9_-]`), and strictly enforces a whitelist of recognized tenants. Unknown tenants are downgraded to a safe default.
+* **Context Holder**: `TenantContext` uses a `ThreadLocal` variable to store the Tenant ID for the duration of the request, ensuring thread-safety.
+* **Logging Integration (MDC)**: The interceptor automatically injects the `tenantId` into the Mapped Diagnostic Context (MDC), ensuring all backend logs stream to Loki with clear tenant traceability.
+* **Data Isolation**: Service layers use the `TenantContext` to filter database queries (e.g., `WHERE tenant_id = ?`), ensuring absolute data segregation between brands.
+
+### 3.2. Contextual Routing (`SitemapService`)
+Services are designed to dynamically alter behavior based on `TenantContext`. For example, `SitemapService` checks if the tenant is `agro`. If so, it hijacks the endpoint response to return a static XML sitemap tailored for enterprise pages, overriding the standard financial data pagination logic.
 
 ## 4. Concurrency & Virtual Threads (Enterprise Optimization)
 
@@ -72,6 +110,11 @@ We leverage **Java 21 Virtual Threads** to handle high-concurrency tasks without
     * **Read**: The frontend fetches the current `version` of an entity.
     * **Write**: The update request *must* include this `version`.
     * **Check**: If `dbVersion != clientVersion`, the backend throws `ObjectOptimisticLockingFailureException` (HTTP 409 Conflict), rejecting the stale write.
+
+### 4.3. Startup Data Isolation (Tenant Boundaries)
+* **Problem**: Startup processes (e.g., `CommandLineRunner`) execute outside the standard HTTP request lifecycle and therefore lack an injected `TenantContext`.
+* **Solution**: Classes like `MarketDataInitializer` that execute background seeding must explicitly wrap their execution threads in `TenantContext.setTenantId("finance")`.
+* **Benefit**: Guarantees that heavy financial data fetching or DB seeding never bleeds into the `agro` tenant architecture during cross-tenant deployment restarts.
 
 ## 5. Transactional Integrity & I/O Strategy
 
@@ -106,15 +149,12 @@ To prevent database connection pool exhaustion—a common failure mode in Enterp
     1.  **Trigger**: When a post is published, the `HtmlMaterializerService` activates.
     2.  **Generation**: It fetches the current React shell (`index.html`) from the internal Nginx gateway.
     3.  **Injection**: It injects the full HTML content into `<div id="server-content">` and the JSON state into `window.__PRELOADED_STATE__`.
-    4.  **Robust Serialization**: To prevent 500 errors during materialization, the service manually converts `Instant` fields (e.g., `createdAt`) to Strings before serialization, ensuring the JSON payload is strictly compatible with the Frontend's hydration logic.
-    5.  **Storage**: The resulting `.html` file is uploaded to MinIO/S3 at `posts/{slug}.html` for direct serving by Cloudflare.
+    4.  **Robust Serialization**: To prevent 500 errors during materialization, the service manually converts `Instant` fields (e.g., `createdAt`) to Strings before serialization.
+    5.  **Storage**: The resulting `.html` file is uploaded to MinIO/S3 for direct serving.
 
-### 5.5. API Stability & Recursion Protection
-* **Problem**: Complex entity relationships (e.g., `BlogPost` <-> `Category`, `BlogPost` <-> `PostThumbnail`) can cause Infinite Recursion (StackOverflowError) during JSON serialization, crashing the API (HTTP 500).
-* **Solution**: We enforce strict **JSON Back-References**:
-    * **Thumbnails**: The `PostThumbnail` entity uses `@JsonIgnore` on the `blogPost` field.
-    * **Categories**: The `BlogPost` entity uses `@JsonIgnoreProperties` on the `category` field to ignore bidirectional links.
-    * **Result**: The API is mathematically guaranteed to produce a DAG (Directed Acyclic Graph) JSON structure, preventing recursion crashes.
+### 5.5. Edge SEO Intelligence & SPA Fallback
+* **Sitemaps**: Instead of the backend rendering `sitemap.xml` directly to users, Cloudflare Edge Workers serve it from a Free-Tier KV Cache. Cache misses route to the backend with the appropriate `X-Tenant-ID` header, and the Worker asynchronously updates the cache (`ctx.waitUntil`).
+* **API Stability & Recursion Protection**: Complex entity relationships (e.g., `BlogPost` <-> `Category`) utilize `@JsonIgnore` and `@JsonIgnoreProperties` to prevent Infinite Recursion (StackOverflowError) during JSON serialization.
 
 ## 6. Resilience & Reliability
 
@@ -140,7 +180,7 @@ The application avoids blocking the main HTTP threads for long-running tasks.
 
 ### 7.1. Task Execution
 * **Config**: `AsyncConfig.java` defines a `ThreadPoolTaskExecutor`.
-* **Usage**: Methods annotated with `@Async` (e.g., sending emails, generating sitemaps) run in a separate thread pool.
+* **Usage**: Methods annotated with `@Async` (e.g., sending emails) run in a separate thread pool.
 
 ### 7.2. Messaging (RabbitMQ)
 * **Publisher**: `MessagePublisher` sends events to the `internal-events` exchange.
@@ -154,7 +194,7 @@ The application avoids blocking the main HTTP threads for long-running tasks.
 * **Config**: `CachingConfig.java`.
 * **Global TTL**: Defaults to 10 minutes (`600000ms`) to prevent data staleness.
 * **Patterns**:
-    * **Read-Through**: Critical read paths (e.g., `findByUrlArticleId`) are annotated with `@Cacheable`.
+    * **Read-Through**: Critical read paths are annotated with `@Cacheable`.
     * **Cache-Aside**: Updates (`save`) and Deletes (`deleteById`) trigger `@CacheEvict`.
 
 ## 9. Audit Logging
@@ -172,6 +212,11 @@ We strictly adhere to the 12-Factor App methodology.
 * **Source of Truth**: Infisical (External Secrets Manager).
 * **Mechanism**: Secrets are injected into the container environment at runtime via `auto_deploy.sh` and `docker-compose`.
 * **Flash & Wipe**: The temporary `.env` file is deleted immediately after container startup.
+
+### 10.2. The Docker Compose Quoting Trap (Critical Constraint)
+* **Issue**: Docker Compose reads `.env` files literally. Single quotes (`'`) or double quotes (`"`) around values are passed directly into the container environment.
+* **Failure Mode**: If `PROD_DB_URL='jdbc:mariadb...'` is used, Spring Boot's HikariCP fails to parse the connection string (crashing with `Failed to determine suitable jdbc url`).
+* **Rule**: Secrets and URLs in the `.env` file MUST be raw strings without surrounding quotes.
 
 ## 11. Financial Precision Architecture
 

@@ -1,8 +1,53 @@
+/**
+ * AI-CONTEXT:
+ *
+ * Purpose:
+ * - Chronological record of all architectural, security, and feature changes to the Treishvaam Group Backend (finance-api).
+ *
+ * Scope:
+ * - Tracks Semantic Versioning (SemVer) and Phase milestones.
+ *
+ * Critical Dependencies:
+ * - This file must be updated with every major architectural pivot, security patch, or infrastructure change.
+ *
+ * Security Constraints:
+ * - Never log sensitive data (CVE specifics before patching, exposed credentials, etc.) in the changelog.
+ *
+ * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+ * - ADDED: Initial Changelog based on Keep a Changelog.
+ * - EDITED:
+ * • Added Phase 3 (Multi-Tenant Architecture) release notes.
+ * • Documented Edge Worker SPA Fallback and KV caching updates.
+ * • Documented Docker Compose .env quoting bug fix.
+ *
+ * - DO-NOT-DELETE RULE:
+ * This IMMUTABLE CHANGE HISTORY section must never be deleted,
+ * truncated, rewritten, or regenerated.
+ * Future AI must append only.
+ */
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [tfin-financeapi-Develop.0.0.0.5] - Phase 3: Zero-Trust Multi-Tenant Architecture
+### Enterprise Expansion & Edge Intelligence
+- **Arch (Multi-Tenancy)**: Transformed the single-purpose backend into a Multi-Tenant Engine supporting `finance` and `agro` frontend deployments from a single Spring Boot instance.
+- **Sec (Zero-Trust Boundaries)**: Implemented `TenantInterceptor` to intercept, sanitize, and validate the `X-Tenant-ID` header injected by Cloudflare Edge Workers.
+- **Feat (Contextual Routing)**: Upgraded `SitemapService` to hijack the endpoint based on `TenantContext`. The `agro` tenant now receives a highly optimized, static XML payload for its enterprise pages, overriding the default financial pagination logic.
+- **Fix (Startup Isolation)**: Wrapped heavy background tasks (`MarketDataInitializer`) in explicit `TenantContext.setTenantId("finance")` blocks. This prevents cross-tenant data contamination and memory leaks during application restarts.
+
+### Edge Worker Integration & SEO Overhaul
+- **Perf (Edge Caching)**: Implemented Free-Tier optimized Cloudflare KV Caching (`TREISHFIN_SEO_CACHE`) for dynamic sitemaps. Cache misses securely proxy to the backend and update the cache asynchronously via `ctx.waitUntil`.
+- **SEO (SPA Fallback)**: Deployed Edge-side SPA Fallback logic. The Cloudflare Worker now intercepts 404/403 errors on known static routes (`/about`, `/products`) and forces a `200 OK` response with the root `index.html`. This mathematically eliminates Google Search Console "Soft 404" indexing penalties.
+- **SEO (E-E-A-T Schema)**: Upgraded the Worker to use `HTMLRewriter` to inject global Organization, Founder (Amitsagar Kandpal), and WebPage JSON-LD schemas directly into the HTML response stream.
+
+### DevOps & Resilience
+- **Fix (Docker Compose Trap)**: Resolved a fatal HikariCP crash loop (`Failed to determine suitable jdbc url`). Documented and enforced a strict rule that Docker Compose `.env` files must NEVER contain single (`'`) or double (`"`) quotes around injected secrets.
+
+---
 
 ### [tfin-financeapi-Develop.0.0.0.4] - Phase 9: Hybrid SSG & Production Stabilization
 ### Critical Architecture Fixes (The "Plain Text" & "500 Error" Patch)

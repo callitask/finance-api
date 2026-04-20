@@ -1,3 +1,35 @@
+/**
+ * AI-CONTEXT:
+ *
+ * Purpose:
+ * - The definitive deployment, DevOps, and disaster recovery manual for the Treishvaam Group Backend (finance-api).
+ *
+ * Scope:
+ * - Covers the Multi-Branch Git strategy, CI/CD automation, Secret Management (Infisical), Docker Compose networking, and Hybrid SSG operations.
+ *
+ * Critical Dependencies:
+ * - GitHub Actions (CI/Build).
+ * - `auto_deploy.sh` (Watchdog/State Management).
+ * - Infisical (Secrets).
+ * - Docker Compose (Runtime).
+ *
+ * Security Constraints:
+ * - Flash & Wipe Secret Management: Secrets must never rest on disk.
+ * - ZERO-PORT EXPOSURE: All internal services must remain within `treish_net`.
+ * - CRITICAL DEVOPS RULE: Docker Compose `.env` files must NEVER contain single or double quotes around values.
+ *
+ * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+ * - ADDED: Initial Deployment & Operations Manual.
+ * - EDITED:
+ * • Phase 3 Update: Added strict Docker Compose `.env` quoting rules based on live deployment crash diagnostics (HikariCP failures).
+ * • Clarified Multi-Tenant deployment implications (ensure tenant DBs and schemas are ready before restarting).
+ *
+ * - DO-NOT-DELETE RULE:
+ * This IMMUTABLE CHANGE HISTORY section must never be deleted,
+ * truncated, rewritten, or regenerated.
+ * Future AI must append only.
+ */
+
 # Deployment & Operations Manual
 
 **Stable Version:** `tfin-financeapi-Develop.0.0.0.1`
@@ -36,12 +68,12 @@ Our deployment process is decoupled into two distinct engines. This separates th
     1.  **Branch Intelligence**: Checks timestamps of `origin/develop`, `origin/staging`, and `origin/main`.
     2.  **Winner Takes All**: Automatically checks out the branch with the most recent commit.
     3.  **Infrastructure Sync**: Pulls changes to non-compiled files (Nginx configs, Python Market Engine, Docker configs).
-    4.  **Secret Injection**: Executes the "Flash & Wipe" security sequence.
-    5.  **Smart Restart**: Rebuilds containers only if configurations have changed.
+    4.  **Secret Injection**: Executes the "Flash & Wipe" sequence via Infisical.
+    5.  **Smart Restart**: Rebuilds containers only if configurations have changed (`docker compose up -d`).
 
 ---
 
-## 3. Secret Management (Flash & Wipe)
+## 3. Secret Management & Docker Compose Traps
 
 **Status**: ✅ Active (Fort Knox: Zero-Secrets-on-Disk)
 
@@ -54,9 +86,13 @@ We do not rely on static `.env` files for application secrets. Instead, we use a
 4.  **State 3 (Stabilization)**: The script waits 10 seconds to ensure containers have initialized.
 5.  **State 4 (Wipe)**: The script immediately overwrites `.env` with a safe template, removing all sensitive data from the disk.
 
-### Required Secrets Reference (Infisical)
-The following keys **must** exist in the Infisical Production Environment for the deployment to succeed.
+### ⚠️ CRITICAL DEVOPS RULE: The Docker Compose Quoting Trap
+When managing secrets in Infisical or manually editing the `.env` file, **you must NEVER use single quotes (`'`) or double quotes (`"`) around values.**
+* **The Problem:** Unlike Bash, Docker Compose reads `.env` files literally. If you write `PROD_DB_URL='jdbc:mariadb...'`, Docker passes the literal string including the quotes into the container.
+* **The Crash:** Spring Boot's HikariCP database pool will fail to recognize the URL (expecting it to start with `jdbc:`), causing the backend to enter a fatal crash loop (`Failed to determine suitable jdbc url`).
+* **The Fix:** Ensure all values in the `.env` file are raw strings: `PROD_DB_URL=jdbc:mariadb...`
 
+### Required Secrets Reference (Infisical)
 | Key | Description | Service(s) |
 | :--- | :--- | :--- |
 | `PROD_DB_PASSWORD` | MariaDB Root Password | Database |
@@ -65,7 +101,6 @@ The following keys **must** exist in the Infisical Production Environment for th
 | `RABBITMQ_DEFAULT_USER` | RabbitMQ User | Messaging, Backend |
 | `RABBITMQ_DEFAULT_PASS` | RabbitMQ Password | Messaging, Backend |
 | `JWT_SECRET_KEY` | Token Signing Key | Backend |
-| `INTERNAL_API_SECRET_KEY` | Service-to-Service Lock | Backend |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Tunnel Auth Token | Cloudflared |
 
 ---
@@ -79,20 +114,19 @@ The following headers are strictly enforced in `nginx/conf.d/default.conf`.
 
 | Header | Value | Purpose |
 | :--- | :--- | :--- |
-| **`Content-Security-Policy`** | `frame-ancestors 'self' https://treishfin.treishvaamgroup.com;` | **Critical Fix**: Whitelists the Frontend domain for Silent SSO (Keycloak iframe) while blocking clickjacking. |
+| **`Content-Security-Policy`** | `frame-ancestors 'self' https://treishfin.treishvaamgroup.com;` | **Critical Fix**: Whitelists the Frontend domains for Silent SSO (Keycloak iframe) while blocking clickjacking. |
 | **`X-Content-Type-Options`** | `nosniff` | Prevents browsers from "guessing" MIME types. |
 | **`X-XSS-Protection`** | `1; mode=block` | Enables the browser's built-in XSS filter. |
 
 ### Layer 2: Static Asset Offloading (Performance & Security)
 * **Direct Read Path**: Requests to `/api/uploads/**` are intercepted by Nginx and proxied directly to MinIO.
 * **Bypass**: This bypasses the Java application layer, preventing thread exhaustion from image downloads.
-* **Caching**: Nginx enforces `Cache-Control: public, max-age=31536000, immutable`, ensuring browsers never re-request static assets.
 * **Write Security**: Nginx strictly denies `PUT`, `POST`, or `DELETE` on these paths. All writes MUST go through the authenticated Java Backend.
 
 ### Layer 3: Backend Validation (Zero Trust I/O)
-* **MIME Validation (Apache Tika)**: The backend analyzes the **binary signature** (Magic Numbers) of every uploaded file. A file named `malware.jpg` that is actually an executable will be rejected instantly before processing.
-* **OOM Protection (Zero-Allocation)**: Uploads are streamed directly to temporary disk storage (`Files.createTempFile`). This prevents Out-Of-Memory crashes even if a user uploads a 100MB file.
-* **Subprocess Security (Python)**: The Market Data Engine (`scripts/market_data_updater.py`) receives credentials via **Environment Variables** (`ProcessBuilder.environment`), not command-line arguments. This ensures passwords are hidden from the process table (`ps aux`).
+* **MIME Validation (Apache Tika)**: The backend analyzes the **binary signature** (Magic Numbers) of every uploaded file to prevent malware execution.
+* **OOM Protection (Zero-Allocation)**: Uploads are streamed directly to temporary disk storage (`Files.createTempFile`). This prevents Out-Of-Memory crashes even for 100MB files.
+* **Subprocess Security (Python)**: The Market Data Engine receives credentials via **Environment Variables** (`ProcessBuilder.environment`), hiding passwords from the process table (`ps aux`).
 
 ---
 
@@ -132,7 +166,7 @@ Direct IP access to Grafana (Port 3001) has been **disabled** for security. Acce
 * **Authentication**: Protected via Cloudflare Access (SSO/Google Login).
 
 ### Debugging Workflows
-1.  **Logs (Loki)**: Use `{container="backend"} |= "ERROR"` to find exceptions.
+1.  **Logs (Loki)**: Use `{container="backend"} |= "ERROR"` to find exceptions. Multi-tenant logs can be filtered by MDC tags (e.g., `tenantId="agro"`).
 2.  **Tracing (Tempo)**: Use Trace IDs from logs to visualize the full request path.
 3.  **Metrics (Prometheus)**: Check "Mission Control" for CPU/Memory spikes.
 
@@ -141,7 +175,7 @@ Direct IP access to Grafana (Port 3001) has been **disabled** for security. Acce
 ## 7. Maintenance Procedures
 
 ### Cache Management
-With **Read-Through Caching** enabled, Redis holds active content. If you manually patch the database or need to force a refresh:
+With **Read-Through Caching** enabled, Redis holds active content.
 
 **Option A: Admin API (Preferred)**
 Authenticated Admins can trigger a flush via the API:
@@ -162,11 +196,11 @@ docker exec -it treishvaam-redis redis-cli FLUSHALL
 ## 8. Hybrid SSG Operations (SEO & Content)
 
 ### The Materialization Trigger & CSS Synchronization
-Our **Hybrid SSG** architecture relies on pre-generated HTML files stored in MinIO/S3 to provide instant load times (Strategy A). These files contain hardcoded links to CSS and JS bundles.
+Our **Hybrid SSG** architecture relies on pre-generated HTML files stored in MinIO/S3 to provide instant load times. These files contain hardcoded links to CSS and JS bundles.
 
 **Scenario:** When you deploy a new version of the Frontend, the build tools (Webpack/Vite) generate new filenames for CSS bundles (e.g., `main.a1b2c3.css` becomes `main.x9y8z7.css`) to bust browser caches.
 
-**The Problem:** Existing static HTML files in MinIO will still point to the *old* CSS filenames (`main.a1b2c3.css`), which no longer exist on the server. This causes the "Plain Text" / "MIME Type Error" visual glitch.
+**The Problem:** Existing static HTML files in MinIO will still point to the *old* CSS filenames, causing the "Plain Text" / "MIME Type Error" visual glitch.
 
 **Resolution Procedure (The "Update" Trigger):**
 To align the static content with the new Frontend build, you must force a re-materialization:
@@ -180,4 +214,3 @@ To align the static content with the new Frontend build, you must force a re-mat
 * It fetches the **new** live React shell from Nginx (which now points to the new CSS).
 * It re-injects the content and data state.
 * It overwrites the old `.html` file in MinIO/S3.
-* **Result:** The post is now synchronized with the latest deployment, and CSS loads correctly.

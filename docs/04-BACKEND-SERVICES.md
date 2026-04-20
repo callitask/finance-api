@@ -1,10 +1,43 @@
+/**
+ * AI-CONTEXT:
+ *
+ * Purpose:
+ * - Details the business logic implementation, service layer architecture, and data synchronization strategies.
+ * - Explains how the Zero-Trust Multi-Tenant Engine routes logic dynamically based on context.
+ *
+ * Scope:
+ * - Covers Market Data (Python bridge), Blog Post CRUD, Sitemap Generation (Contextual Hijacking), and Background Scheduling.
+ *
+ * Critical Dependencies:
+ * - Cloudflare Edge Workers (for Edge caching and X-Tenant-ID injection).
+ * - TenantInterceptor & TenantContext.
+ * - Resilience4j (Circuit Breakers).
+ *
+ * Security Constraints:
+ * - Background/Scheduled tasks MUST explicitly declare their TenantContext (e.g., "finance") to prevent cross-tenant data contamination.
+ * - Heavy I/O must remain outside of @Transactional boundaries to prevent connection pool exhaustion.
+ *
+ * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+ * - ADDED: Initial Backend Services Layer documentation.
+ * - EDITED:
+ * • Phase 3 Update: Integrated Multi-Tenant logic across services.
+ * • Added comprehensive documentation for SitemapService contextual routing (Agro static payload vs. Finance dynamic pagination).
+ * • Added strict TenantContext isolation rules for MarketDataInitializer and Schedulers.
+ * • Clarified Edge Worker interplay with internal HTML Materialization and Caching.
+ *
+ * - DO-NOT-DELETE RULE:
+ * This IMMUTABLE CHANGE HISTORY section must never be deleted,
+ * truncated, rewritten, or regenerated.
+ * Future AI must append only.
+ */
+
 # Backend Services Layer
 
-This document details the business logic implementation, service layer architecture, and data synchronization strategies used in the Treishvaam Finance Platform.
+This document details the business logic implementation, service layer architecture, multi-tenant contextual routing, and data synchronization strategies used in the Treishvaam Group Platform (`finance-api`).
 
 ## 1. Market Data Engine (`MarketDataService`)
 
-The Market Data Engine is the most complex component, responsible for aggregating real-time and historical financial data from multiple external providers.
+The Market Data Engine is the most complex component, responsible for aggregating real-time and historical financial data from multiple external providers. *Note: This service is currently strictly scoped to the `finance` tenant.*
 
 ### 1.1. Provider Strategy Pattern
 The service uses the Strategy Pattern to interact with different data vendors interchangeably.
@@ -40,7 +73,7 @@ The service utilizes **Resilience4j** to prevent cascading failures.
 
 ## 2. Content Management (`BlogPostService`)
 
-Handles the lifecycle of editorial content.
+Handles the lifecycle of editorial content across multiple tenants.
 
 ### 2.1. Logic Flow
 * **CRUD**: Maps `BlogPostDto` to `BlogPost` entities. Handles relationship management with `Category` and `User` entities.
@@ -49,9 +82,10 @@ Handles the lifecycle of editorial content.
     * `userFriendlySlug`: SEO-optimized string (e.g., `market-rally-2024`) derived from the title. Logic ensures uniqueness by appending numeric suffixes if collisions occur.
 * **Scheduling**: Posts with `PostStatus.SCHEDULED` and a future `scheduledTime` are effectively hidden from public endpoints until the time passes.
 
-### 2.2. Multi-Tenancy
-* **Context Awareness**: The service checks `TenantContext.getTenantId()` to ensure all created posts are stamped with the correct Tenant ID (e.g., `TREISHFIN`).
-* **Isolation**: Fetch queries automatically filter by the current tenant context.
+### 2.2. Multi-Tenancy (Zero-Trust Boundaries)
+* **Header Interception**: Cloudflare Edge Workers explicitly attach an `X-Tenant-ID` header (e.g., `finance`, `agro`) to all incoming `/api/*` requests.
+* **Context Awareness**: `TenantInterceptor` validates this header and stores it in `TenantContext` (a `ThreadLocal` variable). The service checks `TenantContext.getTenantId()` to ensure all created posts are stamped with the correct Tenant ID.
+* **Isolation**: Fetch queries automatically filter by the current tenant context. Data from `agro` can never bleed into `finance` responses.
 
 ### 2.3. Enterprise I/O Strategy ("Secure Stream & Commit")
 To guarantee high concurrency, memory safety, and prevent "Database Denial of Service," this service strictly separates Network I/O from Database Transactions.
@@ -74,23 +108,24 @@ To prevent the "Lost Update" anomaly common in collaborative CMS environments:
 * **Logic**: When updating a post, the service compares the `version` provided by the client with the current database `version`.
 * **Outcome**: If they mismatch (indicating another user modified the record), an `ObjectOptimisticLockingFailureException` is thrown (HTTP 409), ensuring no changes are silently overwritten.
 
-### 2.5. High-Performance Caching
-* **Strategy**: **Read-Through Caching**.
-* **Implementation**: Critical read methods (e.g., `findPostForUrl`, `findByUrlArticleId`) are annotated with `@Cacheable`.
-* **Flow**: 
-    1.  Check Redis.
-    2.  If Present: Return immediately (<5ms).
-    3.  If Missing: Fetch from DB -> Serialize to JSON -> Store in Redis -> Return.
-* **Consistency**: Write operations (`save`, `delete`) trigger `@CacheEvict` to invalidate stale keys.
+## 3. Sitemap & Edge Caching Service (`SitemapService`)
 
-### 2.6. SEO Materialization Integration
-* **Service Integration**: Injects `HtmlMaterializerService`.
-* **Triggers**:
-    * **Immediate**: When `persistPost` saves a `PUBLISHED` post.
-    * **Deferred**: When `checkAndPublishScheduledPosts` transitions a post from `SCHEDULED` to `PUBLISHED`.
-* **Purpose**: Ensures that every public post has a corresponding `static/{slug}.html` file in MinIO for Cloudflare to serve.
+This service dynamically generates XML sitemaps for Google Search Console, highly optimized for Cloudflare Edge Workers and Multi-Tenant routing.
 
-## 3. SEO Materializer Engine (`HtmlMaterializerService`)
+### 3.1. Contextual Routing (The "Tenant Hijack")
+Because the backend powers entirely different corporate websites, `SitemapService` dynamically alters its output based on `TenantContext`.
+* **Finance Tenant**: Generates paginated, large-scale dynamic XML sitemaps reading from the `blog_posts` and `market_data` tables. Handles 10M+ URLs via strict chunking.
+* **Agro Tenant**: The Agro site is an enterprise marketing portal without market data. When `TenantContext.getTenantId().equals("agro")`, the service bypasses the database entirely and serves a static array of enterprise URLs (`/about`, `/infrastructure`, `/products`) with specific E-E-A-T priority tunings.
+
+### 3.2. Edge Worker Caching Integration
+The backend is designed to **not** serve sitemaps directly to end-users. 
+1. The Cloudflare Edge Worker checks the Free-Tier `TREISHFIN_SEO_CACHE` KV namespace.
+2. On a cache miss, the Worker proxies to this service (with the `X-Tenant-ID`).
+3. This service generates the XML.
+4. The Worker intercepts the response, serves it, and uses `ctx.waitUntil` to asynchronously update the KV Cache.
+* **Result**: The backend is shielded from aggressive crawler polling.
+
+## 4. SEO Materializer Engine (`HtmlMaterializerService`)
 
 This service implements the "Hybrid Static Site Generation" logic.
 
@@ -104,34 +139,19 @@ This service implements the "Hybrid Static Site Generation" logic.
         * Redux State into `window.__PRELOADED_STATE__`.
     3.  **Upload**: Streams the generated HTML string directly to MinIO (bucket: `treish-public`) with `Cache-Control` headers.
 * **Async Execution**: Runs in a separate thread (`@Async`) to avoid slowing down the Admin UI save operation.
+* **Edge SPA Fallback Synergy**: To complement this, the Cloudflare Edge Workers now perform SPA Fallbacks—intercepting 404s for known static routes (`/about`, `/products`) and rewriting them to `200 OK` (delivering `index.html`) to prevent GSC Soft 404 indexing penalties.
 
-## 4. Data Initialization (`DataInitializer`)
+## 5. Data Initialization & Scheduling (Startup Safety)
 
-The `DataInitializer` is a startup component responsible for bootstrapping the system with essential roles and an admin user if they do not already exist. It runs automatically on application startup (except in test profile) and depends on Liquibase migrations being complete.
+Background tasks and startup initializers run outside the standard HTTP request lifecycle, meaning they lack an injected `TenantContext`. **Strict isolation protocols apply.**
 
-- **Roles Bootstrapping:**
-  - Ensures `ROLE_ADMIN` and `ROLE_USER` exist in the `roles` table. If missing, inserts them.
-- **Admin User Creation:**
-  - Reads admin username, email, and password from application properties (`app.admin.*`).
-  - If no user with the admin username exists, creates a new user with encoded password and assigns the `ROLE_ADMIN` role.
-- **Security:**
-  - Passwords are securely hashed using the configured `PasswordEncoder`.
-  - No-op if the admin user already exists.
+### 5.1. The Data Initializers (`DataInitializer`, `MarketDataInitializer`)
+* **Role**: Bootstraps the system with essential roles, admin users, and initial market data payloads.
+* **Security Constraint**: Because these run on boot, threads MUST explicitly be wrapped in `TenantContext.setTenantId("finance")`. Failure to do so risks corrupting the `agro` tenant or throwing `NullPointerException`s during entity saves.
+* **Cleanup**: `TenantContext.clear()` must be executed in a `finally` block to prevent memory leaks in the thread pool.
 
-## 5. Market Data Scheduler (`MarketDataScheduler`)
-
-The `MarketDataScheduler` automates periodic market data ingestion and synchronization using Spring’s `@Scheduled` annotation.
-
-- **US Market Movers Fetch:**
-  - **Schedule:** Runs Monday–Friday at 10 PM UTC (after US market close).
-  - **Action:** Calls `marketDataService.fetchAndStoreMarketData("US", "SCHEDULED")` to update top gainers/losers.
-- **Global Market Data Sync:**
-  - **Schedule:** Runs every 4 hours (00:00, 04:00, 08:00, etc. UTC).
-  - **Action:** Triggers the Python data engine for global indices and historical data via `marketDataService.runPythonHistoryAndQuoteUpdate("SCHEDULED")`.
-  - **Notes:** The Python script uses smart incremental sync logic, so frequent runs are safe and efficient.
-- **Error Handling:**
-  - Logs errors to the console if any scheduled task fails, but does not interrupt other scheduled executions.
-
----
-
-*This document is auto-synchronized with the codebase as of January 2026.*
+### 5.2. Market Data Scheduler (`MarketDataScheduler`)
+Automates periodic data ingestion.
+* **US Market Movers Fetch**: Runs Monday–Friday at 10 PM UTC. Calls `fetchAndStoreMarketData`.
+* **Global Market Data Sync**: Runs every 4 hours. Triggers the Python data engine.
+* **Tenant Isolation Rule**: As with initializers, `@Scheduled` methods must explicitly declare their Tenant Context before performing operations.
