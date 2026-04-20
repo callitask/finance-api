@@ -8,7 +8,21 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.ModelAndView;
 
-/** Intercepts every HTTP request to extract and set the Tenant ID. */
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Intercepts every HTTP request to extract, sanitize, and strictly validate the
+ * Tenant ID.
+ *
+ * <p>Scope: - Zero-Trust boundary for multitenancy.
+ *
+ * <p>Security Constraints: - Tenant IDs must be strictly whitelisted to prevent injection or
+ * cross-tenant contamination.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: Baseline TenantInterceptor. - EDITED: •
+ * Added strict whitelist validation to explicitly authorize the 'agro' tenant. • Date / Phase:
+ * Phase 3 (Backend Dynamic Integration).
+ */
 @Component
 public class TenantInterceptor implements HandlerInterceptor {
 
@@ -26,12 +40,12 @@ public class TenantInterceptor implements HandlerInterceptor {
     // 1. Enterprise Validation: Sanitize the input
     if (tenantId != null) {
       tenantId = tenantId.trim().replaceAll("[^a-zA-Z0-9_-]", ""); // Prevent injection
-    }
 
-    // 2. Fallback Logic
-    if (tenantId == null || tenantId.isEmpty()) {
-      // For public endpoints, we might default to 'public' or specific logic
-      // In a strict SaaS, you might reject the request here with 400 Bad Request
+      // 2. Strict Whitelist Enforcement
+      if (!"finance".equals(tenantId) && !"agro".equals(tenantId)) {
+        tenantId = TenantContext.DEFAULT_TENANT;
+      }
+    } else {
       tenantId = TenantContext.DEFAULT_TENANT;
     }
 

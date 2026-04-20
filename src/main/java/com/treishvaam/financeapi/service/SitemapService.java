@@ -1,5 +1,6 @@
 package com.treishvaam.financeapi.service;
 
+import com.treishvaam.financeapi.config.tenant.TenantContext;
 import com.treishvaam.financeapi.marketdata.MarketData;
 import com.treishvaam.financeapi.marketdata.MarketDataRepository;
 import com.treishvaam.financeapi.model.BlogPost;
@@ -43,7 +44,10 @@ import org.springframework.stereotype.Service;
  * - CRITICAL FIX (2026-02-02): Added duplicate removal in market sitemap generation. • Reason:
  * Google Search Console "Temporary processing error" due to duplicate ticker entries. • Solution:
  * Use LinkedHashSet to eliminate duplicates while preserving insertion order. • Impact: Prevents
- * XML sitemap validation errors in Google Search Console.
+ * XML sitemap validation errors in Google Search Console. - EDITED: • Phase 3 (Backend Dynamic
+ * Integration): Added multi-tenant sitemap logic. • Dynamic BASE_URL resolution via TenantContext.
+ * • Agro tenant seamlessly hijacks the blog/market endpoint structure to deliver static E-E-A-T
+ * pages.
  */
 @Service
 @RequiredArgsConstructor
@@ -53,8 +57,13 @@ public class SitemapService {
   private final BlogPostRepository blogPostRepository;
   private final MarketDataRepository marketDataRepository;
 
-  private static final String BASE_URL = "https://treishfin.treishvaamgroup.com";
+  private static final String FINANCE_BASE_URL = "https://treishfin.treishvaamgroup.com";
+  private static final String AGRO_BASE_URL = "https://treishvaamagro.com";
   private static final int SITEMAP_BATCH_SIZE = 50000;
+
+  private String getBaseUrl() {
+    return "agro".equals(TenantContext.getTenantId()) ? AGRO_BASE_URL : FINANCE_BASE_URL;
+  }
 
   /** Clears internal caches. Kept for dependency compatibility. */
   public void clearCaches() {
@@ -63,9 +72,17 @@ public class SitemapService {
 
   /** Returns a JSON-friendly map of all available sitemap files. */
   public Map<String, List<String>> getSitemapMetadata() {
+    String tenantId = TenantContext.getTenantId();
     Map<String, List<String>> meta = new HashMap<>();
 
-    // 1. Blogs
+    // AGRO TENANT OVERRIDE
+    if ("agro".equals(tenantId)) {
+      meta.put(
+          "pages", List.of("/sitemap-dynamic/blog/0.xml")); // Repurpose endpoint for static pages
+      return meta;
+    }
+
+    // 1. Blogs (Finance)
     long totalBlogs = blogPostRepository.countByStatus(PostStatus.PUBLISHED);
     int blogPages = (int) Math.ceil((double) totalBlogs / SITEMAP_BATCH_SIZE);
     if (blogPages == 0) blogPages = 1;
@@ -76,7 +93,7 @@ public class SitemapService {
     }
     meta.put("blogs", blogFiles);
 
-    // 2. Markets
+    // 2. Markets (Finance)
     long totalMarket = marketDataRepository.count();
     int marketPages = (int) Math.ceil((double) totalMarket / SITEMAP_BATCH_SIZE);
     if (marketPages == 0) marketPages = 1;
@@ -91,6 +108,13 @@ public class SitemapService {
   }
 
   public String generateBlogSitemap(int page) {
+    String tenantId = TenantContext.getTenantId();
+
+    // AGRO TENANT OVERRIDE (Serves static enterprise pages)
+    if ("agro".equals(tenantId)) {
+      return buildAgroStaticSitemap();
+    }
+
     Pageable pageable = PageRequest.of(page, SITEMAP_BATCH_SIZE);
     Page<BlogPost> posts = blogPostRepository.findAllByStatus(PostStatus.PUBLISHED, pageable);
 
@@ -98,9 +122,21 @@ public class SitemapService {
         posts.getContent().stream().map(this::constructBlogPostUrl).collect(Collectors.toList()));
   }
 
+  private String buildAgroStaticSitemap() {
+    String baseUrl = getBaseUrl();
+    List<SitemapEntry> entries = new ArrayList<>();
+    entries.add(new SitemapEntry(baseUrl, null, "weekly", "1.0"));
+    entries.add(new SitemapEntry(baseUrl + "/about", null, "monthly", "0.8"));
+    entries.add(new SitemapEntry(baseUrl + "/infrastructure", null, "monthly", "0.8"));
+    entries.add(new SitemapEntry(baseUrl + "/quality", null, "monthly", "0.8"));
+    entries.add(new SitemapEntry(baseUrl + "/sustainability", null, "monthly", "0.8"));
+    entries.add(new SitemapEntry(baseUrl + "/products", null, "monthly", "0.8"));
+    entries.add(new SitemapEntry(baseUrl + "/contact", null, "monthly", "0.8"));
+    return buildUrlSet(entries);
+  }
+
   /** Helper to construct the exact Frontend Route URL */
   private SitemapEntry constructBlogPostUrl(BlogPost post) {
-    // Extract fields with safety checks
     Category cat = post.getCategory();
     String categorySlug = (cat != null && cat.getSlug() != null) ? cat.getSlug() : "general";
     String userSlug =
@@ -110,8 +146,8 @@ public class SitemapService {
             ? post.getUrlArticleId()
             : (post.getSlug() != null ? post.getSlug() : String.valueOf(post.getId()));
 
-    // Construct Format: /category/:categorySlug/:userFriendlySlug/:urlArticleId
-    String loc = String.format("%s/category/%s/%s/%s", BASE_URL, categorySlug, userSlug, articleId);
+    String loc =
+        String.format("%s/category/%s/%s/%s", getBaseUrl(), categorySlug, userSlug, articleId);
 
     String date =
         post.getUpdatedAt() != null
@@ -121,24 +157,21 @@ public class SitemapService {
     return new SitemapEntry(loc, date, "weekly", "0.8");
   }
 
-  /**
-   * CRITICAL FIX (2026-02-02): Duplicate Removal
-   *
-   * <p>Problem: MarketData table contains duplicate ticker entries causing Google sitemap
-   * validation errors. Solution: Use LinkedHashSet to automatically deduplicate while preserving
-   * insertion order.
-   */
   public String generateMarketSitemap(int page) {
+    String tenantId = TenantContext.getTenantId();
+    if ("agro".equals(tenantId)) {
+      return buildUrlSet(new ArrayList<>()); // Agro has no market data
+    }
+
     Pageable pageable = PageRequest.of(page, SITEMAP_BATCH_SIZE);
     Page<MarketData> data = marketDataRepository.findAll(pageable);
 
-    // Use LinkedHashSet to eliminate duplicates while preserving order
     LinkedHashSet<SitemapEntry> uniqueEntries =
         data.getContent().stream()
             .map(
                 market -> {
                   String slug = market.getTicker();
-                  return new SitemapEntry(BASE_URL + "/market/" + slug, null, "daily", "0.6");
+                  return new SitemapEntry(getBaseUrl() + "/market/" + slug, null, "daily", "0.6");
                 })
             .collect(Collectors.toCollection(LinkedHashSet::new));
 
@@ -165,7 +198,6 @@ public class SitemapService {
     return xml.toString();
   }
 
-  /** Escapes special XML characters to prevent malformed XML. */
   private String escapeXml(String text) {
     if (text == null) return "";
     return text.replace("&", "&amp;")
