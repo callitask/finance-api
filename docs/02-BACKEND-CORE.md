@@ -5,7 +5,7 @@
  * - Details the core runtime, security, concurrency, multi-tenancy, and I/O strategies of the Spring Boot Backend.
  *
  * Scope:
- * - Covers OAuth2/RBAC, TenantInterceptor boundaries, Virtual Threads, JPA batching, and SSG Materialization.
+ * - Covers OAuth2/RBAC, TenantInterceptor boundaries, Virtual Threads, JPA batching, SSG Materialization, and Native Telemetry.
  *
  * Critical Dependencies:
  * - Keycloak (Auth), MariaDB (Persistence), Redis (Cache), MinIO (Storage).
@@ -25,6 +25,8 @@
  * • Added MarketDataInitializer TenantContext isolation constraints.
  * • Added Docker Compose .env quoting restriction to Configuration Management to prevent HikariCP parse failures.
  * • Documented Edge Worker KV caching and SPA fallback integration with the backend.
+ * - EDITED:
+ * • Added Section 12 for Native Telemetry & Diagnostics (RUM and API Status Tracking).
  *
  * - DO-NOT-DELETE RULE:
  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
@@ -226,3 +228,15 @@ To ensure Enterprise-grade accuracy in financial data (Stock Prices, Crypto), we
 * **Python Layer**: The Market Data Engine uses `decimal.Decimal` with a precision context of 28 places.
 * **Database**: Columns are defined as `DECIMAL(19, 4)` or higher.
 * **Why?**: Prevents IEEE 754 errors (e.g., `0.1 + 0.2 = 0.30000000000000004`) ensuring exact penny-perfect calculations.
+
+## 12. Native Telemetry & Diagnostics
+
+The backend natively processes operational health and audience telemetry without relying strictly on third-party opaque providers.
+
+### 12.1. Real User Monitoring (RUM)
+* **Mechanism**: The `AnalyticsService` ingests raw visitor footprints, standardizes them, and persists them into the `audience_visits` table.
+* **Capabilities**: Provides GDPA-compliant aggregation by Country, Region, City, OS, and Session Source.
+
+### 12.2. API Fetch Diagnostics
+* **Mechanism**: To prevent silent failures of critical third-party data feeds, all interactions via `MarketDataService` are logged to the `api_fetch_status` table.
+* **Capabilities**: The `ApiStatusController` provides a real-time health dashboard detailing HTTP status codes, latency, and failure messages for rapid triage.

@@ -70,6 +70,10 @@ This codebase implements advanced industry patterns to solve common scaling issu
     * **Fallback:** Falls back to API hydration (Strategy B) if the static file is missing.
 * **Zero-Flicker Rendering**: The React frontend detects `window.__PRELOADED_STATE__` and uses `createRoot` to render instantly, while automatically cleaning up duplicate static content.
 
+### 6. Native Analytics & API Diagnostics
+* **Real User Monitoring (RUM)**: Fully managed internal audience tracking via the `AnalyticsService` bypassing strict reliance on third-party aggregators.
+* **Diagnostic Health Engine**: Automated latency and uptime tracking of critical third-party financial API dependencies (AlphaVantage, Finnhub) preventing silent system failure.
+
 ## Quick Start Guide
 
 ### Prerequisites
@@ -105,6 +109,7 @@ infisical run --env dev -- docker-compose up -d
 ## Architecture Modules
 
 * **`com.treishvaam.financeapi.marketdata`**: The core financial engine. Handles the "Strategy Pattern" for data providers and manages the Python bridge with resilience.
+* **`com.treishvaam.financeapi.analytics`**: The native RUM, Audience Filtering, and telemetry processing engine.
 * **`com.treishvaam.financeapi.service.BlogPostService`**: CMS logic implementing the "Plan First, Commit Later" transaction pattern and Optimistic Locking.
 * **`com.treishvaam.financeapi.security`**: Custom Security Filters (`InternalSecretFilter`, `RateLimitingFilter`) and Keycloak integration.
 * **`com.treishvaam.financeapi.config`**: Centralized configuration for Caching (Redis), Async Executors, and Web MVC.

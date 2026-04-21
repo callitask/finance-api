@@ -19,6 +19,8 @@
  * • Added Phase 3 (Multi-Tenant Architecture) release notes.
  * • Documented Edge Worker SPA Fallback and KV caching updates.
  * • Documented Docker Compose .env quoting bug fix.
+ * - EDITED:
+ * • Appended Enterprise Observability update including Analytics and API Status Tracking (V26-V41).
  *
  * - DO-NOT-DELETE RULE:
  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
@@ -31,6 +33,12 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [tfin-financeapi-Develop.0.0.0.6] - Enterprise Observability & Internal Analytics
+### Analytics & Telemetry 
+- **Feat (Native Analytics)**: Introduced `AnalyticsController` and `AnalyticsService` to process internal Real User Monitoring (RUM). Bypasses reliance on third-party aggregators by logging traffic directly to the `audience_visits` table (Migration V26).
+- **Feat (Diagnostic Health)**: Created `ApiStatusController` to track latency, HTTP statuses, and success rates of external market data providers in the `api_fetch_status` table (Migration V30). Prevents silent failures of third-party feeds.
+- **DB (Schema Migrations)**: Completed Liquibase migrations up to V41, including adding missing metadata columns to blog components, versioning for optimistic locking (V40), and display names for users (V41).
 
 ## [tfin-financeapi-Develop.0.0.0.5] - Phase 3: Zero-Trust Multi-Tenant Architecture
 ### Enterprise Expansion & Edge Intelligence

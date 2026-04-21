@@ -98,9 +98,8 @@ This document provides a comprehensive reference for the REST API surface of the
 
 | Method | Endpoint | Role | Description |
 | :--- | :--- | :--- | :--- |
-| **GET** | `/` | **ADMIN** | Get historical audience data (filterable by date, country, region, city, OS, etc.). |
-| **GET** | `/visits` | **ADMIN** | Get daily/monthly visit counts. |
-| **GET** | `/posts/top` | **ADMIN** | Get most viewed posts. |
+| **GET** | `/` | **ADMIN** | Get historical audience data. Accepts query params for filtering (`startDate`, `endDate`, `country`, `region`, `city`, `operatingSystem`, `osVersion`, `sessionSource`). |
+| **GET** | `/filters` | **ADMIN** | Returns available distinct filter options (e.g., list of unique countries, OS) for building dynamic admin UI dropdowns. |
 
 ### Health Check Controller (`HealthCheckController`)
 **Base Path**: `/health`
@@ -114,7 +113,8 @@ This document provides a comprehensive reference for the REST API surface of the
 
 | Method | Endpoint | Role | Description |
 | :--- | :--- | :--- | :--- |
-| **GET** | `/external-apis` | **ADMIN** | Check quota and health of AlphaVantage, Finnhub, etc. |
+| **GET** | `/` | **ADMIN** | Retrieves the most recent fetch status for each integrated external API (e.g., AlphaVantage, Finnhub). |
+| **GET** | `/history` | **ADMIN** | Retrieves the full historical log of API fetch attempts, latency, and failure codes. |
 
 ## 4. Search & SEO
 
@@ -139,4 +139,4 @@ This document provides a comprehensive reference for the REST API surface of the
 
 ---
 
-*This document is auto-synchronized with the codebase as of January 2026.*
+*This document is auto-synchronized with the codebase as of April 2026.*

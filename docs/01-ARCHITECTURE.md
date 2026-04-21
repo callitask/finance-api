@@ -26,6 +26,9 @@
  * • Added TenantInterceptor and contextual SitemapService routing.
  * • Documented SPA Fallback logic (404 -> 200 OK) at the Edge.
  * • Added strict Docker Compose .env quoting constraints based on deployment crash diagnostics.
+ * - EDITED:
+ * • Documented Native Analytics & API Diagnostics within the Application Layer.
+ * • Added Zero-Trust Third-Party Tagging architecture to the Edge and Security scopes.
  *
  * - DO-NOT-DELETE RULE:
  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
@@ -50,39 +53,44 @@ Unlike standard deployments, this system exposes **zero** internal ports. The da
     * **Port**: 8080 (Internal Only - Proxied by Nginx).
     * **Role**: Core business logic, Multi-Tenant data aggregation, OAuth2 resource server.
     * **Tenant Isolation**: Uses `TenantInterceptor` to intercept the `X-Tenant-ID` header injected by Edge Workers, locking database queries and services (like `SitemapService`) to the specific frontend context.
-    * **Key Service**: **`HtmlMaterializerService`** - Generates static HTML files (Hybrid SSG) immediately upon post publication/update to ensure 100% SEO availability.
-    * **Concurrency**: Utilizes **Java 21 Virtual Threads** for high-throughput, non-blocking image processing and parallel tasks. Heavy initializers (like `MarketDataInitializer`) are strictly scoped using `TenantContext.setTenantId()` to prevent cross-tenant data contamination during startup.
+    * **Key Services**: 
+        * **`HtmlMaterializerService`** - Generates static HTML files (Hybrid SSG) immediately upon post publication to ensure 100% SEO availability.
+        * **Native Analytics Engine** - Internal RUM (Real User Monitoring) processor bypassing third-party tracking reliance.
+        * **API Diagnostics** - Automated tracker for external provider health and latency.
+    * **Concurrency**: Utilizes **Java 21 Virtual Threads** for high-throughput, non-blocking image processing and parallel tasks. 
 * **Edge Workers**: Cloudflare Workers (`treishvaamagro-seo-worker`, `treishfin-seo-worker`)
     * **Role**: Intelligent **Edge Routers** and **Zero-Trust API Proxies**. 
-    * **SEO Payload**: Injects E-E-A-T JSON-LD schemas (Organization, Founder, WebPage) directly into HTML via `HTMLRewriter`.
-    * **SPA Fallback**: Intercepts 404/403 errors on known static routes and rewrites them to `200 OK` (delivering `index.html`) to eliminate Google Search Console "Soft 404" indexing penalties.
+    * **SEO Payload**: Injects E-E-A-T JSON-LD schemas directly into HTML via `HTMLRewriter`.
+    * **SPA Fallback**: Intercepts 404/403 errors on static routes and rewrites them to `200 OK` (delivering `index.html`) to eliminate GSC Soft 404s.
+* **Frontends**: Next.js/React (Cloudflare Pages)
+    * **Zero-Trust Tagging**: Frontends natively execute a 0ms TBT (Total Blocking Time) Idle Strategy for Analytics and Ads, relying entirely on dynamically injected Cloudflare Environment Variables (e.g., `REACT_APP_GA_MEASUREMENT_ID`).
 
 ### 2. Data Layer (The "Vault" - No Exposed Ports)
 * **Database**: MariaDB 10.6
     * **Networking**: Accessible ONLY by `backend` and `keycloak`. Port 3306 is removed from host binding.
     * **Optimization**: Enabled **JDBC Batching** (`batch_size=50`) for high-performance bulk writes.
-    * **Integrity**: Enforces **Optimistic Locking** using `@Version` columns to prevent lost updates.
+    * **Integrity**: Enforces **Optimistic Locking** using `@Version` columns.
 * **Cache**: Redis (Alpine) & Cloudflare KV
-    * **Internal (Redis)**: Read-Through Caching for the backend service layer (Articles, Market Widgets). Port 6379 removed.
-    * **Edge (Cloudflare KV)**: The `TREISHFIN_SEO_CACHE` namespace sits at the Cloudflare Edge, serving dynamic `sitemap.xml` files instantly. Cache misses securely proxy to the backend and update the KV asynchronously (`ctx.waitUntil`), protecting Free-Tier quotas.
+    * **Internal (Redis)**: Read-Through Caching. Port 6379 removed.
+    * **Edge (Cloudflare KV)**: The `TREISHFIN_SEO_CACHE` namespace serves dynamic `sitemap.xml` files instantly. Cache misses securely proxy to the backend and update asynchronously (`ctx.waitUntil`).
 * **Search Engine**: Elasticsearch 8.17
-    * **Networking**: Accessible ONLY by `backend`. Port 9200 is removed.
+    * **Networking**: Accessible ONLY by `backend`. Port 9200 removed.
 * **Object Storage**: MinIO (S3 Compatible)
-    * **Networking**: Accessible ONLY by `backend` and `nginx`. Ports 9000/9001 are removed.
-    * **Role**: Stores media uploads (images) AND **Materialized HTML** files for the SSG strategy.
+    * **Networking**: Accessible ONLY by `backend` and `nginx`. Ports 9000/9001 removed.
+    * **Role**: Stores media uploads AND **Materialized HTML** files for the SSG strategy.
 * **Messaging**: RabbitMQ
-    * **Networking**: Internal Event Bus. Ports 5672/15672 are removed.
+    * **Networking**: Internal Event Bus. Ports 5672/15672 removed.
 
 ### 3. Security Layer (The "Shield")
 * **Identity Provider**: Keycloak 23
     * **Role**: Centralized Auth (SSO). Running internally, exposed only via Nginx Gateway.
 * **Gateway**: Nginx + ModSecurity (OWASP CRS)
-    * **Role**: The **ONLY** container with exposed ports (80/443). Handles WAF, Rate Limiting, SSL Termination, and **Static Asset Offloading** (for both Images and HTML).
+    * **Role**: The **ONLY** container with exposed ports (80/443). Handles WAF, Rate Limiting, SSL Termination, and **Static Asset Offloading**.
 * **Tunnel**: Cloudflare Tunnel (`cloudflared`)
-    * **Role**: Secure ingress for API traffic and Admin Dashboards without opening firewall ports.
+    * **Role**: Secure ingress for API traffic without opening firewall ports.
 * **Secrets Management (DevOps Constraint)**:
     * **Injection**: Secrets are injected via Environment Variables. 
-    * **CRITICAL TRAP**: Docker Compose `.env` files must **NEVER** use single quotes (`'`) or double quotes (`"`). Docker reads quotes literally. E.g., `PROD_DB_URL='jdbc...'` will crash Spring Boot's HikariCP. Values must be raw strings.
+    * **CRITICAL TRAP**: Docker Compose `.env` files must **NEVER** use single quotes (`'`) or double quotes (`"`).
 
 ### 4. Observability Layer (The "Eyes")
 * **Loki**: Log Aggregation (Internal). Logs explicitly tag `tenantId` via MDC.
@@ -166,22 +174,21 @@ graph TD
 ## Request Flow Profiles
 
 ### 1. The Multi-Tenant API Flow (Zero-Trust Proxy)
-All Next.js frontends execute API calls strictly via relative paths (`/api/v1/...`).
+All frontends execute API calls strictly via relative paths (`/api/v1/...`).
 1. **Interception**: The Edge Worker intercepts the request.
-2. **Context Injection**: The Worker injects `X-Tenant-ID: <tenant_name>` and securely proxies the request to the backend `cloudflared` tunnel.
+2. **Context Injection**: The Worker injects `X-Tenant-ID: <tenant_name>` and securely proxies the request to the `BACKEND_ORIGIN`.
 3. **Validation**: The Spring Boot `TenantInterceptor` strips and validates the header, assigning the `TenantContext`.
-4. **Execution**: Services (like `SitemapService`) dynamically alter their logic based on the tenant, ensuring absolute data isolation (e.g., Agro never sees Finance market data).
+4. **Execution**: Services dynamically alter logic based on the tenant, ensuring absolute data isolation.
 
 ### 2. Edge Sitemap Caching Flow (Free-Tier Optimized)
 1. Request for `/sitemap.xml` hits the Edge Worker.
 2. Worker checks `TREISHFIN_SEO_CACHE`.
 3. **HIT**: Serves XML instantly.
-4. **MISS**: Worker proxies request to backend with `X-Tenant-ID`. Backend generates the XML dynamically. Worker intercepts the `200 OK` response, serves it to the user, and asynchronously updates the KV via `ctx.waitUntil` to preserve performance.
+4. **MISS**: Worker proxies request to backend with `X-Tenant-ID`. Backend generates the XML. Worker intercepts the response, serves it, and asynchronously updates the KV via `ctx.waitUntil`.
 
 ### 3. Hybrid SSG Strategy (Finance & Content)
-For blog posts and highly dynamic content:
-* **Strategy A (Materialized HTML)**: The Worker attempts to fetch a pre-generated HTML file from MinIO (via Nginx) at `/api/uploads/posts/{slug}.html`. If found, it injects a `<base href="/">` tag and serves it instantly.
-* **Strategy B (Edge Hydration)**: If the static file is missing, the Worker fetches the raw JSON data from the API, injects it into `window.__PRELOADED_STATE__`, and serves the React SPA shell for seamless client-side hydration.
+* **Strategy A (Materialized HTML)**: The Worker attempts to fetch a pre-generated HTML file from MinIO (via Nginx). If found, it injects a `<base href="/">` tag and serves it instantly.
+* **Strategy B (Edge Hydration)**: If the static file is missing, the Worker fetches raw JSON data, injects it into `window.__PRELOADED_STATE__`, and serves the React SPA shell for seamless hydration.
 
 ---
 
@@ -189,9 +196,9 @@ For blog posts and highly dynamic content:
 Nginx is the **only** container with exposed ports (80/443).
 
 **1. Gateway-Level CORS:**
-Nginx is configured to explicitly handle Cross-Origin Resource Sharing (CORS) across the multi-tenant domains (`treishfin.treishvaamgroup.com`, `treishvaamagro.com`, etc.).
+Nginx explicitly handles Cross-Origin Resource Sharing (CORS) across multi-tenant domains.
 
 **2. Web Application Firewall (ModSecurity):**
 - Enforces OWASP Core Rules to block attacks (SQLi, XSS).
 - **Whitelisting**: Specific endpoints like `/api/v1/monitoring/ingest` (Faro logs) are whitelisted.
-- **Static Asset Offloading**: Nginx directly intercepts and serves images/HTML from MinIO, bypassing the Java application layer to conserve JVM memory.
+- **Static Asset Offloading**: Nginx directly intercepts and serves images/HTML from MinIO, bypassing the Java layer to conserve JVM memory.

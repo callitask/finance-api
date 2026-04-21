@@ -16,7 +16,8 @@ The Treishvaam Finance Platform uses **MariaDB 10.6** as its primary relational 
 | V41     | Add `display_name` column to `users` (nullable, VARCHAR(255)). Sets default for existing records. |
 | V40     | Add `version` to `blog_posts` for optimistic locking. |
 | V39     | Add `description` to `news`. |
-| ...     | ... |
+| V30     | Create `api_fetch_status` table to monitor 3rd-party dependencies. |
+| V26     | Create `audience_visits` table for internal analytics and RUM tracking. |
 
 ## 2. Entity Relationship Diagram (ERD)
 
@@ -64,11 +65,24 @@ erDiagram
         timestamp last_updated
     }
 
-    NEWS_HIGHLIGHTS {
+    AUDIENCE_VISITS {
         bigint id PK
-        string headline
-        string url
-        boolean archived
+        timestamp visit_time
+        string country
+        string region
+        string city
+        string operating_system
+        string session_source
+        string path
+    }
+
+    API_FETCH_STATUS {
+        bigint id PK
+        string api_name
+        string endpoint
+        boolean success
+        int latency_ms
+        timestamp fetch_time
     }
 ```
 
@@ -108,6 +122,12 @@ erDiagram
 * **`historical_data_cache`**: Tracks fetch requests to prevent API quota abuse.
     * Columns: `symbol`, `start_date`, `end_date`, `last_fetched_at`.
 
+### 3.4. Analytics & Telemetry Engine
+* **`audience_visits`**: Native Real User Monitoring (RUM) and traffic logger.
+    * Columns: `id`, `visit_time`, `country`, `region`, `city`, `operating_system`, `os_version`, `session_source`, `path`.
+* **`api_fetch_status`**: Diagnostic table to monitor external API reliability.
+    * Columns: `id`, `api_name`, `endpoint`, `success`, `http_status`, `latency_ms`, `error_message`, `fetch_time`.
+
 ---
 
-*This document is auto-synchronized with the codebase as of January 2026.*
+*This document is auto-synchronized with the codebase as of April 2026.*

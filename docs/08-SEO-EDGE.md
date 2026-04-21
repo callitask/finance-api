@@ -5,7 +5,7 @@
  * - Documents the Treishvaam Group's Zero-Trust Edge SEO Architecture and Cloudflare Worker routing logic.
  *
  * Scope:
- * - Covers Cloudflare KV Caching, Edge-side E-E-A-T Schema Injection, SPA Fallback routing, and Hybrid SSG Materialization.
+ * - Covers Cloudflare KV Caching, Edge-side E-E-A-T Schema Injection, SPA Fallback routing, Hybrid SSG Materialization, and 0ms TBT Script Loading.
  *
  * Critical Dependencies:
  * - Cloudflare Workers (`treishvaamagro-seo-worker`, `treishfin-seo-worker`).
@@ -16,6 +16,7 @@
  * - Zero-Trust Routing: Workers must NEVER contain hardcoded backend URLs. They must rely on `CF_PAGES_ORIGIN` and `BACKEND_ORIGIN` secrets.
  * - Tenant Isolation: Workers MUST inject the `X-Tenant-ID` header into every backend API proxy request.
  * - Canonicalization: Host canonicalization (www -> apex) MUST occur via Cloudflare Bulk Redirects, not inside the Worker or React code.
+ * - Zero-Trust Tags: Tracking IDs (GA4, AdSense) MUST NEVER be hardcoded in the frontend repository.
  *
  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
  * - ADDED: Initial Treishvaam Finance SSG Architecture (Materialized HTML).
@@ -25,6 +26,9 @@
  * • Added Edge-side SPA Fallback (404 -> 200 OK) logic for GSC error prevention.
  * • Added E-E-A-T Schema Injection (Organization, Founder mapping) via `HTMLRewriter`.
  * • Integrated Zero-Trust API reverse proxy logic (`X-Tenant-ID`).
+ * - EDITED:
+ * • Added Phase 4 Update: Third-Party Script & Tag Management (0ms TBT Architecture). 
+ * • Documented interaction-based deferred loading strategy and build-time interpolation for SEO continuity.
  *
  * - DO-NOT-DELETE RULE:
  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
@@ -104,7 +108,30 @@ To prevent duplicate content penalties, Canonicalization (e.g., routing `www.tre
 
 ---
 
-## 5. Verification & Debugging
+## 5. Third-Party Script & Tag Management (0ms TBT Architecture)
+
+To ensure a perfect 100/100 Lighthouse Performance score and pristine Core Web Vitals, the enterprise strictly prohibits hardcoding active third-party tracking scripts (Google Analytics, Google Ads, AdSense) into the root HTML files (`index.html` or Next.js `layout.tsx`).
+
+### A. Interaction-Based Deferred Loading (Active Scripts)
+Active scripts block the main thread. To achieve **0ms Total Blocking Time (TBT)** for SEO bots while retaining functionality for human users, we utilize an **Interaction/Idle Strategy**:
+* Scripts are injected dynamically via a dedicated React/Next.js component (e.g., `ThirdPartyScripts.js`).
+* The injection is deferred until the user explicitly interacts with the page (e.g., `scroll`, `mousemove`, `touchstart`, `keydown`).
+* A 7-second `setTimeout` fallback guarantees execution if no interaction occurs.
+
+### B. Zero-Trust Dynamic Injection
+Hardcoded tracking IDs are a security and infrastructure liability. All tracking IDs are decoupled from the codebase and injected via Cloudflare Environment Variables:
+* `REACT_APP_GA_MEASUREMENT_ID`
+* `REACT_APP_GOOGLE_ADS_ID`
+* `REACT_APP_ADSENSE_CLIENT_ID`
+
+### C. Build-Time Interpolation (Passive Tags)
+For passive domain verification signals (which do not execute JavaScript, e.g., `<meta name="google-adsense-account" content="...">`), the values are safely injected at build-time. 
+* Example: `<meta name="google-adsense-account" content="%REACT_APP_ADSENSE_CLIENT_ID%" />`.
+* This preserves the Zero-Trust standard without breaking the strict `index.html` cleanliness rules.
+
+---
+
+## 6. Verification & Debugging
 
 ### Worker Routing & KV Verification
 Use `curl` or PowerShell to verify Edge Cache headers:

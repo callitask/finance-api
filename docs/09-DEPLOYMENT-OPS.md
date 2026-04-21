@@ -23,6 +23,9 @@
  * - EDITED:
  * • Phase 3 Update: Added strict Docker Compose `.env` quoting rules based on live deployment crash diagnostics (HikariCP failures).
  * • Clarified Multi-Tenant deployment implications (ensure tenant DBs and schemas are ready before restarting).
+ * - EDITED:
+ * • Added boundary clarifications distinguishing Backend Automation from Cloudflare Pages/Worker deployments.
+ * • Upgraded Observability section to include Tier 2 Application Telemetry (Native RUM and API Diagnostics).
  *
  * - DO-NOT-DELETE RULE:
  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
@@ -50,6 +53,11 @@ We utilize a sophisticated 3-branch strategy to balance rapid development with e
 ## 2. Dual-Engine Automation Architecture
 
 Our deployment process is decoupled into two distinct engines. This separates the **Build Logic** (Compiling Java) from the **State Logic** (Managing Containers & Secrets).
+
+### 2.1. Deployment Boundaries (Backend vs. Edge)
+**CRITICAL CLARIFICATION**: This dual-engine architecture *strictly* governs the Java Backend, Database, and Docker infrastructure. 
+* **Frontends** (React/Next.js) are decoupled and deploy automatically via Cloudflare Pages upon Git push.
+* **Edge Workers** deploy via the `wrangler deploy` CLI command from developer workstations or frontend CI pipelines.
 
 ### Engine A: The Builder (GitHub Actions)
 * **File**: `.github/workflows/deploy.yml`
@@ -91,17 +99,6 @@ When managing secrets in Infisical or manually editing the `.env` file, **you mu
 * **The Problem:** Unlike Bash, Docker Compose reads `.env` files literally. If you write `PROD_DB_URL='jdbc:mariadb...'`, Docker passes the literal string including the quotes into the container.
 * **The Crash:** Spring Boot's HikariCP database pool will fail to recognize the URL (expecting it to start with `jdbc:`), causing the backend to enter a fatal crash loop (`Failed to determine suitable jdbc url`).
 * **The Fix:** Ensure all values in the `.env` file are raw strings: `PROD_DB_URL=jdbc:mariadb...`
-
-### Required Secrets Reference (Infisical)
-| Key | Description | Service(s) |
-| :--- | :--- | :--- |
-| `PROD_DB_PASSWORD` | MariaDB Root Password | Database |
-| `KEYCLOAK_DB_PASSWORD` | Keycloak DB Password | Keycloak |
-| `MINIO_ROOT_PASSWORD` | MinIO Admin Secret | Storage, Backend |
-| `RABBITMQ_DEFAULT_USER` | RabbitMQ User | Messaging, Backend |
-| `RABBITMQ_DEFAULT_PASS` | RabbitMQ Password | Messaging, Backend |
-| `JWT_SECRET_KEY` | Token Signing Key | Backend |
-| `CLOUDFLARE_TUNNEL_TOKEN` | Tunnel Auth Token | Cloudflared |
 
 ---
 
@@ -155,20 +152,21 @@ docker exec -it treishvaam-backup ./restore.sh <timestamp>.sql.gz
 
 ---
 
-## 6. Observability (LGTM Stack)
+## 6. Enterprise Observability Architecture
 
-We utilize the **Grafana LGTM Stack** (Loki, Grafana, Tempo, Mimir) for full-stack observability.
+Observability is divided into two distinct tiers: Infrastructure (Hardware/Network) and Application (Business/User Logic).
 
-### Zero Trust Access
-Direct IP access to Grafana (Port 3001) has been **disabled** for security. Access is managed via Cloudflare Tunnel.
+### Tier 1: Infrastructure Telemetry (LGTM Stack)
+We utilize the **Grafana LGTM Stack** (Loki, Grafana, Tempo, Mimir) for full-stack server observability.
+* **Access**: Direct IP access to Port 3001 is disabled. Accessed via Cloudflare Tunnel at `https://grafana.treishvaamgroup.com`.
+* **Debugging**: 
+    * **Logs (Loki)**: Use `{container="backend"} |= "ERROR"` to find exceptions. Filter Multi-tenant logs by MDC tags (`tenantId="agro"`).
+    * **Tracing (Tempo)**: Use Trace IDs from logs to visualize full request paths.
 
-* **URL**: `https://grafana.treishvaamgroup.com`
-* **Authentication**: Protected via Cloudflare Access (SSO/Google Login).
-
-### Debugging Workflows
-1.  **Logs (Loki)**: Use `{container="backend"} |= "ERROR"` to find exceptions. Multi-tenant logs can be filtered by MDC tags (e.g., `tenantId="agro"`).
-2.  **Tracing (Tempo)**: Use Trace IDs from logs to visualize the full request path.
-3.  **Metrics (Prometheus)**: Check "Mission Control" for CPU/Memory spikes.
+### Tier 2: Application Telemetry (Native Diagnostics)
+To eliminate blind spots caused by third-party ad-blockers and external vendor outages, the backend runs native tracking engines:
+* **Native RUM (Real User Monitoring)**: The `AnalyticsService` logs direct user traffic, OS, and geo-data to the `audience_visits` MariaDB table, providing GDPR-compliant reporting unaffected by GA4 script blockers.
+* **API Diagnostic Health**: The `ApiStatusController` actively tracks the latency, HTTP response codes, and success rates of external market data providers (AlphaVantage, Finnhub). If market data stops syncing, check the `api_fetch_status` table first to rule out third-party vendor outages before debugging backend code.
 
 ---
 
@@ -208,9 +206,4 @@ To align the static content with the new Frontend build, you must force a re-mat
 2.  Navigate to **Manage Posts**.
 3.  **Edit** the affected post.
 4.  Click **Update** (you do not need to change any text).
-
-**What happens internally:**
-* The Backend `HtmlMaterializerService` activates.
-* It fetches the **new** live React shell from Nginx (which now points to the new CSS).
-* It re-injects the content and data state.
-* It overwrites the old `.html` file in MinIO/S3.
+5.  *Edge Worker Note:* If Cloudflare KV Caching (`TREISHFIN_SEO_CACHE`) is heavily utilized, allow up to 60 seconds for background `ctx.waitUntil` cache invalidation to propagate globally.

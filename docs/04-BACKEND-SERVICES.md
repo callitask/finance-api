@@ -6,7 +6,7 @@
  * - Explains how the Zero-Trust Multi-Tenant Engine routes logic dynamically based on context.
  *
  * Scope:
- * - Covers Market Data (Python bridge), Blog Post CRUD, Sitemap Generation (Contextual Hijacking), and Background Scheduling.
+ * - Covers Market Data (Python bridge), Blog Post CRUD, Sitemap Generation (Contextual Hijacking), Analytics, API Tracking, and Background Scheduling.
  *
  * Critical Dependencies:
  * - Cloudflare Edge Workers (for Edge caching and X-Tenant-ID injection).
@@ -24,6 +24,10 @@
  * • Added comprehensive documentation for SitemapService contextual routing (Agro static payload vs. Finance dynamic pagination).
  * • Added strict TenantContext isolation rules for MarketDataInitializer and Schedulers.
  * • Clarified Edge Worker interplay with internal HTML Materialization and Caching.
+ * - EDITED:
+ * • Documented Internal Analytics Engine (AnalyticsService).
+ * • Documented external API tracking mechanics.
+ * • Clarified HtmlMaterializerService Jackson Instant serialization fixes.
  *
  * - DO-NOT-DELETE RULE:
  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
@@ -137,20 +141,27 @@ This service implements the "Hybrid Static Site Generation" logic.
         * JSON-LD Schema (NewsArticle).
         * Full HTML body content into `<div id="server-content">`.
         * Redux State into `window.__PRELOADED_STATE__`.
-    3.  **Upload**: Streams the generated HTML string directly to MinIO (bucket: `treish-public`) with `Cache-Control` headers.
+    3.  **State Serialization Constraint**: Manually serializes `Instant` fields (e.g., `createdAt`) to Strings to avoid Jackson JSON mapping failures.
+    4.  **Upload**: Streams the generated HTML string directly to MinIO (bucket: `treish-public`) with `Cache-Control` headers.
 * **Async Execution**: Runs in a separate thread (`@Async`) to avoid slowing down the Admin UI save operation.
-* **Edge SPA Fallback Synergy**: To complement this, the Cloudflare Edge Workers now perform SPA Fallbacks—intercepting 404s for known static routes (`/about`, `/products`) and rewriting them to `200 OK` (delivering `index.html`) to prevent GSC Soft 404 indexing penalties.
 
-## 5. Data Initialization & Scheduling (Startup Safety)
+## 5. Analytics & Telemetry Engine (`AnalyticsService`)
+
+A robust internal engine for processing and aggregating visitor and API telemetry data.
+
+* **Audience Telemetry**: Processes Real User Monitoring (RUM) data from the frontend. It groups and filters records by `country`, `region`, `city`, `OS`, and `sessionSource` to provide a GDPR-compliant internal analytics dashboard, removing total reliance on GA4.
+* **API Fetch Tracking**: Works in tandem with the `ApiStatusController` to log the health, latency, and success rates of external market data providers. Prevents blind spots if third-party data feeds silently degrade.
+
+## 6. Data Initialization & Scheduling (Startup Safety)
 
 Background tasks and startup initializers run outside the standard HTTP request lifecycle, meaning they lack an injected `TenantContext`. **Strict isolation protocols apply.**
 
-### 5.1. The Data Initializers (`DataInitializer`, `MarketDataInitializer`)
+### 6.1. The Data Initializers (`DataInitializer`, `MarketDataInitializer`)
 * **Role**: Bootstraps the system with essential roles, admin users, and initial market data payloads.
 * **Security Constraint**: Because these run on boot, threads MUST explicitly be wrapped in `TenantContext.setTenantId("finance")`. Failure to do so risks corrupting the `agro` tenant or throwing `NullPointerException`s during entity saves.
 * **Cleanup**: `TenantContext.clear()` must be executed in a `finally` block to prevent memory leaks in the thread pool.
 
-### 5.2. Market Data Scheduler (`MarketDataScheduler`)
+### 6.2. Market Data Scheduler (`MarketDataScheduler`)
 Automates periodic data ingestion.
 * **US Market Movers Fetch**: Runs Monday–Friday at 10 PM UTC. Calls `fetchAndStoreMarketData`.
 * **Global Market Data Sync**: Runs every 4 hours. Triggers the Python data engine.
