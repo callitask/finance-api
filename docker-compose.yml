@@ -1,3 +1,37 @@
+# /**
+#  * AI-CONTEXT:
+#  *
+#  * Purpose:
+#  * - Core infrastructure definition for the Treishvaam backend ecosystem.
+#  *
+#  * Scope:
+#  * - Manages internal networking, service discovery, and container lifecycles.
+#  * - Must never expose internal databases/services publicly (Zero-Trust).
+#  *
+#  * Critical Dependencies:
+#  * - Backend: relies on treishvaam-db, redis, elasticsearch, rabbitmq, keycloak.
+#  * - Nginx: Must strictly depend on Keycloak and Backend to prevent 502 Bad Gateways.
+#  *
+#  * Security Constraints:
+#  * - Passwords and keys must strictly use environment variables mapping.
+#  * - No direct port mapping for internal stateful services (db, redis, elasticsearch).
+#  *
+#  * Non-Negotiables:
+#  * - Healthchecks must be robust and dictate startup order.
+#  *
+#  * Change Intent:
+#  * - Fix 502 Bad Gateway by ensuring NGINX waits for Keycloak to be fully healthy before starting.
+#  *
+#  * Future AI Guidance:
+#  * - Do not remove `condition: service_healthy` checks. They prevent race conditions.
+#  *
+#  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+#  * - EDITED:
+#  * • Added `keycloak: condition: service_healthy` to the `nginx` depends_on block.
+#  * • Why: NGINX was starting before Keycloak, causing 502 Bad Gateways due to missing DNS resolution or refused connections.
+#  * • Behavior preserved: Zero-trust internal networking.
+#  */
+
 version: '3.8'
 
 networks:
@@ -227,6 +261,8 @@ services:
       - ./sitemaps:/app/sitemaps
     depends_on:
       backend:
+        condition: service_healthy
+      keycloak:
         condition: service_healthy
 
   loki:
