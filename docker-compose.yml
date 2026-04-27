@@ -20,7 +20,7 @@
 #  * - Healthchecks must be robust and dictate startup order.
 #  *
 #  * Change Intent:
-#  * - Fix backend crash-loop by forcing the backend container to wait until Keycloak is fully healthy before starting.
+#  * - Resolve false (unhealthy) NGINX state by pointing the internal healthcheck to /robots.txt.
 #  *
 #  * Future AI Guidance:
 #  * - Do not remove `condition: service_healthy` checks. They prevent race conditions.
@@ -35,6 +35,10 @@
 #  * • Changed `keycloak: condition: service_started` to `condition: service_healthy` in the `backend` depends_on block.
 #  * • Why: Backend was crashing and looping because it attempted to fetch JWKS from Keycloak before the realm was fully imported and Keycloak was ready.
 #  * • Behavior preserved: System stability and deterministic boot order.
+#  *
+#  * - EDITED:
+#  * • Added explicit `healthcheck` to `nginx` service targeting `/robots.txt`.
+#  * • Why: The base image healthcheck pinged `/`, causing a false `(unhealthy)` status since the backend blocked root access.
 #  */
 
 version: '3.8'
@@ -269,6 +273,11 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/robots.txt"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
 
   loki:
     image: grafana/loki:2.9.2
