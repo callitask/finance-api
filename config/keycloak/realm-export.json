@@ -1,4 +1,5 @@
 {
+  "_AI_CONTEXT": "/**\n * AI-CONTEXT:\n * \n * Purpose:\n * - Keycloak realm configuration export. Maps roles, clients, and valid redirect URIs for SSO.\n * \n * Scope:\n * - Defines the 'treishvaam' realm.\n * - Must never contain live credentials (passwords must be placeholder/temporary).\n * \n * Critical Dependencies:\n * - Backend: Finance API relies on 'finance-api' client.\n * - Frontend: Finance Frontend relies on 'finance-app' client.\n * - Worker / SEO / Sitemap: Unaffected directly.\n * \n * Security Constraints:\n * - redirectUris and webOrigins MUST be strictly whitelisted.\n * - Never use wildcards for root domains.\n * - Must remain valid JSON format.\n * \n * Non-Negotiables:\n * - Must reflect the exact live state of the production Keycloak instance.\n * \n * Change Intent:\n * - Resolving Keycloak Invalid redirect_uri issue by authorizing the new domains.\n * \n * Future AI Guidance:\n * - Append to IMMUTABLE CHANGE HISTORY inside this JSON property. Do not use block comments outside of strings in JSON files.\n * \n * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):\n * - ADDED:\n * • Initial Realm Export\n * • To backup and track Keycloak configuration via Git\n * \n * - EDITED:\n * • Updated redirectUris and webOrigins for finance-app client.\n * • Required due to domain migration from treishfin.treishvaamgroup.com to treishvaamfinance.com.\n * • Added explicit whitelisting for both apex and www subdomains.\n * • Preserved localhost references for developer environments.\n */",
   "realm": "treishvaam",
   "enabled": true,
   "roles": {
@@ -14,8 +15,16 @@
       "clientId": "finance-app",
       "enabled": true,
       "publicClient": true,
-      "redirectUris": [ "https://treishfin.treishvaamgroup.com/*", "http://localhost:3000/*" ],
-      "webOrigins": [ "https://treishfin.treishvaamgroup.com", "http://localhost:3000" ],
+      "redirectUris": [ 
+        "https://treishvaamfinance.com/*", 
+        "https://www.treishvaamfinance.com/*", 
+        "http://localhost:3000/*" 
+      ],
+      "webOrigins": [ 
+        "https://treishvaamfinance.com", 
+        "https://www.treishvaamfinance.com", 
+        "http://localhost:3000" 
+      ],
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true
     },
