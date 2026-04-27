@@ -1,3 +1,36 @@
+# /**
+#  * AI-CONTEXT:
+#  *
+#  * Purpose:
+#  * - GitHub Actions workflow for building and deploying the Treishvaam Finance Backend.
+#  *
+#  * Scope:
+#  * - Triggers on pushes to main, staging, and develop.
+#  * - Executes Maven build on a self-hosted runner and deploys the WAR file.
+#  *
+#  * Critical Dependencies:
+#  * - Backend: Compiles `finance-api.war` and restarts the `backend` Docker container.
+#  *
+#  * Security Constraints:
+#  * - Self-hosted runner environment constraints (memory limits).
+#  *
+#  * Non-Negotiables:
+#  * - Must not exhaust runner memory (OOM killer prevention).
+#  *
+#  * Change Intent:
+#  * - Resolve Exit Code 137 (OOM Killer) by capping Maven heap size and removing aggressive multi-threading.
+#  *
+#  * Future AI Guidance:
+#  * - Do not re-introduce `-T 1C` unless the self-hosted runner is confirmed to have >8GB RAM.
+#  * - Always maintain `MAVEN_OPTS` memory boundaries.
+#  *
+#  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+#  * - EDITED:
+#  * • Added `export MAVEN_OPTS="-Xmx1024m"` to the Maven build step.
+#  * • Removed `-T 1C` flag from the Maven command.
+#  * • Why: The self-hosted runner was experiencing OOM (Out-Of-Memory) kills (Exit code 137) during the Spotless/Checkstyle/Spring Boot repackage phases. Capping heap and forcing single-threaded execution stabilizes the build.
+#  */
+
 name: Treishvaam Enterprise Deploy
 
 on:
@@ -34,7 +67,8 @@ jobs:
     - name: Build with Maven
       run: |
         chmod +x mvnw  # <--- CRITICAL FIX: Makes the script executable
-        ./mvnw clean package -DskipTests -B -T 1C
+        export MAVEN_OPTS="-Xmx1024m" # <--- OOM FIX: Restrict memory to 1GB to prevent Exit Code 137
+        ./mvnw clean package -DskipTests -B
 
     - name: Deploy to Application Folder
       run: |
