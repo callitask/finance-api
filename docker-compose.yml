@@ -20,7 +20,7 @@
 #  * - Healthchecks must be robust and dictate startup order.
 #  *
 #  * Change Intent:
-#  * - Fix 502 Bad Gateway by ensuring NGINX waits for Keycloak to be fully healthy before starting.
+#  * - Fix backend crash-loop by forcing the backend container to wait until Keycloak is fully healthy before starting.
 #  *
 #  * Future AI Guidance:
 #  * - Do not remove `condition: service_healthy` checks. They prevent race conditions.
@@ -30,6 +30,11 @@
 #  * • Added `keycloak: condition: service_healthy` to the `nginx` depends_on block.
 #  * • Why: NGINX was starting before Keycloak, causing 502 Bad Gateways due to missing DNS resolution or refused connections.
 #  * • Behavior preserved: Zero-trust internal networking.
+#  *
+#  * - EDITED:
+#  * • Changed `keycloak: condition: service_started` to `condition: service_healthy` in the `backend` depends_on block.
+#  * • Why: Backend was crashing and looping because it attempted to fetch JWKS from Keycloak before the realm was fully imported and Keycloak was ready.
+#  * • Behavior preserved: System stability and deterministic boot order.
 #  */
 
 version: '3.8'
@@ -235,7 +240,7 @@ services:
       tempo:
         condition: service_started
       keycloak:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(1); s.connect((\"localhost\", 8080)); s.close();' || exit 1"]
       interval: 15s
