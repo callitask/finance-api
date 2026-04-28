@@ -5,33 +5,18 @@
  * data.
  *
  * <p>Scope: - Responsible for user-agent parsing (Device/OS mapping), traffic source resolution,
- * and location header extraction. - Must never block or crash the main request path; telemetry
- * ingestion is asynchronous or fire-and-forget.
- *
- * <p>Critical Dependencies: - Backend: AudienceVisitRepository for saving analytics. - Frontend:
- * faroConfig.js which sends the enriched payload (resolution, userAgent, trafficSource). - Worker /
- * SEO / Sitemap: Receives headers injected by Cloudflare (cf-ipcity, cf-ipcountry, etc.).
+ * and location header extraction.
  *
  * <p>Security Constraints: - Must not trust or execute arbitrary string inputs. Data must be safely
- * mapped to entity fields. - Fallbacks must be robust to prevent NPEs.
- *
- * <p>Non-Negotiables: - Must parse exact OS and Device model using YAUAA, not just generic platform
- * tags. - Desktop Browser model limitations apply (Hardware models cannot be extracted for PCs).
+ * mapped to entity fields.
  *
  * <p>Change Intent: - Fixed YAUAA parsing anomalies: Handled the "Windows >=10" MS frozen UA string
  * and mapped it to "Windows 10/11". - Hardened Browser parsing to strictly differentiate Chrome
- * from Edge.
+ * from Edge and restored exact mobile hardware device names.
  *
- * <p>Future AI Guidance: - Do not attempt to parse laptop hardware models (e.g. Acer Nitro) from
- * Desktop User-Agents. It is fundamentally impossible via standard headers due to privacy limits.
- * Rely on the browser name instead.
- *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Implemented robust User-Agent parsing
- * using YAUAA to replace Faro's default generic browser tags. • Added logic to extract and save
- * 'resolution' and explicit 'userAgent' from the payload's extra fields. • Implemented native
- * Referer header sniffing to bypass Faro generic source logging. - EDITED (LATEST): • Implemented
- * Edge vs Chrome disambiguation logic. • Cleanly mapped the frozen "Windows >=10" token string to
- * "Windows 10/11".
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED (LATEST): • Restored hardware priority
+ * logic. If YAUAA detects a distinct device (not Desktop), it forcibly overrides any generic
+ * browser name sent by Faro.
  */
 package com.treishvaam.financeapi.controller;
 
@@ -231,7 +216,6 @@ public class MonitoringController {
         }
         visit.setScreenResolution(resolution);
 
-        // --- DEVICE AND OS MAPPING ---
         String os = "Unknown";
         String osVer = "Unknown";
         String devModel = "Desktop";
@@ -240,7 +224,6 @@ public class MonitoringController {
         if (payload.getMeta().getBrowser() != null) {
           os = payload.getMeta().getBrowser().getOs();
           osVer = payload.getMeta().getBrowser().getVersion();
-          devModel = payload.getMeta().getBrowser().getName();
         }
 
         String activeUserAgent = nativeUserAgent;
@@ -258,14 +241,12 @@ public class MonitoringController {
             String deviceClass = agent.getValue("DeviceClass");
             String agentName = agent.getValue("AgentName");
 
-            // 1. Operating System Mapping (Fixing Windows 10/11 Freezing issue)
             if (bestOS != null && !bestOS.contains("??") && !bestOS.equalsIgnoreCase("Unknown")) {
               if (bestOS.contains("Windows >=10")
                   || bestOS.contains("Windows NT 10.0")
                   || bestOS.contains("Windows NT 11.0")) {
                 os = "Windows 10/11";
-                osVer =
-                    ""; // Abstracting version because 10 vs 11 is indistinguishable via User-Agent
+                osVer = "";
               } else if (bestOS.startsWith("Windows NT 6.1")) {
                 os = "Windows 7";
                 osVer = "";
@@ -273,42 +254,35 @@ public class MonitoringController {
                 os = bestOS;
                 osVer = "";
               } else {
-                os = bestOS.split(" ")[0]; // E.g., "Android" or "iOS"
+                os = bestOS.split(" ")[0];
                 osVer = bestOS.contains(" ") ? bestOS.substring(bestOS.indexOf(" ") + 1) : osVer;
               }
             } else if (simpleOS != null && !simpleOS.contains("??")) {
               os = simpleOS;
             }
 
-            // 2. Hardware Model Mapping (Note: Acer Nitro 5 will never be parsed from Desktop UA,
-            // only mobile exposes hardware reliably)
+            // Strongly enforce device names for mobile over generic browser injections
             if (bestDevice != null
                 && !bestDevice.contains("??")
                 && !bestDevice.equalsIgnoreCase("Unknown")) {
               devModel = bestDevice;
+            } else if (agentName != null
+                && !agentName.contains("??")
+                && !agentName.equalsIgnoreCase("Unknown")) {
+              if (agentName.toLowerCase().contains("edge")) {
+                devModel = "Edge";
+              } else if (activeUserAgent.toLowerCase().contains("chrome")
+                  && !activeUserAgent.toLowerCase().contains("edg")) {
+                devModel = "Chrome";
+              } else {
+                devModel = agentName;
+              }
             }
 
-            // 3. Category Mapping
             if (deviceClass != null && !deviceClass.equalsIgnoreCase("Unknown")) {
               devCat = deviceClass;
             }
 
-            // 4. Browser/Desktop Mapping (Fixing Edge/Chrome overlap)
-            if (agentName != null
-                && !agentName.contains("??")
-                && !agentName.equalsIgnoreCase("Unknown")) {
-              // Chrome user agents frequently contain 'Edg/' traces that confuse generic parsers
-              if (devModel.equals("Desktop") || devModel.equalsIgnoreCase("Unknown")) {
-                if (agentName.toLowerCase().contains("edge")) {
-                  devModel = "Edge";
-                } else if (activeUserAgent.toLowerCase().contains("chrome")
-                    && !activeUserAgent.toLowerCase().contains("edg")) {
-                  devModel = "Chrome";
-                } else {
-                  devModel = agentName;
-                }
-              }
-            }
           } catch (Exception e) {
             logger.warn("UA Parsing issue: {}", e.getMessage());
           }

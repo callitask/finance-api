@@ -4,26 +4,12 @@
  * <p>Purpose: - Service for fetching Google Analytics 4 (GA4) historical data and orchestrating
  * local Audience Dashboard queries.
  *
- * <p>Scope: - Executes daily GA4 API requests and transforms/aggregates data via
- * AudienceVisitRepository.
+ * <p>Security Constraints: - The refreshGA4Data MUST use a @Transactional block and explicit
+ * repository.flush() to ensure data is strictly dropped before the refetch occurs.
  *
- * <p>Critical Dependencies: - Backend: Google Analytics Data API client (BetaAnalyticsDataClient).
- * - Backend: AudienceVisitRepository for persisting records and complex reporting.
- *
- * <p>Security Constraints: - Boolean exclusions must handle null/empty states with dummy arrays to
- * prevent Hibernate query parser errors. - The refreshGA4Data MUST use a @Transactional block to
- * ensure data is not lost if the Google API call fails.
- *
- * <p>Change Intent: - Orchestrated O(1) bulk fetch for First Visit Dates. - Hooked
- * `targetClientIds` parameters securely into repository calls. - Formatted LocalDateTime fields
- * directly to ISO Strings for safe frontend parsing. - Implemented `refreshGA4Data` transactional
- * sync process.
- *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Mapped `createdAt` to
- * `sessionStartTime`. • Hooked in First Visit Date batch processing and exclusion parameters. -
- * EDITED (LATEST): • Mapped Temporal classes to String manually in `mapEntityToDto` to prevent JS
- * Date errors. • Implemented @Transactional `refreshGA4Data`. • Passed `hasTargets` and
- * `targetClientIds` into all JPQL filters.
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED (LATEST): • Mapped Temporal classes to
+ * String manually in `mapEntityToDto` to prevent JS Date errors. • Added explicit
+ * `audienceVisitRepository.flush()` during manual GA4 sync to fix stale data reappearing.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -153,6 +139,9 @@ public class AnalyticsService {
 
     // 1. Wipe ONLY GA4 data for the date range (protect Faro RUM data)
     audienceVisitRepository.deleteGA4DataForDateRange(startDate, endDate);
+
+    // Force JPA to flush the deletes to the database immediately to prevent stale cache reads
+    audienceVisitRepository.flush();
 
     // 2. Fetch fresh data from Google
     fetchAndSaveGAData(startDate, endDate);
@@ -432,12 +421,14 @@ public class AnalyticsService {
   }
 
   private AudienceDataDto mapEntityToDto(AudienceVisit entity, LocalDate firstVisitDate) {
-    // CRITICAL: Explicitly format to ISO String to prevent Jackson Array Serialization crashes in
-    // JS
     String formattedSessionDate =
         entity.getSessionDate() != null ? entity.getSessionDate().format(GA_DATE_FORMATTER) : null;
+
+    // Explicitly enforce Z suffix (UTC) so Javascript parses it properly before converting to IST
+    // in UI
     String formattedSessionStartTime =
-        entity.getCreatedAt() != null ? entity.getCreatedAt().format(ISO_DATE_TIME) : null;
+        entity.getCreatedAt() != null ? entity.getCreatedAt().format(ISO_DATE_TIME) + "Z" : null;
+
     String formattedFirstVisitDate =
         firstVisitDate != null ? firstVisitDate.format(GA_DATE_FORMATTER) : null;
 

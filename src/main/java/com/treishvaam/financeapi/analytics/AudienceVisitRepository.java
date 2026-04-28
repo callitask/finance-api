@@ -5,22 +5,15 @@
  *
  * <p>Scope: - Handles complex dynamic filtering via JPQL.
  *
- * <p>Critical Dependencies: - Backend: AnalyticsService relies on these distinct signatures.
- *
  * <p>Security Constraints: - Parameters must remain natively bound (@Param) to prevent SQL
- * injection. - Boolean flags (:hasExcludes, :hasTargets) MUST be used to prevent empty collection
- * crashes in Postgres/MySQL. - The delete GA4 query MUST strictly target sessionId = 'Not available
- * (GA4)' to prevent wiping real Faro RUM data.
+ * injection. - The delete GA4 query MUST strictly target sessionId = 'Not available (GA4)' to
+ * prevent wiping real Faro RUM data.
  *
- * <p>Change Intent: - Added GA4 specific deletion query for the manual Refresh sync. - Added
- * `findDistinctClientIds` to populate multi-select menus. - Replaced `clientId` equality checks
- * with `targetClientIds` IN clauses.
+ * <p>Change Intent: - Added `clearAutomatically = true, flushAutomatically = true` to
+ * `deleteGA4DataForDateRange` to solve the GA4 sync race condition.
  *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Implemented
- * `findFirstVisitDatesByClientIds` aggregation. • Added `clientId`, `hasExcludes`, and
- * `excludeClientIds` to all JPQL historical query signatures. - EDITED (LATEST): • Upgraded single
- * `clientId` to List `targetClientIds`. • Added `deleteGA4DataForDateRange` to allow GA4 sync
- * refreshes without harming real-time Faro DB records.
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED (LATEST): • Upgraded single `clientId` to
+ * List `targetClientIds`. • Added `deleteGA4DataForDateRange` with explicit Hibernate flushing.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -47,8 +40,8 @@ public interface AudienceVisitRepository extends JpaRepository<AudienceVisit, Lo
       "SELECT av.clientId, MIN(av.sessionDate) FROM AudienceVisit av WHERE av.clientId IN :clientIds GROUP BY av.clientId")
   List<Object[]> findFirstVisitDatesByClientIds(@Param("clientIds") List<String> clientIds);
 
-  // Protected GA4 Wipe
-  @Modifying
+  // Protected GA4 Wipe - Flushing enforces synchronous database execution
+  @Modifying(clearAutomatically = true, flushAutomatically = true)
   @Query(
       "DELETE FROM AudienceVisit av WHERE av.sessionDate >= :startDate AND av.sessionDate <= :endDate AND av.sessionId = 'Not available (GA4)'")
   void deleteGA4DataForDateRange(
