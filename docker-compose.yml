@@ -39,6 +39,9 @@
 #  * - EDITED:
 #  * • Added explicit `healthcheck` to `nginx` service targeting `/robots.txt`.
 #  * • Why: The base image healthcheck pinged `/`, causing a false `(unhealthy)` status since the backend blocked root access.
+#  * #  * - EDITED:
+#  * • Passed frontend URL environment variables (`FINANCE_FRONTEND_URL`, `FINANCE_FRONTEND_LOCAL_URL`) to the Keycloak container.
+#  * • Why: Zero-trust architecture required dynamic `redirectUris` in the Keycloak realm export. Without these runtime variables passed into the container environment, the realm import failed to resolve the placeholders, leading to Auth Timeouts.
 #  */
 
 version: '3.8'
@@ -106,6 +109,8 @@ services:
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "true"
+      FINANCE_FRONTEND_URL: ${FINANCE_FRONTEND_URL:-https://treishvaamfinance.com}
+      FINANCE_FRONTEND_LOCAL_URL: ${FINANCE_FRONTEND_LOCAL_URL:-http://localhost:3000}
     command: start-dev --import-realm
     volumes:
       - ./config/keycloak/realm-export.json:/opt/keycloak/data/import/realm.json
