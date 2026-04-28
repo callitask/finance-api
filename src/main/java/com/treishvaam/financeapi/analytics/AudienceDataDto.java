@@ -11,27 +11,23 @@
  * <p>Security Constraints: - Exposes rawSessionId for internal admin tracking; ensure endpoints
  * returning this are restricted.
  *
- * <p>Non-Negotiables: - Must strictly format timeOnSite correctly.
+ * <p>Non-Negotiables: - Temporal fields MUST be sent as Strings (ISO-8601) to prevent Jackson from
+ * serializing them as integer arrays (e.g., [2026,4,28]) which causes "Invalid Date" in JS.
  *
- * <p>Change Intent: - Add `sessionStartTime` to track the exact time of the visit. - Add
- * `firstVisitDate` to track when a specific user (clientId) was first seen globally.
- *
- * <p>Future AI Guidance: - Do not remove fields, the frontend Dashboard depends on this exact
- * shape.
+ * <p>Change Intent: - Changed LocalDate and LocalDateTime to String to guarantee safe frontend
+ * parsing.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Added sessionStartTime (LocalDateTime)
- * and firstVisitDate (LocalDate) fields to provide temporal tracking resolution to the frontend.
+ * and firstVisitDate (LocalDate) fields to provide temporal tracking resolution to the frontend. -
+ * EDITED (LATEST): • Converted temporal fields to Strings to fix JS Date parsing crashes.
  */
 package com.treishvaam.financeapi.analytics;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-
 public class AudienceDataDto {
   private Long id;
-  private LocalDate sessionDate;
-  private LocalDateTime sessionStartTime;
-  private LocalDate firstVisitDate;
+  private String sessionDate;
+  private String sessionStartTime;
+  private String firstVisitDate;
   private String userIdentifier;
   private String country;
   private String region;
@@ -49,9 +45,9 @@ public class AudienceDataDto {
 
   public AudienceDataDto(
       Long id,
-      LocalDate sessionDate,
-      LocalDateTime sessionStartTime,
-      LocalDate firstVisitDate,
+      String sessionDate,
+      String sessionStartTime,
+      String firstVisitDate,
       String userIdentifier,
       String country,
       String region,
@@ -101,15 +97,15 @@ public class AudienceDataDto {
     return id;
   }
 
-  public LocalDate getSessionDate() {
+  public String getSessionDate() {
     return sessionDate;
   }
 
-  public LocalDateTime getSessionStartTime() {
+  public String getSessionStartTime() {
     return sessionStartTime;
   }
 
-  public LocalDate getFirstVisitDate() {
+  public String getFirstVisitDate() {
     return firstVisitDate;
   }
 
@@ -175,9 +171,9 @@ public class AudienceDataDto {
 
   public static class Builder {
     private Long id;
-    private LocalDate sessionDate;
-    private LocalDateTime sessionStartTime;
-    private LocalDate firstVisitDate;
+    private String sessionDate;
+    private String sessionStartTime;
+    private String firstVisitDate;
     private String userIdentifier;
     private String country;
     private String region;
@@ -198,17 +194,17 @@ public class AudienceDataDto {
       return this;
     }
 
-    public Builder sessionDate(LocalDate sessionDate) {
+    public Builder sessionDate(String sessionDate) {
       this.sessionDate = sessionDate;
       return this;
     }
 
-    public Builder sessionStartTime(LocalDateTime sessionStartTime) {
+    public Builder sessionStartTime(String sessionStartTime) {
       this.sessionStartTime = sessionStartTime;
       return this;
     }
 
-    public Builder firstVisitDate(LocalDate firstVisitDate) {
+    public Builder firstVisitDate(String firstVisitDate) {
       this.firstVisitDate = firstVisitDate;
       return this;
     }

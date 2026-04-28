@@ -8,11 +8,12 @@
  *
  * <p>Critical Dependencies: - AnalyticsController / AnalyticsService.
  *
- * <p>Change Intent: - Added `clientId` for explicit user inclusion filtering. - Added
- * `excludeClientIds` list for explicit user exclusion (hiding specific traffic).
+ * <p>Change Intent: - Upgraded `clientId` (String) to `targetClientIds` (List) for multi-select
+ * dropdown support.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Added `clientId` and `excludeClientIds`
- * fields and updated builder to support targeted user tracking.
+ * fields and updated builder to support targeted user tracking. - EDITED (LATEST): • Changed
+ * `clientId` to a List (`targetClientIds`) to support multi-select inclusional filtering.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -25,7 +26,7 @@ public class AudienceFilter {
   private String operatingSystem;
   private String osVersion;
   private String sessionSource;
-  private String clientId;
+  private List<String> targetClientIds;
   private List<String> excludeClientIds;
 
   public AudienceFilter() {}
@@ -37,7 +38,7 @@ public class AudienceFilter {
       String operatingSystem,
       String osVersion,
       String sessionSource,
-      String clientId,
+      List<String> targetClientIds,
       List<String> excludeClientIds) {
     this.country = country;
     this.region = region;
@@ -45,7 +46,7 @@ public class AudienceFilter {
     this.operatingSystem = operatingSystem;
     this.osVersion = osVersion;
     this.sessionSource = sessionSource;
-    this.clientId = clientId;
+    this.targetClientIds = targetClientIds;
     this.excludeClientIds = excludeClientIds;
   }
 
@@ -74,8 +75,8 @@ public class AudienceFilter {
     return sessionSource;
   }
 
-  public String getClientId() {
-    return clientId;
+  public List<String> getTargetClientIds() {
+    return targetClientIds;
   }
 
   public List<String> getExcludeClientIds() {
@@ -94,7 +95,7 @@ public class AudienceFilter {
     private String operatingSystem;
     private String osVersion;
     private String sessionSource;
-    private String clientId;
+    private List<String> targetClientIds;
     private List<String> excludeClientIds;
 
     public Builder country(String country) {
@@ -127,8 +128,8 @@ public class AudienceFilter {
       return this;
     }
 
-    public Builder clientId(String clientId) {
-      this.clientId = clientId;
+    public Builder targetClientIds(List<String> targetClientIds) {
+      this.targetClientIds = targetClientIds;
       return this;
     }
 
@@ -145,7 +146,7 @@ public class AudienceFilter {
           operatingSystem,
           osVersion,
           sessionSource,
-          clientId,
+          targetClientIds,
           excludeClientIds);
     }
   }

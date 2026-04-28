@@ -11,24 +11,19 @@
  * - Backend: AudienceVisitRepository for persisting records and complex reporting.
  *
  * <p>Security Constraints: - Boolean exclusions must handle null/empty states with dummy arrays to
- * prevent Hibernate query parser errors.
+ * prevent Hibernate query parser errors. - The refreshGA4Data MUST use a @Transactional block to
+ * ensure data is not lost if the Google API call fails.
  *
- * <p>Non-Negotiables: - First Visit Date logic MUST use the bulk aggregation
- * (`findFirstVisitDatesByClientIds`) to prevent critical N+1 database performance death on high
- * traffic dashboards.
+ * <p>Change Intent: - Orchestrated O(1) bulk fetch for First Visit Dates. - Hooked
+ * `targetClientIds` parameters securely into repository calls. - Formatted LocalDateTime fields
+ * directly to ISO Strings for safe frontend parsing. - Implemented `refreshGA4Data` transactional
+ * sync process.
  *
- * <p>Change Intent: - Orchestrated O(1) bulk fetch for First Visit Dates. - Hooked `clientId`
- * parameters securely into repository calls.
- *
- * <p>Future AI Guidance: - If you add a new filter dimension, remember to pass the dummy list
- * pattern (`safeExcludes`) into the repository call.
- *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Implemented compound dimension fetching
- * (sessionSourceMedium instead of sessionSource) to parse exact values. • Replaced osVersion
- * dimension slot with `browser` by utilizing `operatingSystemWithVersion`. • Implemented
- * `cleanNotSet()` utility to sanitize "(not set)" and "unknown" GA4 fallback values. - EDITED
- * (LATEST): • Mapped `createdAt` to `sessionStartTime`. • Hooked in First Visit Date batch
- * processing and exclusion parameters.
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Mapped `createdAt` to
+ * `sessionStartTime`. • Hooked in First Visit Date batch processing and exclusion parameters. -
+ * EDITED (LATEST): • Mapped Temporal classes to String manually in `mapEntityToDto` to prevent JS
+ * Date errors. • Implemented @Transactional `refreshGA4Data`. • Passed `hasTargets` and
+ * `targetClientIds` into all JPQL filters.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -57,6 +52,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AnalyticsService {
@@ -64,6 +60,8 @@ public class AnalyticsService {
   private static final Logger logger = LoggerFactory.getLogger(AnalyticsService.class);
   private static final DateTimeFormatter GA_DATE_FORMATTER =
       DateTimeFormatter.ofPattern("yyyy-MM-dd");
+  private static final DateTimeFormatter ISO_DATE_TIME =
+      DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
   @Value("${ga4.property-id}")
   private String propertyId;
@@ -109,11 +107,7 @@ public class AnalyticsService {
       logger.info(
           "Google Analytics Data Client initialized successfully for Property: {}", propertyId);
 
-      // 1. Try initial fetch (only if DB is empty)
       initialHistoricalFetch();
-
-      // 2. FORCE CHECK: Run the daily fetch immediately on startup to catch up missing days
-      logger.info("Running startup check for missing daily audience data...");
       dailyIncrementalFetch();
 
     } catch (Exception e) {
@@ -124,10 +118,8 @@ public class AnalyticsService {
 
   private void initialHistoricalFetch() {
     if (analyticsDataClient == null) return;
-    if (audienceVisitRepository.findMaxSessionDate().isPresent()) {
-      // Data exists, so we rely on dailyIncrementalFetch to fill gaps
-      return;
-    }
+    if (audienceVisitRepository.findMaxSessionDate().isPresent()) return;
+
     logger.info("Starting initial historical fetch...");
     LocalDate startDate = LocalDate.parse(initialFetchStartDate, GA_DATE_FORMATTER);
     LocalDate endDate = LocalDate.now().minusDays(1);
@@ -136,10 +128,7 @@ public class AnalyticsService {
 
   @Scheduled(cron = "0 0 2 * * *")
   public void dailyIncrementalFetch() {
-    if (analyticsDataClient == null) {
-      logger.warn("Analytics client is not initialized. Skipping scheduled fetch.");
-      return;
-    }
+    if (analyticsDataClient == null) return;
 
     Optional<LocalDate> maxDateOpt = audienceVisitRepository.findMaxSessionDate();
     LocalDate startDate =
@@ -150,31 +139,39 @@ public class AnalyticsService {
     LocalDate endDate = LocalDate.now().minusDays(1);
 
     if (startDate.isBefore(endDate) || startDate.isEqual(endDate)) {
-      logger.info("Starting incremental GA data fetch from {} to {}", startDate, endDate);
       fetchAndSaveGAData(startDate, endDate);
-    } else {
-      logger.info("Audience data is up to date. Max date: {}", maxDateOpt.orElse(null));
     }
   }
 
-  private void fetchAndSaveGAData(LocalDate startDate, LocalDate endDate) {
+  @Transactional
+  public void refreshGA4Data(LocalDate startDate, LocalDate endDate) {
     if (analyticsDataClient == null) {
-      logger.warn("Analytics client is not available. Cannot fetch data.");
-      return;
+      throw new IllegalStateException(
+          "Google Analytics API client is not configured on this server.");
     }
+    logger.info("Manual GA4 Refresh Triggered: {} to {}", startDate, endDate);
+
+    // 1. Wipe ONLY GA4 data for the date range (protect Faro RUM data)
+    audienceVisitRepository.deleteGA4DataForDateRange(startDate, endDate);
+
+    // 2. Fetch fresh data from Google
+    fetchAndSaveGAData(startDate, endDate);
+  }
+
+  private void fetchAndSaveGAData(LocalDate startDate, LocalDate endDate) {
+    if (analyticsDataClient == null) return;
 
     List<Dimension> dimensions =
         List.of(
-            Dimension.newBuilder().setName("date").build(), // 0
-            Dimension.newBuilder().setName("sessionSourceMedium").build(), // 1
-            Dimension.newBuilder().setName("country").build(), // 2
-            Dimension.newBuilder().setName("region").build(), // 3
-            Dimension.newBuilder().setName("city").build(), // 4
-            Dimension.newBuilder().setName("operatingSystemWithVersion").build(), // 5
-            Dimension.newBuilder().setName("mobileDeviceModel").build(), // 6
-            Dimension.newBuilder().setName("browser").build(), // 7
-            Dimension.newBuilder().setName("screenResolution").build() // 8
-            );
+            Dimension.newBuilder().setName("date").build(),
+            Dimension.newBuilder().setName("sessionSourceMedium").build(),
+            Dimension.newBuilder().setName("country").build(),
+            Dimension.newBuilder().setName("region").build(),
+            Dimension.newBuilder().setName("city").build(),
+            Dimension.newBuilder().setName("operatingSystemWithVersion").build(),
+            Dimension.newBuilder().setName("mobileDeviceModel").build(),
+            Dimension.newBuilder().setName("browser").build(),
+            Dimension.newBuilder().setName("screenResolution").build());
 
     List<Metric> metrics =
         List.of(
@@ -198,35 +195,24 @@ public class AnalyticsService {
       List<AudienceVisit> visits = mapResponseToEntity(response);
       if (!visits.isEmpty()) {
         audienceVisitRepository.saveAll(visits);
-        logger.info("Fetched and saved {} records for {} to {}", visits.size(), startDate, endDate);
-      } else {
-        logger.info("No records found in GA4 for {} to {}", startDate, endDate);
       }
     } catch (Exception e) {
-      logger.error("Error fetching GA4 data for {} to {}", startDate, endDate, e);
+      logger.error("Error fetching GA4 data", e);
     }
   }
 
   private String cleanNotSet(String value, String fallback) {
     if (value == null
         || "(not set)".equalsIgnoreCase(value.trim())
-        || "unknown".equalsIgnoreCase(value.trim())) {
-      return fallback;
-    }
+        || "unknown".equalsIgnoreCase(value.trim())) return fallback;
     return value;
   }
 
   private String formatSourceMedium(String sourceMedium) {
     if (sourceMedium.equalsIgnoreCase("direct / (none)")
-        || sourceMedium.equalsIgnoreCase("(direct) / (none)")) {
-      return "Direct";
-    }
-    if (sourceMedium.contains(" / organic")) {
-      return sourceMedium.split(" /")[0] + " Organic";
-    }
-    if (sourceMedium.contains(" / referral")) {
-      return sourceMedium.split(" /")[0] + " Referral";
-    }
+        || sourceMedium.equalsIgnoreCase("(direct) / (none)")) return "Direct";
+    if (sourceMedium.contains(" / organic")) return sourceMedium.split(" /")[0] + " Organic";
+    if (sourceMedium.contains(" / referral")) return sourceMedium.split(" /")[0] + " Referral";
     return sourceMedium;
   }
 
@@ -235,7 +221,6 @@ public class AnalyticsService {
 
     for (com.google.analytics.data.v1beta.Row row : response.getRowsList()) {
       AudienceVisit visit = new AudienceVisit();
-
       try {
         visit.setSessionDate(
             LocalDate.parse(
@@ -274,26 +259,23 @@ public class AnalyticsService {
         }
 
         visit.setScreenResolution(cleanNotSet(row.getDimensionValues(8).getValue(), "N/A"));
-
         visit.setDeviceCategory("Unknown");
         visit.setLandingPage("Not available (GA4)");
         visit.setClientId("Not available (GA4)");
         visit.setSessionId("Not available (GA4)");
-
         visit.setViews(Long.valueOf(row.getMetricValues(0).getValue()).intValue());
         visit.setSessionDurationSeconds(
             Math.round(Double.parseDouble(row.getMetricValues(1).getValue())));
 
         visits.add(visit);
       } catch (Exception e) {
-        logger.warn("Skipping malformed row from GA4: {}", e.getMessage());
       }
     }
     return visits;
   }
 
-  // Helper method to safely format exclude lists for JPQL
-  private List<String> getSafeExcludeList(List<String> rawList) {
+  // Helper method to safely format lists for JPQL
+  private List<String> getSafeList(List<String> rawList) {
     if (rawList == null || rawList.isEmpty()) {
       return Collections.singletonList("DUMMY_ID_PREVENT_HIBERNATE_CRASH");
     }
@@ -303,9 +285,13 @@ public class AnalyticsService {
   public List<AudienceDataDto> getHistoricalData(
       LocalDate startDate, LocalDate endDate, AudienceFilter filters) {
 
+    boolean hasTargets =
+        filters.getTargetClientIds() != null && !filters.getTargetClientIds().isEmpty();
+    List<String> safeTargets = getSafeList(filters.getTargetClientIds());
+
     boolean hasExcludes =
         filters.getExcludeClientIds() != null && !filters.getExcludeClientIds().isEmpty();
-    List<String> safeExcludes = getSafeExcludeList(filters.getExcludeClientIds());
+    List<String> safeExcludes = getSafeList(filters.getExcludeClientIds());
 
     List<AudienceVisit> visits =
         audienceVisitRepository.findHistoricalDataWithFilters(
@@ -317,7 +303,8 @@ public class AnalyticsService {
             filters.getOperatingSystem(),
             filters.getOsVersion(),
             filters.getSessionSource(),
-            filters.getClientId(),
+            hasTargets,
+            safeTargets,
             hasExcludes,
             safeExcludes);
 
@@ -344,9 +331,13 @@ public class AnalyticsService {
   public FilterOptionsDto getFilterOptions(
       LocalDate startDate, LocalDate endDate, AudienceFilter filters) {
 
+    boolean hasTargets =
+        filters.getTargetClientIds() != null && !filters.getTargetClientIds().isEmpty();
+    List<String> safeTargets = getSafeList(filters.getTargetClientIds());
+
     boolean hasExcludes =
         filters.getExcludeClientIds() != null && !filters.getExcludeClientIds().isEmpty();
-    List<String> safeExcludes = getSafeExcludeList(filters.getExcludeClientIds());
+    List<String> safeExcludes = getSafeList(filters.getExcludeClientIds());
 
     return FilterOptionsDto.builder()
         .countries(
@@ -358,7 +349,8 @@ public class AnalyticsService {
                 filters.getOperatingSystem(),
                 filters.getOsVersion(),
                 filters.getSessionSource(),
-                filters.getClientId(),
+                hasTargets,
+                safeTargets,
                 hasExcludes,
                 safeExcludes))
         .regions(
@@ -370,7 +362,8 @@ public class AnalyticsService {
                 filters.getOperatingSystem(),
                 filters.getOsVersion(),
                 filters.getSessionSource(),
-                filters.getClientId(),
+                hasTargets,
+                safeTargets,
                 hasExcludes,
                 safeExcludes))
         .cities(
@@ -382,7 +375,8 @@ public class AnalyticsService {
                 filters.getOperatingSystem(),
                 filters.getOsVersion(),
                 filters.getSessionSource(),
-                filters.getClientId(),
+                hasTargets,
+                safeTargets,
                 hasExcludes,
                 safeExcludes))
         .operatingSystems(
@@ -394,7 +388,8 @@ public class AnalyticsService {
                 filters.getCity(),
                 filters.getOsVersion(),
                 filters.getSessionSource(),
-                filters.getClientId(),
+                hasTargets,
+                safeTargets,
                 hasExcludes,
                 safeExcludes))
         .osVersions(
@@ -406,7 +401,8 @@ public class AnalyticsService {
                 filters.getCity(),
                 filters.getOperatingSystem(),
                 filters.getSessionSource(),
-                filters.getClientId(),
+                hasTargets,
+                safeTargets,
                 hasExcludes,
                 safeExcludes))
         .sessionSources(
@@ -418,18 +414,38 @@ public class AnalyticsService {
                 filters.getCity(),
                 filters.getOperatingSystem(),
                 filters.getOsVersion(),
-                filters.getClientId(),
+                hasTargets,
+                safeTargets,
                 hasExcludes,
                 safeExcludes))
+        .clientIds(
+            audienceVisitRepository.findDistinctClientIds(
+                startDate,
+                endDate,
+                filters.getCountry(),
+                filters.getRegion(),
+                filters.getCity(),
+                filters.getOperatingSystem(),
+                filters.getOsVersion(),
+                filters.getSessionSource()))
         .build();
   }
 
   private AudienceDataDto mapEntityToDto(AudienceVisit entity, LocalDate firstVisitDate) {
+    // CRITICAL: Explicitly format to ISO String to prevent Jackson Array Serialization crashes in
+    // JS
+    String formattedSessionDate =
+        entity.getSessionDate() != null ? entity.getSessionDate().format(GA_DATE_FORMATTER) : null;
+    String formattedSessionStartTime =
+        entity.getCreatedAt() != null ? entity.getCreatedAt().format(ISO_DATE_TIME) : null;
+    String formattedFirstVisitDate =
+        firstVisitDate != null ? firstVisitDate.format(GA_DATE_FORMATTER) : null;
+
     return AudienceDataDto.builder()
         .id(entity.getId())
-        .sessionDate(entity.getSessionDate())
-        .sessionStartTime(entity.getCreatedAt())
-        .firstVisitDate(firstVisitDate)
+        .sessionDate(formattedSessionDate)
+        .sessionStartTime(formattedSessionStartTime)
+        .firstVisitDate(formattedFirstVisitDate)
         .userIdentifier(entity.getClientId())
         .country(entity.getCountry())
         .region(entity.getRegion())

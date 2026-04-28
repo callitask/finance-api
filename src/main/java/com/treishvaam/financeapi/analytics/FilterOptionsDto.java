@@ -1,3 +1,18 @@
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Transfers distinct available filter options to the frontend.
+ *
+ * <p>Scope: - Required for populating UI dropdowns based on current data state.
+ *
+ * <p>Critical Dependencies: - AnalyticsService and AudiencePage.js
+ *
+ * <p>Change Intent: - Add `clientIds` array so the frontend can display them in a multi-select
+ * dropdown.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Added `clientIds` to support dynamic
+ * user exclusion and targeting.
+ */
 package com.treishvaam.financeapi.analytics;
 
 import java.util.List;
@@ -9,6 +24,7 @@ public class FilterOptionsDto {
   private List<String> operatingSystems;
   private List<String> osVersions;
   private List<String> sessionSources;
+  private List<String> clientIds;
 
   public FilterOptionsDto(
       List<String> countries,
@@ -16,13 +32,15 @@ public class FilterOptionsDto {
       List<String> cities,
       List<String> operatingSystems,
       List<String> osVersions,
-      List<String> sessionSources) {
+      List<String> sessionSources,
+      List<String> clientIds) {
     this.countries = countries;
     this.regions = regions;
     this.cities = cities;
     this.operatingSystems = operatingSystems;
     this.osVersions = osVersions;
     this.sessionSources = sessionSources;
+    this.clientIds = clientIds;
   }
 
   // Getters
@@ -50,6 +68,10 @@ public class FilterOptionsDto {
     return sessionSources;
   }
 
+  public List<String> getClientIds() {
+    return clientIds;
+  }
+
   public static Builder builder() {
     return new Builder();
   }
@@ -61,6 +83,7 @@ public class FilterOptionsDto {
     private List<String> operatingSystems;
     private List<String> osVersions;
     private List<String> sessionSources;
+    private List<String> clientIds;
 
     public Builder countries(List<String> countries) {
       this.countries = countries;
@@ -92,9 +115,14 @@ public class FilterOptionsDto {
       return this;
     }
 
+    public Builder clientIds(List<String> clientIds) {
+      this.clientIds = clientIds;
+      return this;
+    }
+
     public FilterOptionsDto build() {
       return new FilterOptionsDto(
-          countries, regions, cities, operatingSystems, osVersions, sessionSources);
+          countries, regions, cities, operatingSystems, osVersions, sessionSources, clientIds);
     }
   }
 }
