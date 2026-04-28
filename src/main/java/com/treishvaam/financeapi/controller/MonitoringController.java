@@ -1,3 +1,35 @@
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Handle incoming Faro telemetry payloads and enrich them with accurate audience
+ * data.
+ *
+ * <p>Scope: - Responsible for user-agent parsing (Device/OS mapping), traffic source resolution,
+ * and location header extraction. - Must never block or crash the main request path; telemetry
+ * ingestion is asynchronous or fire-and-forget.
+ *
+ * <p>Critical Dependencies: - Backend: AudienceVisitRepository for saving analytics. - Frontend:
+ * faroConfig.js which sends the enriched payload (resolution, userAgent, trafficSource). - Worker /
+ * SEO / Sitemap: Receives headers injected by Cloudflare (cf-ipcity, cf-ipcountry, etc.).
+ *
+ * <p>Security Constraints: - Must not trust or execute arbitrary string inputs. Data must be safely
+ * mapped to entity fields. - Fallbacks must be robust to prevent NPEs.
+ *
+ * <p>Non-Negotiables: - Must parse exact OS and Device model using YAUAA, not just generic platform
+ * tags. - Screen resolution must be mapped correctly.
+ *
+ * <p>Change Intent: - Resolve inaccurate Device/OS generic mappings (e.g., Windows NT 147.0.0.0) by
+ * utilizing YAUAA parser. - Capture exact screen resolution and smart traffic source from the
+ * enriched Faro payload.
+ *
+ * <p>Future AI Guidance: - Do not remove YAUAA logic. It is required for accurate dashboard
+ * display. - If adding new dimensions, ensure they match the Dashboard JSON schema.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Implemented robust User-Agent parsing
+ * using YAUAA to replace Faro's default generic browser tags. • Added logic to extract and save
+ * 'resolution' and explicit 'userAgent' from the payload's extra fields. • Enhanced traffic source
+ * mapping. • Reason: Fix audience dashboard displaying "Windows NT" and "Resolution N/A".
+ */
 package com.treishvaam.financeapi.controller;
 
 import com.treishvaam.financeapi.analytics.AudienceVisit;
@@ -154,6 +186,13 @@ public class MonitoringController {
         }
         visit.setSessionSource(smartSource);
 
+        // Add Screen Resolution
+        if (payload.getExtra() != null && payload.getExtra().containsKey("resolution")) {
+          visit.setScreenResolution(payload.getExtra().get("resolution"));
+        } else {
+          visit.setScreenResolution("N/A");
+        }
+
         String os = "Unknown";
         String osVer = "Unknown";
         String devModel = "Desktop";
@@ -165,6 +204,11 @@ public class MonitoringController {
           devModel = payload.getMeta().getBrowser().getName();
         }
 
+        // Prefer UserAgent from payload over header to prevent proxy stripping
+        if (payload.getExtra() != null && payload.getExtra().containsKey("userAgent")) {
+          userAgentString = payload.getExtra().get("userAgent");
+        }
+
         if (userAgentString != null && !userAgentString.isEmpty()) {
           try {
             UserAgent agent = uaa.parse(userAgentString);
@@ -174,12 +218,16 @@ public class MonitoringController {
             String simpleOS = agent.getValue("OperatingSystemName");
             String bestDevice = agent.getValue("DeviceName");
             String deviceClass = agent.getValue("DeviceClass");
+            String agentName = agent.getValue("AgentName");
 
             // Logic: Prefer NameVersion (e.g. "Android 12"), fallback to Name (e.g. "Android")
             if (bestOS != null && !bestOS.contains("??") && !bestOS.equalsIgnoreCase("Unknown")) {
-              // Normalize "Windows NT 10.0" -> "Windows 10"
+              // Normalize "Windows NT 10.0" -> "Windows 10", "Windows NT 11.0" -> "Windows 11"
               if (bestOS.startsWith("Windows NT 10")) {
                 os = "Windows 10";
+                osVer = "";
+              } else if (bestOS.startsWith("Windows NT 11")) {
+                os = "Windows 11";
                 osVer = "";
               } else if (bestOS.startsWith("Windows")) {
                 os = bestOS;
@@ -200,6 +248,14 @@ public class MonitoringController {
 
             if (deviceClass != null && !deviceClass.equalsIgnoreCase("Unknown")) {
               devCat = deviceClass;
+            }
+
+            if (agentName != null
+                && !agentName.contains("??")
+                && !agentName.equalsIgnoreCase("Unknown")) {
+              if (devModel.equals("Desktop")) {
+                devModel = agentName; // E.g., Chrome, Firefox, Safari instead of just "Desktop"
+              }
             }
           } catch (Exception e) {
             logger.warn("UA Parsing issue: {}", e.getMessage());
