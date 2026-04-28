@@ -1,3 +1,30 @@
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Data Transfer Object for mapping Grafana Faro Real User Monitoring (RUM) payloads.
+ *
+ * <p>Scope: - Responsible for deserializing telemetry JSON from frontend clients. - Must never
+ * execute or directly evaluate payload contents to prevent injection.
+ *
+ * <p>Critical Dependencies: - Backend: MonitoringController ingest endpoint. - Frontend:
+ * faroConfig.js payload structure.
+ *
+ * <p>Security Constraints: - ignoreUnknown = true is required to prevent crash loops when Faro
+ * updates its SDK payload schema.
+ *
+ * <p>Non-Negotiables: - Must map standard Faro entities exactly as defined by
+ * the @grafana/faro-web-sdk.
+ *
+ * <p>Change Intent: - Add mapping for event attributes to capture custom data (resolution, UTM
+ * source) sent via faro.api.pushEvent.
+ *
+ * <p>Future AI Guidance: - Never remove the 'ignoreUnknown = true' annotation.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Added `attributes` map to the `Event`
+ * class. • Reason: Grafana Faro's pushEvent method stores custom payload data inside
+ * event.attributes, not the root extra map. Required for exact resolution and traffic source
+ * mapping.
+ */
 package com.treishvaam.financeapi.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -9,7 +36,7 @@ public class FaroPayload {
   private Meta meta;
   private List<Event> events;
   private List<Measurement> measurements;
-  // Added: Capture intelligent source tracking from Frontend
+  // Added: Capture intelligent source tracking from Frontend (root level)
   private Map<String, String> extra;
 
   public Meta getMeta() {
@@ -50,7 +77,7 @@ public class FaroPayload {
     private Browser browser;
     private Page page;
     private Session session;
-    private User user; // Added: Capture User info
+    private User user;
 
     public App getApp() {
       return app;
@@ -98,7 +125,6 @@ public class FaroPayload {
     private String name;
     private String version;
 
-    // getters/setters
     public String getName() {
       return name;
     }
@@ -207,6 +233,7 @@ public class FaroPayload {
   @JsonIgnoreProperties(ignoreUnknown = true)
   public static class Event {
     private String name;
+    private Map<String, String> attributes; // Capture detailed event parameters
 
     public String getName() {
       return name;
@@ -215,12 +242,20 @@ public class FaroPayload {
     public void setName(String name) {
       this.name = name;
     }
+
+    public Map<String, String> getAttributes() {
+      return attributes;
+    }
+
+    public void setAttributes(Map<String, String> attributes) {
+      this.attributes = attributes;
+    }
   }
 
   @JsonIgnoreProperties(ignoreUnknown = true)
   public static class Measurement {
-    private String type; // e.g., "web-vitals"
-    private Map<String, Object> values; // e.g., {"time_to_first_byte": 123}
+    private String type;
+    private Map<String, Object> values;
 
     public String getType() {
       return type;

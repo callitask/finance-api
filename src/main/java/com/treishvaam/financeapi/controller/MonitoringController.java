@@ -18,9 +18,8 @@
  * <p>Non-Negotiables: - Must parse exact OS and Device model using YAUAA, not just generic platform
  * tags. - Screen resolution must be mapped correctly.
  *
- * <p>Change Intent: - Resolve inaccurate Device/OS generic mappings (e.g., Windows NT 147.0.0.0) by
- * utilizing YAUAA parser. - Capture exact screen resolution and smart traffic source from the
- * enriched Faro payload.
+ * <p>Change Intent: - Fortify telemetry mapping by reading deep Faro event attributes and falling
+ * back to native HTTP Headers (Referer, User-Agent) if Faro provides generic/anomalous data.
  *
  * <p>Future AI Guidance: - Do not remove YAUAA logic. It is required for accurate dashboard
  * display. - If adding new dimensions, ensure they match the Dashboard JSON schema.
@@ -28,7 +27,11 @@
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Implemented robust User-Agent parsing
  * using YAUAA to replace Faro's default generic browser tags. • Added logic to extract and save
  * 'resolution' and explicit 'userAgent' from the payload's extra fields. • Enhanced traffic source
- * mapping. • Reason: Fix audience dashboard displaying "Windows NT" and "Resolution N/A".
+ * mapping. • Reason: Fix audience dashboard displaying "Windows NT" and "Resolution N/A". * -
+ * EDITED (LATEST): • Implemented native Referer header sniffing to bypass Faro generic source
+ * logging. • Added extraction from `payload.getEvents().getAttributes()` to ensure resolution is
+ * captured properly. • Hardened Windows NT version string mapping using exact YAUAA
+ * classifications.
  */
 package com.treishvaam.financeapi.controller;
 
@@ -84,14 +87,6 @@ public class MonitoringController {
   public ResponseEntity<Void> ingest(
       @RequestBody FaroPayload payload, @RequestHeader Map<String, String> allHeaders) {
 
-    // --- DEBUG LOGGING ---
-    logger.info(
-        "=== MONITORING INGEST DEBUG === | City: {} | Source: {}",
-        allHeaders.get("x-visitor-city") != null
-            ? allHeaders.get("x-visitor-city")
-            : allHeaders.get("cf-ipcity"),
-        payload.getExtra() != null ? payload.getExtra().get("trafficSource") : "NULL");
-
     String cfCountry = getHeader(allHeaders, "cf-ipcountry");
     String cfRegion = getHeader(allHeaders, "cf-region");
     String cfCity = getHeader(allHeaders, "cf-ipcity");
@@ -99,14 +94,18 @@ public class MonitoringController {
     String xCity = getHeader(allHeaders, "x-visitor-city");
     String xRegion = getHeader(allHeaders, "x-visitor-region");
     String xCountry = getHeader(allHeaders, "x-visitor-country");
+
+    // Core HTTP Native Fallbacks
     String userAgentString = getHeader(allHeaders, "user-agent");
+    String refererString = getHeader(allHeaders, "referer");
 
     // Resolve Location
     String finalCity = resolveValue(xCity, cfCity, "Unknown");
     String finalRegion = resolveValue(xRegion, cfRegion, "Unknown");
     String finalCountry = resolveValue(xCountry, cfCountry, "Unknown");
 
-    processAudienceAnalytics(payload, finalCountry, finalCity, finalRegion, userAgentString);
+    processAudienceAnalytics(
+        payload, finalCountry, finalCity, finalRegion, userAgentString, refererString);
     forwardToAlloy(payload);
 
     return ResponseEntity.accepted().build();
@@ -142,7 +141,12 @@ public class MonitoringController {
   }
 
   private void processAudienceAnalytics(
-      FaroPayload payload, String country, String city, String region, String userAgentString) {
+      FaroPayload payload,
+      String country,
+      String city,
+      String region,
+      String nativeUserAgent,
+      String nativeReferer) {
     try {
       if (payload.getMeta() == null || payload.getMeta().getSession() == null) return;
 
@@ -180,19 +184,62 @@ public class MonitoringController {
         visit.setCity(city);
         visit.setRegion(region);
 
-        String smartSource = "Direct/Faro";
-        if (payload.getExtra() != null && payload.getExtra().containsKey("trafficSource")) {
+        // --- TRAFFIC SOURCE RESOLUTION ---
+        String smartSource = "Direct";
+
+        // 1. Try deep event attributes first (where pushEvent puts it)
+        if (payload.getEvents() != null && !payload.getEvents().isEmpty()) {
+          for (FaroPayload.Event event : payload.getEvents()) {
+            if (event.getAttributes() != null && event.getAttributes().containsKey("source")) {
+              smartSource = event.getAttributes().get("source");
+              break;
+            }
+          }
+        }
+
+        // 2. Fallback to root extra
+        if (smartSource.equals("Direct")
+            && payload.getExtra() != null
+            && payload.getExtra().containsKey("trafficSource")) {
           smartSource = payload.getExtra().get("trafficSource");
+        }
+
+        // 3. Fallback to Native Header Sniffing if Faro says Direct
+        if (smartSource.toLowerCase().contains("direct")
+            || smartSource.toLowerCase().contains("faro")) {
+          if (nativeReferer != null && !nativeReferer.isEmpty()) {
+            String refLower = nativeReferer.toLowerCase();
+            if (refLower.contains("google.")) smartSource = "Google Organic";
+            else if (refLower.contains("bing.")) smartSource = "Bing Search";
+            else if (refLower.contains("linkedin.")) smartSource = "LinkedIn";
+            else if (refLower.contains("twitter.") || refLower.contains("t.co"))
+              smartSource = "Twitter";
+            else if (!refLower.contains("treishvaam")) smartSource = "Referral";
+            else smartSource = "Internal";
+          } else {
+            smartSource = "Direct";
+          }
         }
         visit.setSessionSource(smartSource);
 
-        // Add Screen Resolution
-        if (payload.getExtra() != null && payload.getExtra().containsKey("resolution")) {
-          visit.setScreenResolution(payload.getExtra().get("resolution"));
-        } else {
-          visit.setScreenResolution("N/A");
+        // --- SCREEN RESOLUTION MAPPING ---
+        String resolution = "N/A";
+        if (payload.getEvents() != null && !payload.getEvents().isEmpty()) {
+          for (FaroPayload.Event event : payload.getEvents()) {
+            if (event.getAttributes() != null && event.getAttributes().containsKey("resolution")) {
+              resolution = event.getAttributes().get("resolution");
+              break;
+            }
+          }
         }
+        if (resolution.equals("N/A")
+            && payload.getExtra() != null
+            && payload.getExtra().containsKey("resolution")) {
+          resolution = payload.getExtra().get("resolution");
+        }
+        visit.setScreenResolution(resolution);
 
+        // --- DEVICE AND OS MAPPING ---
         String os = "Unknown";
         String osVer = "Unknown";
         String devModel = "Desktop";
@@ -204,30 +251,32 @@ public class MonitoringController {
           devModel = payload.getMeta().getBrowser().getName();
         }
 
-        // Prefer UserAgent from payload over header to prevent proxy stripping
+        // Prefer UserAgent from payload over header to prevent proxy stripping, but Native is
+        // absolute fallback
+        String activeUserAgent = nativeUserAgent;
         if (payload.getExtra() != null && payload.getExtra().containsKey("userAgent")) {
-          userAgentString = payload.getExtra().get("userAgent");
+          activeUserAgent = payload.getExtra().get("userAgent");
         }
 
-        if (userAgentString != null && !userAgentString.isEmpty()) {
+        if (activeUserAgent != null && !activeUserAgent.isEmpty()) {
           try {
-            UserAgent agent = uaa.parse(userAgentString);
+            UserAgent agent = uaa.parse(activeUserAgent);
 
-            // --- MANUAL FIX FOR WINDOWS & ANDROID PARSING ---
             String bestOS = agent.getValue("OperatingSystemNameVersion");
             String simpleOS = agent.getValue("OperatingSystemName");
             String bestDevice = agent.getValue("DeviceName");
             String deviceClass = agent.getValue("DeviceClass");
             String agentName = agent.getValue("AgentName");
 
-            // Logic: Prefer NameVersion (e.g. "Android 12"), fallback to Name (e.g. "Android")
             if (bestOS != null && !bestOS.contains("??") && !bestOS.equalsIgnoreCase("Unknown")) {
-              // Normalize "Windows NT 10.0" -> "Windows 10", "Windows NT 11.0" -> "Windows 11"
               if (bestOS.startsWith("Windows NT 10")) {
                 os = "Windows 10";
                 osVer = "";
               } else if (bestOS.startsWith("Windows NT 11")) {
                 os = "Windows 11";
+                osVer = "";
+              } else if (bestOS.startsWith("Windows NT 6.1")) {
+                os = "Windows 7";
                 osVer = "";
               } else if (bestOS.startsWith("Windows")) {
                 os = bestOS;
@@ -237,7 +286,7 @@ public class MonitoringController {
                 osVer = bestOS.contains(" ") ? bestOS.substring(bestOS.indexOf(" ") + 1) : osVer;
               }
             } else if (simpleOS != null && !simpleOS.contains("??")) {
-              os = simpleOS; // Fallback to just "Android" instead of "Android ??"
+              os = simpleOS;
             }
 
             if (bestDevice != null
@@ -254,7 +303,7 @@ public class MonitoringController {
                 && !agentName.contains("??")
                 && !agentName.equalsIgnoreCase("Unknown")) {
               if (devModel.equals("Desktop")) {
-                devModel = agentName; // E.g., Chrome, Firefox, Safari instead of just "Desktop"
+                devModel = agentName; // E.g., Chrome, Firefox, Safari
               }
             }
           } catch (Exception e) {

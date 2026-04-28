@@ -1,3 +1,34 @@
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Service for fetching Google Analytics 4 (GA4) historical data and mapping it to
+ * local DB.
+ *
+ * <p>Scope: - Responsible for executing daily and historical GA4 API requests. - Extracts and
+ * transforms GA4 dimensions into the local AudienceVisit schema.
+ *
+ * <p>Critical Dependencies: - Backend: Google Analytics Data API client (BetaAnalyticsDataClient).
+ * - Backend: AudienceVisitRepository for persisting records.
+ *
+ * <p>Security Constraints: - Must handle missing credentials paths safely without crashing the
+ * Spring context.
+ *
+ * <p>Non-Negotiables: - GA4 API limits strictly to 9 dimensions per RunReportRequest.
+ *
+ * <p>Change Intent: - Replaced individual GA dimensions with compound dimensions
+ * (operatingSystemWithVersion, sessionSourceMedium) to bypass the 9-dimension quota. - Added a
+ * robust cleanNotSet() method to eliminate "(not set)" values from polluting the audience
+ * dashboard.
+ *
+ * <p>Future AI Guidance: - If you need to add another dimension, you must remove one first, as GA4
+ * standard properties have a hard limit of 9 dimensions per request.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Implemented compound dimension fetching
+ * (sessionSourceMedium instead of sessionSource) to parse exact values. • Replaced osVersion
+ * dimension slot with `browser` by utilizing `operatingSystemWithVersion`. • Implemented
+ * `cleanNotSet()` utility to sanitize "(not set)" and "unknown" GA4 fallback values. • Reason:
+ * Clean up the Audience Dashboard and bypass the GA4 free tier dimension limit.
+ */
 package com.treishvaam.financeapi.analytics;
 
 import com.google.analytics.data.v1beta.BetaAnalyticsDataClient;
@@ -112,7 +143,6 @@ public class AnalyticsService {
             .map(date -> date.plusDays(1))
             .orElse(LocalDate.parse(initialFetchStartDate, GA_DATE_FORMATTER));
 
-    // GA4 data is typically reliable for "yesterday"
     LocalDate endDate = LocalDate.now().minusDays(1);
 
     if (startDate.isBefore(endDate) || startDate.isEqual(endDate)) {
@@ -129,17 +159,21 @@ public class AnalyticsService {
       return;
     }
 
-    // 9 dimensions limit in GA4 standard API
+    // Optimization: Utilizing Compound Dimensions to bypass the 9 dimension limit limit
     List<Dimension> dimensions =
         List.of(
             Dimension.newBuilder().setName("date").build(), // 0
-            Dimension.newBuilder().setName("sessionSource").build(), // 1
+            Dimension.newBuilder()
+                .setName("sessionSourceMedium")
+                .build(), // 1 (Compound Source + Medium)
             Dimension.newBuilder().setName("country").build(), // 2
             Dimension.newBuilder().setName("region").build(), // 3
             Dimension.newBuilder().setName("city").build(), // 4
-            Dimension.newBuilder().setName("operatingSystem").build(), // 5
+            Dimension.newBuilder()
+                .setName("operatingSystemWithVersion")
+                .build(), // 5 (Compound OS + Version)
             Dimension.newBuilder().setName("mobileDeviceModel").build(), // 6
-            Dimension.newBuilder().setName("operatingSystemVersion").build(), // 7
+            Dimension.newBuilder().setName("browser").build(), // 7
             Dimension.newBuilder().setName("screenResolution").build() // 8
             );
 
@@ -174,6 +208,29 @@ public class AnalyticsService {
     }
   }
 
+  private String cleanNotSet(String value, String fallback) {
+    if (value == null
+        || "(not set)".equalsIgnoreCase(value.trim())
+        || "unknown".equalsIgnoreCase(value.trim())) {
+      return fallback;
+    }
+    return value;
+  }
+
+  private String formatSourceMedium(String sourceMedium) {
+    if (sourceMedium.equalsIgnoreCase("direct / (none)")
+        || sourceMedium.equalsIgnoreCase("(direct) / (none)")) {
+      return "Direct";
+    }
+    if (sourceMedium.contains(" / organic")) {
+      return sourceMedium.split(" /")[0] + " Organic";
+    }
+    if (sourceMedium.contains(" / referral")) {
+      return sourceMedium.split(" /")[0] + " Referral";
+    }
+    return sourceMedium;
+  }
+
   private List<AudienceVisit> mapResponseToEntity(RunReportResponse response) {
     List<AudienceVisit> visits = new ArrayList<>();
 
@@ -184,14 +241,44 @@ public class AnalyticsService {
         visit.setSessionDate(
             LocalDate.parse(
                 row.getDimensionValues(0).getValue(), DateTimeFormatter.ofPattern("yyyyMMdd")));
-        visit.setSessionSource(row.getDimensionValues(1).getValue());
-        visit.setCountry(row.getDimensionValues(2).getValue());
-        visit.setRegion(row.getDimensionValues(3).getValue());
-        visit.setCity(row.getDimensionValues(4).getValue());
-        visit.setOperatingSystem(row.getDimensionValues(5).getValue());
-        visit.setDeviceModel(row.getDimensionValues(6).getValue());
-        visit.setOsVersion(row.getDimensionValues(7).getValue());
-        visit.setScreenResolution(row.getDimensionValues(8).getValue());
+
+        // 1. Source Parsing
+        String rawSource = cleanNotSet(row.getDimensionValues(1).getValue(), "Direct");
+        visit.setSessionSource(formatSourceMedium(rawSource));
+
+        visit.setCountry(cleanNotSet(row.getDimensionValues(2).getValue(), "Unknown"));
+        visit.setRegion(cleanNotSet(row.getDimensionValues(3).getValue(), "Unknown"));
+        visit.setCity(cleanNotSet(row.getDimensionValues(4).getValue(), "Unknown"));
+
+        // 5. Compound OS Parsing
+        String osCompound = cleanNotSet(row.getDimensionValues(5).getValue(), "Unknown");
+        if (osCompound.equals("Unknown")) {
+          visit.setOperatingSystem("Unknown");
+          visit.setOsVersion("Unknown");
+        } else {
+          // Split at first space (e.g., "Windows 10", "Android 12")
+          int spaceIdx = osCompound.indexOf(" ");
+          if (spaceIdx > 0) {
+            visit.setOperatingSystem(osCompound.substring(0, spaceIdx));
+            visit.setOsVersion(osCompound.substring(spaceIdx + 1));
+          } else {
+            visit.setOperatingSystem(osCompound);
+            visit.setOsVersion("");
+          }
+        }
+
+        String devModel = cleanNotSet(row.getDimensionValues(6).getValue(), "Desktop");
+        String browser = cleanNotSet(row.getDimensionValues(7).getValue(), "Unknown");
+
+        // If device model is missing/desktop, populate with the explicit Browser fetched from pos 7
+        if ((devModel.equals("Desktop") || devModel.equals("Unknown"))
+            && !browser.equals("Unknown")) {
+          visit.setDeviceModel(browser);
+        } else {
+          visit.setDeviceModel(devModel);
+        }
+
+        visit.setScreenResolution(cleanNotSet(row.getDimensionValues(8).getValue(), "N/A"));
 
         // Defaults
         visit.setDeviceCategory("Unknown");
