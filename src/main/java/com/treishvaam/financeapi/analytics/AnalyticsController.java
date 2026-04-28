@@ -1,3 +1,23 @@
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Expose secure endpoints for retrieving processed Audience Analytics data.
+ *
+ * <p>Scope: - Translates HTTP query parameters into typed AudienceFilters.
+ *
+ * <p>Critical Dependencies: - Backend: AnalyticsService.
+ *
+ * <p>Security Constraints: - Must be strictly protected
+ * via @PreAuthorize("hasAuthority('ROLE_ADMIN')").
+ *
+ * <p>Non-Negotiables: - Date fallbacks must remain defensive (e.g., last 7 days) to prevent massive
+ * unindexed table scans on default load.
+ *
+ * <p>Change Intent: - Expand parameters to include `clientId` and `excludeClientIds`.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Added `clientId` and `excludeClientIds`
+ * to endpoints to support targeted tracking and hiding specific user telemetry.
+ */
 package com.treishvaam.financeapi.analytics;
 
 import java.time.LocalDate;
@@ -32,7 +52,9 @@ public class AnalyticsController {
       @RequestParam(required = false) String city,
       @RequestParam(required = false) String operatingSystem,
       @RequestParam(required = false) String osVersion,
-      @RequestParam(required = false) String sessionSource) {
+      @RequestParam(required = false) String sessionSource,
+      @RequestParam(required = false) String clientId,
+      @RequestParam(required = false) List<String> excludeClientIds) {
 
     LocalDate finalStartDate = startDate != null ? startDate : LocalDate.now().minusDays(7);
     LocalDate finalEndDate = endDate != null ? endDate : LocalDate.now();
@@ -45,6 +67,8 @@ public class AnalyticsController {
             .operatingSystem(operatingSystem)
             .osVersion(osVersion)
             .sessionSource(sessionSource)
+            .clientId(clientId)
+            .excludeClientIds(excludeClientIds)
             .build();
 
     List<AudienceDataDto> data =
@@ -64,7 +88,10 @@ public class AnalyticsController {
       @RequestParam(required = false) String city,
       @RequestParam(required = false) String operatingSystem,
       @RequestParam(required = false) String osVersion,
-      @RequestParam(required = false) String sessionSource) {
+      @RequestParam(required = false) String sessionSource,
+      @RequestParam(required = false) String clientId,
+      @RequestParam(required = false) List<String> excludeClientIds) {
+
     LocalDate finalStartDate = startDate != null ? startDate : LocalDate.now().minusDays(7);
     LocalDate finalEndDate = endDate != null ? endDate : LocalDate.now();
 
@@ -76,6 +103,8 @@ public class AnalyticsController {
             .operatingSystem(operatingSystem)
             .osVersion(osVersion)
             .sessionSource(sessionSource)
+            .clientId(clientId)
+            .excludeClientIds(excludeClientIds)
             .build();
 
     FilterOptionsDto options =

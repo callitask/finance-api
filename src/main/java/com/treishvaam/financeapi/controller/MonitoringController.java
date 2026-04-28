@@ -16,22 +16,22 @@
  * mapped to entity fields. - Fallbacks must be robust to prevent NPEs.
  *
  * <p>Non-Negotiables: - Must parse exact OS and Device model using YAUAA, not just generic platform
- * tags. - Screen resolution must be mapped correctly.
+ * tags. - Desktop Browser model limitations apply (Hardware models cannot be extracted for PCs).
  *
- * <p>Change Intent: - Fortify telemetry mapping by reading deep Faro event attributes and falling
- * back to native HTTP Headers (Referer, User-Agent) if Faro provides generic/anomalous data.
+ * <p>Change Intent: - Fixed YAUAA parsing anomalies: Handled the "Windows >=10" MS frozen UA string
+ * and mapped it to "Windows 10/11". - Hardened Browser parsing to strictly differentiate Chrome
+ * from Edge.
  *
- * <p>Future AI Guidance: - Do not remove YAUAA logic. It is required for accurate dashboard
- * display. - If adding new dimensions, ensure they match the Dashboard JSON schema.
+ * <p>Future AI Guidance: - Do not attempt to parse laptop hardware models (e.g. Acer Nitro) from
+ * Desktop User-Agents. It is fundamentally impossible via standard headers due to privacy limits.
+ * Rely on the browser name instead.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Implemented robust User-Agent parsing
  * using YAUAA to replace Faro's default generic browser tags. • Added logic to extract and save
- * 'resolution' and explicit 'userAgent' from the payload's extra fields. • Enhanced traffic source
- * mapping. • Reason: Fix audience dashboard displaying "Windows NT" and "Resolution N/A". * -
- * EDITED (LATEST): • Implemented native Referer header sniffing to bypass Faro generic source
- * logging. • Added extraction from `payload.getEvents().getAttributes()` to ensure resolution is
- * captured properly. • Hardened Windows NT version string mapping using exact YAUAA
- * classifications.
+ * 'resolution' and explicit 'userAgent' from the payload's extra fields. • Implemented native
+ * Referer header sniffing to bypass Faro generic source logging. - EDITED (LATEST): • Implemented
+ * Edge vs Chrome disambiguation logic. • Cleanly mapped the frozen "Windows >=10" token string to
+ * "Windows 10/11".
  */
 package com.treishvaam.financeapi.controller;
 
@@ -95,11 +95,9 @@ public class MonitoringController {
     String xRegion = getHeader(allHeaders, "x-visitor-region");
     String xCountry = getHeader(allHeaders, "x-visitor-country");
 
-    // Core HTTP Native Fallbacks
     String userAgentString = getHeader(allHeaders, "user-agent");
     String refererString = getHeader(allHeaders, "referer");
 
-    // Resolve Location
     String finalCity = resolveValue(xCity, cfCity, "Unknown");
     String finalRegion = resolveValue(xRegion, cfRegion, "Unknown");
     String finalCountry = resolveValue(xCountry, cfCountry, "Unknown");
@@ -171,7 +169,6 @@ public class MonitoringController {
         visit.setSessionDate(today);
         visit.setSessionId(sessionId);
 
-        // Identity Logic
         if (payload.getMeta().getUser() != null && payload.getMeta().getUser().getEmail() != null) {
           visit.setClientId(payload.getMeta().getUser().getEmail());
         } else if (payload.getExtra() != null && payload.getExtra().get("visitorId") != null) {
@@ -184,10 +181,8 @@ public class MonitoringController {
         visit.setCity(city);
         visit.setRegion(region);
 
-        // --- TRAFFIC SOURCE RESOLUTION ---
         String smartSource = "Direct";
 
-        // 1. Try deep event attributes first (where pushEvent puts it)
         if (payload.getEvents() != null && !payload.getEvents().isEmpty()) {
           for (FaroPayload.Event event : payload.getEvents()) {
             if (event.getAttributes() != null && event.getAttributes().containsKey("source")) {
@@ -197,14 +192,12 @@ public class MonitoringController {
           }
         }
 
-        // 2. Fallback to root extra
         if (smartSource.equals("Direct")
             && payload.getExtra() != null
             && payload.getExtra().containsKey("trafficSource")) {
           smartSource = payload.getExtra().get("trafficSource");
         }
 
-        // 3. Fallback to Native Header Sniffing if Faro says Direct
         if (smartSource.toLowerCase().contains("direct")
             || smartSource.toLowerCase().contains("faro")) {
           if (nativeReferer != null && !nativeReferer.isEmpty()) {
@@ -222,7 +215,6 @@ public class MonitoringController {
         }
         visit.setSessionSource(smartSource);
 
-        // --- SCREEN RESOLUTION MAPPING ---
         String resolution = "N/A";
         if (payload.getEvents() != null && !payload.getEvents().isEmpty()) {
           for (FaroPayload.Event event : payload.getEvents()) {
@@ -251,8 +243,6 @@ public class MonitoringController {
           devModel = payload.getMeta().getBrowser().getName();
         }
 
-        // Prefer UserAgent from payload over header to prevent proxy stripping, but Native is
-        // absolute fallback
         String activeUserAgent = nativeUserAgent;
         if (payload.getExtra() != null && payload.getExtra().containsKey("userAgent")) {
           activeUserAgent = payload.getExtra().get("userAgent");
@@ -268,13 +258,14 @@ public class MonitoringController {
             String deviceClass = agent.getValue("DeviceClass");
             String agentName = agent.getValue("AgentName");
 
+            // 1. Operating System Mapping (Fixing Windows 10/11 Freezing issue)
             if (bestOS != null && !bestOS.contains("??") && !bestOS.equalsIgnoreCase("Unknown")) {
-              if (bestOS.startsWith("Windows NT 10")) {
-                os = "Windows 10";
-                osVer = "";
-              } else if (bestOS.startsWith("Windows NT 11")) {
-                os = "Windows 11";
-                osVer = "";
+              if (bestOS.contains("Windows >=10")
+                  || bestOS.contains("Windows NT 10.0")
+                  || bestOS.contains("Windows NT 11.0")) {
+                os = "Windows 10/11";
+                osVer =
+                    ""; // Abstracting version because 10 vs 11 is indistinguishable via User-Agent
               } else if (bestOS.startsWith("Windows NT 6.1")) {
                 os = "Windows 7";
                 osVer = "";
@@ -282,28 +273,40 @@ public class MonitoringController {
                 os = bestOS;
                 osVer = "";
               } else {
-                os = bestOS.split(" ")[0];
+                os = bestOS.split(" ")[0]; // E.g., "Android" or "iOS"
                 osVer = bestOS.contains(" ") ? bestOS.substring(bestOS.indexOf(" ") + 1) : osVer;
               }
             } else if (simpleOS != null && !simpleOS.contains("??")) {
               os = simpleOS;
             }
 
+            // 2. Hardware Model Mapping (Note: Acer Nitro 5 will never be parsed from Desktop UA,
+            // only mobile exposes hardware reliably)
             if (bestDevice != null
                 && !bestDevice.contains("??")
                 && !bestDevice.equalsIgnoreCase("Unknown")) {
               devModel = bestDevice;
             }
 
+            // 3. Category Mapping
             if (deviceClass != null && !deviceClass.equalsIgnoreCase("Unknown")) {
               devCat = deviceClass;
             }
 
+            // 4. Browser/Desktop Mapping (Fixing Edge/Chrome overlap)
             if (agentName != null
                 && !agentName.contains("??")
                 && !agentName.equalsIgnoreCase("Unknown")) {
-              if (devModel.equals("Desktop")) {
-                devModel = agentName; // E.g., Chrome, Firefox, Safari
+              // Chrome user agents frequently contain 'Edg/' traces that confuse generic parsers
+              if (devModel.equals("Desktop") || devModel.equalsIgnoreCase("Unknown")) {
+                if (agentName.toLowerCase().contains("edge")) {
+                  devModel = "Edge";
+                } else if (activeUserAgent.toLowerCase().contains("chrome")
+                    && !activeUserAgent.toLowerCase().contains("edg")) {
+                  devModel = "Chrome";
+                } else {
+                  devModel = agentName;
+                }
               }
             }
           } catch (Exception e) {

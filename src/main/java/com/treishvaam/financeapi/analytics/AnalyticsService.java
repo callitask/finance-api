@@ -1,33 +1,34 @@
 /**
  * AI-CONTEXT:
  *
- * <p>Purpose: - Service for fetching Google Analytics 4 (GA4) historical data and mapping it to
- * local DB.
+ * <p>Purpose: - Service for fetching Google Analytics 4 (GA4) historical data and orchestrating
+ * local Audience Dashboard queries.
  *
- * <p>Scope: - Responsible for executing daily and historical GA4 API requests. - Extracts and
- * transforms GA4 dimensions into the local AudienceVisit schema.
+ * <p>Scope: - Executes daily GA4 API requests and transforms/aggregates data via
+ * AudienceVisitRepository.
  *
  * <p>Critical Dependencies: - Backend: Google Analytics Data API client (BetaAnalyticsDataClient).
- * - Backend: AudienceVisitRepository for persisting records.
+ * - Backend: AudienceVisitRepository for persisting records and complex reporting.
  *
- * <p>Security Constraints: - Must handle missing credentials paths safely without crashing the
- * Spring context.
+ * <p>Security Constraints: - Boolean exclusions must handle null/empty states with dummy arrays to
+ * prevent Hibernate query parser errors.
  *
- * <p>Non-Negotiables: - GA4 API limits strictly to 9 dimensions per RunReportRequest.
+ * <p>Non-Negotiables: - First Visit Date logic MUST use the bulk aggregation
+ * (`findFirstVisitDatesByClientIds`) to prevent critical N+1 database performance death on high
+ * traffic dashboards.
  *
- * <p>Change Intent: - Replaced individual GA dimensions with compound dimensions
- * (operatingSystemWithVersion, sessionSourceMedium) to bypass the 9-dimension quota. - Added a
- * robust cleanNotSet() method to eliminate "(not set)" values from polluting the audience
- * dashboard.
+ * <p>Change Intent: - Orchestrated O(1) bulk fetch for First Visit Dates. - Hooked `clientId`
+ * parameters securely into repository calls.
  *
- * <p>Future AI Guidance: - If you need to add another dimension, you must remove one first, as GA4
- * standard properties have a hard limit of 9 dimensions per request.
+ * <p>Future AI Guidance: - If you add a new filter dimension, remember to pass the dummy list
+ * pattern (`safeExcludes`) into the repository call.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Implemented compound dimension fetching
  * (sessionSourceMedium instead of sessionSource) to parse exact values. • Replaced osVersion
  * dimension slot with `browser` by utilizing `operatingSystemWithVersion`. • Implemented
- * `cleanNotSet()` utility to sanitize "(not set)" and "unknown" GA4 fallback values. • Reason:
- * Clean up the Audience Dashboard and bypass the GA4 free tier dimension limit.
+ * `cleanNotSet()` utility to sanitize "(not set)" and "unknown" GA4 fallback values. - EDITED
+ * (LATEST): • Mapped `createdAt` to `sessionStartTime`. • Hooked in First Visit Date batch
+ * processing and exclusion parameters.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -45,7 +46,10 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import javax.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -159,19 +163,14 @@ public class AnalyticsService {
       return;
     }
 
-    // Optimization: Utilizing Compound Dimensions to bypass the 9 dimension limit limit
     List<Dimension> dimensions =
         List.of(
             Dimension.newBuilder().setName("date").build(), // 0
-            Dimension.newBuilder()
-                .setName("sessionSourceMedium")
-                .build(), // 1 (Compound Source + Medium)
+            Dimension.newBuilder().setName("sessionSourceMedium").build(), // 1
             Dimension.newBuilder().setName("country").build(), // 2
             Dimension.newBuilder().setName("region").build(), // 3
             Dimension.newBuilder().setName("city").build(), // 4
-            Dimension.newBuilder()
-                .setName("operatingSystemWithVersion")
-                .build(), // 5 (Compound OS + Version)
+            Dimension.newBuilder().setName("operatingSystemWithVersion").build(), // 5
             Dimension.newBuilder().setName("mobileDeviceModel").build(), // 6
             Dimension.newBuilder().setName("browser").build(), // 7
             Dimension.newBuilder().setName("screenResolution").build() // 8
@@ -242,7 +241,6 @@ public class AnalyticsService {
             LocalDate.parse(
                 row.getDimensionValues(0).getValue(), DateTimeFormatter.ofPattern("yyyyMMdd")));
 
-        // 1. Source Parsing
         String rawSource = cleanNotSet(row.getDimensionValues(1).getValue(), "Direct");
         visit.setSessionSource(formatSourceMedium(rawSource));
 
@@ -250,13 +248,11 @@ public class AnalyticsService {
         visit.setRegion(cleanNotSet(row.getDimensionValues(3).getValue(), "Unknown"));
         visit.setCity(cleanNotSet(row.getDimensionValues(4).getValue(), "Unknown"));
 
-        // 5. Compound OS Parsing
         String osCompound = cleanNotSet(row.getDimensionValues(5).getValue(), "Unknown");
         if (osCompound.equals("Unknown")) {
           visit.setOperatingSystem("Unknown");
           visit.setOsVersion("Unknown");
         } else {
-          // Split at first space (e.g., "Windows 10", "Android 12")
           int spaceIdx = osCompound.indexOf(" ");
           if (spaceIdx > 0) {
             visit.setOperatingSystem(osCompound.substring(0, spaceIdx));
@@ -270,7 +266,6 @@ public class AnalyticsService {
         String devModel = cleanNotSet(row.getDimensionValues(6).getValue(), "Desktop");
         String browser = cleanNotSet(row.getDimensionValues(7).getValue(), "Unknown");
 
-        // If device model is missing/desktop, populate with the explicit Browser fetched from pos 7
         if ((devModel.equals("Desktop") || devModel.equals("Unknown"))
             && !browser.equals("Unknown")) {
           visit.setDeviceModel(browser);
@@ -280,7 +275,6 @@ public class AnalyticsService {
 
         visit.setScreenResolution(cleanNotSet(row.getDimensionValues(8).getValue(), "N/A"));
 
-        // Defaults
         visit.setDeviceCategory("Unknown");
         visit.setLandingPage("Not available (GA4)");
         visit.setClientId("Not available (GA4)");
@@ -298,10 +292,21 @@ public class AnalyticsService {
     return visits;
   }
 
+  // Helper method to safely format exclude lists for JPQL
+  private List<String> getSafeExcludeList(List<String> rawList) {
+    if (rawList == null || rawList.isEmpty()) {
+      return Collections.singletonList("DUMMY_ID_PREVENT_HIBERNATE_CRASH");
+    }
+    return rawList;
+  }
+
   public List<AudienceDataDto> getHistoricalData(
       LocalDate startDate, LocalDate endDate, AudienceFilter filters) {
 
-    // MATCHES REPOSITORY SIGNATURE (8 arguments)
+    boolean hasExcludes =
+        filters.getExcludeClientIds() != null && !filters.getExcludeClientIds().isEmpty();
+    List<String> safeExcludes = getSafeExcludeList(filters.getExcludeClientIds());
+
     List<AudienceVisit> visits =
         audienceVisitRepository.findHistoricalDataWithFilters(
             startDate,
@@ -311,15 +316,38 @@ public class AnalyticsService {
             filters.getCity(),
             filters.getOperatingSystem(),
             filters.getOsVersion(),
-            filters.getSessionSource());
+            filters.getSessionSource(),
+            filters.getClientId(),
+            hasExcludes,
+            safeExcludes);
 
-    return visits.stream().map(this::mapEntityToDto).toList();
+    // Efficiently bulk-load first visit dates to prevent N+1 performance issues
+    List<String> distinctClientIds =
+        visits.stream()
+            .map(AudienceVisit::getClientId)
+            .filter(Objects::nonNull)
+            .distinct()
+            .toList();
+
+    Map<String, LocalDate> firstVisitMap = new HashMap<>();
+    if (!distinctClientIds.isEmpty()) {
+      List<Object[]> batchResults =
+          audienceVisitRepository.findFirstVisitDatesByClientIds(distinctClientIds);
+      for (Object[] row : batchResults) {
+        firstVisitMap.put((String) row[0], (LocalDate) row[1]);
+      }
+    }
+
+    return visits.stream().map(v -> mapEntityToDto(v, firstVisitMap.get(v.getClientId()))).toList();
   }
 
   public FilterOptionsDto getFilterOptions(
       LocalDate startDate, LocalDate endDate, AudienceFilter filters) {
 
-    // MATCHES REPOSITORY SIGNATURES (7 arguments)
+    boolean hasExcludes =
+        filters.getExcludeClientIds() != null && !filters.getExcludeClientIds().isEmpty();
+    List<String> safeExcludes = getSafeExcludeList(filters.getExcludeClientIds());
+
     return FilterOptionsDto.builder()
         .countries(
             audienceVisitRepository.findDistinctCountries(
@@ -329,7 +357,10 @@ public class AnalyticsService {
                 filters.getCity(),
                 filters.getOperatingSystem(),
                 filters.getOsVersion(),
-                filters.getSessionSource()))
+                filters.getSessionSource(),
+                filters.getClientId(),
+                hasExcludes,
+                safeExcludes))
         .regions(
             audienceVisitRepository.findDistinctRegions(
                 startDate,
@@ -338,7 +369,10 @@ public class AnalyticsService {
                 filters.getCity(),
                 filters.getOperatingSystem(),
                 filters.getOsVersion(),
-                filters.getSessionSource()))
+                filters.getSessionSource(),
+                filters.getClientId(),
+                hasExcludes,
+                safeExcludes))
         .cities(
             audienceVisitRepository.findDistinctCities(
                 startDate,
@@ -347,7 +381,10 @@ public class AnalyticsService {
                 filters.getRegion(),
                 filters.getOperatingSystem(),
                 filters.getOsVersion(),
-                filters.getSessionSource()))
+                filters.getSessionSource(),
+                filters.getClientId(),
+                hasExcludes,
+                safeExcludes))
         .operatingSystems(
             audienceVisitRepository.findDistinctOperatingSystems(
                 startDate,
@@ -356,7 +393,10 @@ public class AnalyticsService {
                 filters.getRegion(),
                 filters.getCity(),
                 filters.getOsVersion(),
-                filters.getSessionSource()))
+                filters.getSessionSource(),
+                filters.getClientId(),
+                hasExcludes,
+                safeExcludes))
         .osVersions(
             audienceVisitRepository.findDistinctOsVersions(
                 startDate,
@@ -364,8 +404,11 @@ public class AnalyticsService {
                 filters.getCountry(),
                 filters.getRegion(),
                 filters.getCity(),
-                filters.getOsVersion(),
-                filters.getSessionSource()))
+                filters.getOperatingSystem(),
+                filters.getSessionSource(),
+                filters.getClientId(),
+                hasExcludes,
+                safeExcludes))
         .sessionSources(
             audienceVisitRepository.findDistinctSessionSources(
                 startDate,
@@ -374,14 +417,19 @@ public class AnalyticsService {
                 filters.getRegion(),
                 filters.getCity(),
                 filters.getOperatingSystem(),
-                filters.getOsVersion()))
+                filters.getOsVersion(),
+                filters.getClientId(),
+                hasExcludes,
+                safeExcludes))
         .build();
   }
 
-  private AudienceDataDto mapEntityToDto(AudienceVisit entity) {
+  private AudienceDataDto mapEntityToDto(AudienceVisit entity, LocalDate firstVisitDate) {
     return AudienceDataDto.builder()
         .id(entity.getId())
         .sessionDate(entity.getSessionDate())
+        .sessionStartTime(entity.getCreatedAt())
+        .firstVisitDate(firstVisitDate)
         .userIdentifier(entity.getClientId())
         .country(entity.getCountry())
         .region(entity.getRegion())

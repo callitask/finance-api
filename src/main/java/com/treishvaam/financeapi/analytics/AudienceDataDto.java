@@ -1,10 +1,37 @@
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Data Transfer Object for Audience Analytics Dashboard.
+ *
+ * <p>Scope: - Responsible for transmitting formatted session, source, device, and temporal data to
+ * the frontend.
+ *
+ * <p>Critical Dependencies: - Backend: AnalyticsService maps entity to this DTO.
+ *
+ * <p>Security Constraints: - Exposes rawSessionId for internal admin tracking; ensure endpoints
+ * returning this are restricted.
+ *
+ * <p>Non-Negotiables: - Must strictly format timeOnSite correctly.
+ *
+ * <p>Change Intent: - Add `sessionStartTime` to track the exact time of the visit. - Add
+ * `firstVisitDate` to track when a specific user (clientId) was first seen globally.
+ *
+ * <p>Future AI Guidance: - Do not remove fields, the frontend Dashboard depends on this exact
+ * shape.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Added sessionStartTime (LocalDateTime)
+ * and firstVisitDate (LocalDate) fields to provide temporal tracking resolution to the frontend.
+ */
 package com.treishvaam.financeapi.analytics;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 public class AudienceDataDto {
   private Long id;
   private LocalDate sessionDate;
+  private LocalDateTime sessionStartTime;
+  private LocalDate firstVisitDate;
   private String userIdentifier;
   private String country;
   private String region;
@@ -23,6 +50,8 @@ public class AudienceDataDto {
   public AudienceDataDto(
       Long id,
       LocalDate sessionDate,
+      LocalDateTime sessionStartTime,
+      LocalDate firstVisitDate,
       String userIdentifier,
       String country,
       String region,
@@ -39,6 +68,8 @@ public class AudienceDataDto {
       String rawSessionId) {
     this.id = id;
     this.sessionDate = sessionDate;
+    this.sessionStartTime = sessionStartTime;
+    this.firstVisitDate = firstVisitDate;
     this.userIdentifier = userIdentifier;
     this.country = country;
     this.region = region;
@@ -72,6 +103,14 @@ public class AudienceDataDto {
 
   public LocalDate getSessionDate() {
     return sessionDate;
+  }
+
+  public LocalDateTime getSessionStartTime() {
+    return sessionStartTime;
+  }
+
+  public LocalDate getFirstVisitDate() {
+    return firstVisitDate;
   }
 
   public String getUserIdentifier() {
@@ -137,6 +176,8 @@ public class AudienceDataDto {
   public static class Builder {
     private Long id;
     private LocalDate sessionDate;
+    private LocalDateTime sessionStartTime;
+    private LocalDate firstVisitDate;
     private String userIdentifier;
     private String country;
     private String region;
@@ -159,6 +200,16 @@ public class AudienceDataDto {
 
     public Builder sessionDate(LocalDate sessionDate) {
       this.sessionDate = sessionDate;
+      return this;
+    }
+
+    public Builder sessionStartTime(LocalDateTime sessionStartTime) {
+      this.sessionStartTime = sessionStartTime;
+      return this;
+    }
+
+    public Builder firstVisitDate(LocalDate firstVisitDate) {
+      this.firstVisitDate = firstVisitDate;
       return this;
     }
 
@@ -236,6 +287,8 @@ public class AudienceDataDto {
       return new AudienceDataDto(
           id,
           sessionDate,
+          sessionStartTime,
+          firstVisitDate,
           userIdentifier,
           country,
           region,
