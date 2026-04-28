@@ -1,7 +1,7 @@
 {
   "realm": "treishvaam",
   "attributes": {
-    "_AI_CONTEXT": "/**\n * AI-CONTEXT:\n * \n * Purpose:\n * - Keycloak realm configuration export. Maps roles, clients, and valid redirect URIs for SSO.\n * \n * Scope:\n * - Defines the 'treishvaam' realm.\n * - Must never contain live credentials (passwords must be placeholder/temporary).\n * \n * Critical Dependencies:\n * - Backend: Finance API relies on 'finance-api' client.\n * - Frontend: Finance Frontend relies on 'finance-app' client.\n * - Worker / SEO / Sitemap: Unaffected directly.\n * \n * Security Constraints:\n * - redirectUris and webOrigins MUST be strictly whitelisted.\n * - Never use wildcards for root domains.\n * - Must remain valid JSON format.\n * \n * Non-Negotiables:\n * - Must reflect the exact live state of the production Keycloak instance.\n * \n * Change Intent:\n * - Resolving Keycloak container crash loop by moving this AI-CONTEXT inside the native attributes map.\n * \n * Future AI Guidance:\n * - Append to IMMUTABLE CHANGE HISTORY inside this JSON property. Do not use block comments outside of strings in JSON files.\n * - NEVER place this context string at the root level of the JSON. It must remain inside the \"attributes\" map.\n * \n * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):\n * - ADDED:\n * • Initial Realm Export\n * • To backup and track Keycloak configuration via Git\n * \n * - EDITED:\n * • Updated redirectUris and webOrigins for finance-app client.\n * • Required due to domain migration from treishfin.treishvaamgroup.com to treishvaamfinance.com.\n * • Added explicit whitelisting for both apex and www subdomains.\n * • Preserved localhost references for developer environments.\n * \n * - EDITED:\n * • Moved `_AI_CONTEXT` from the root JSON level into the `\"attributes\"` map.\n * • Why: Keycloak 22+ uses strict Jackson JSON parsing. Unrecognized root properties caused `UnrecognizedPropertyException`, crashing the Keycloak container on boot.\n */"
+    "_AI_CONTEXT": "/**\n * AI-CONTEXT:\n * \n * Purpose:\n * - Keycloak realm configuration export. Maps roles, clients, and valid redirect URIs for SSO.\n * \n * Scope:\n * - Defines the 'treishvaam' realm.\n * - Must never contain live credentials (passwords must be placeholder/temporary).\n * \n * Critical Dependencies:\n * - Backend: Finance API relies on 'finance-api' client.\n * - Frontend: Finance Frontend relies on 'finance-app' client.\n * - Worker / SEO / Sitemap: Unaffected directly.\n * \n * Security Constraints:\n * - redirectUris and webOrigins MUST be strictly whitelisted.\n * - Never use wildcards for root domains.\n * - Must remain valid JSON format.\n * - Hardcoded URLs are strictly prohibited. Must use environment variables.\n * \n * Non-Negotiables:\n * - Must reflect the exact live state of the production Keycloak instance.\n * \n * Change Intent:\n * - Resolving Keycloak container crash loop by moving this AI-CONTEXT inside the native attributes map.\n * - Enforcing ZERO-TRUST configuration by removing hardcoded URLs and using environment variables for redirect URIs.\n * \n * Future AI Guidance:\n * - Append to IMMUTABLE CHANGE HISTORY inside this JSON property. Do not use block comments outside of strings in JSON files.\n * - NEVER place this context string at the root level of the JSON. It must remain inside the \"attributes\" map.\n * \n * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):\n * - ADDED:\n * • Initial Realm Export\n * • To backup and track Keycloak configuration via Git\n * \n * - EDITED:\n * • Updated redirectUris and webOrigins for finance-app client.\n * • Required due to domain migration from treishfin.treishvaamgroup.com to treishvaamfinance.com.\n * • Added explicit whitelisting for both apex and www subdomains.\n * • Preserved localhost references for developer environments.\n * \n * - EDITED:\n * • Moved `_AI_CONTEXT` from the root JSON level into the `\"attributes\"` map.\n * • Why: Keycloak 22+ uses strict Jackson JSON parsing. Unrecognized root properties caused `UnrecognizedPropertyException`, crashing the Keycloak container on boot.\n * \n * - EDITED:\n * • Removed hardcoded URLs from `finance-app` client configuration.\n * • Injected environment variables for `redirectUris` and set `webOrigins` to `+` to adhere to zero-trust architecture. Fixed CORS / Auth Timeout issue.\n */"
   },
   "enabled": true,
   "roles": {
@@ -18,14 +18,11 @@
       "enabled": true,
       "publicClient": true,
       "redirectUris": [ 
-        "https://treishvaamfinance.com/*", 
-        "https://www.treishvaamfinance.com/*", 
-        "http://localhost:3000/*" 
+        "${FINANCE_FRONTEND_URL}/*", 
+        "${FINANCE_FRONTEND_LOCAL_URL}/*" 
       ],
       "webOrigins": [ 
-        "https://treishvaamfinance.com", 
-        "https://www.treishvaamfinance.com", 
-        "http://localhost:3000" 
+        "+" 
       ],
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true
