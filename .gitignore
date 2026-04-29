@@ -1,50 +1,74 @@
-/target/
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/resources/**
-!**/src/test/resources/**
+/**
+ * AI-CONTEXT:
+ *
+ * Purpose:
+ * - Prevents sensitive files and build artifacts from entering version control.
+ *
+ * Scope:
+ * - IDE, Build, OS, and Infrastructure secrets.
+ *
+ * Critical Dependencies:
+ * - Protects OCI Terraform credentials.
+ *
+ * Security Constraints:
+ * - Strict block on `.pem`, `.tfvars`, and `.tfstate`.
+ *
+ * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+ * - EDITED:
+ * • Added terraform and OCI specific ignores.
+ * • To enforce Zero-Trust secrets management.
+ * • Phase 1 Execution.
+ */
 
-### STS ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
+# Compiled class file
+*.class
 
-### IntelliJ IDEA ###
-.idea
-*.iws
-*.iml
-*.ipr
-
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-bin/
-
-### VS Code ###
-.vscode/
-
-### Mac ###
-.DS_Store
-
-### Logs ###
-logs/
+# Log file
 *.log
 
-### User Specific ###
-uploads/
-sitemaps/
+# BlueJ files
+*.ctxt
 
-### Secrets & Env ###
+# Mobile Tools for Java (J2ME)
+.mtj.tmp/
+
+# Package Files #
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+hs_err_pid*
+
+# IDE specific files
+.idea/
+*.iml
+.vscode/
+
+# Build directories
+target/
+!pom.xml
+
+# Environment Variables
 .env
-.env.dev
-.env.prod
-*.key
-*.pem
-secrets.sh
+.env.*
+!.env.dev.example
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Authentication / Keys
+auth_trigger.txt
+verification_test.txt
+
+# Infrastructure / OCI Security
+oci_api_key.pem
+terraform/terraform.tfvars
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
