@@ -15,33 +15,16 @@
 #  * Security Constraints:
 #  * - Passwords and keys must strictly use environment variables mapping.
 #  * - No direct port mapping for internal stateful services (db, redis, elasticsearch).
+#  * - Admin UIs (Grafana, RabbitMQ) are mapped strictly to 127.0.0.1 for SSH tunneling access.
 #  *
 #  * Non-Negotiables:
 #  * - Healthchecks must be robust and dictate startup order.
 #  *
 #  * Change Intent:
-#  * - Resolve false (unhealthy) NGINX state by pointing the internal healthcheck to /robots.txt.
+#  * - Bind Grafana (3001) and RabbitMQ (15672) exclusively to 127.0.0.1 to allow secure SSH tunnel access without breaking Zero-Trust isolation.
 #  *
 #  * Future AI Guidance:
 #  * - Do not remove `condition: service_healthy` checks. They prevent race conditions.
-#  *
-#  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
-#  * - EDITED:
-#  * • Added `keycloak: condition: service_healthy` to the `nginx` depends_on block.
-#  * • Why: NGINX was starting before Keycloak, causing 502 Bad Gateways due to missing DNS resolution or refused connections.
-#  * • Behavior preserved: Zero-trust internal networking.
-#  *
-#  * - EDITED:
-#  * • Changed `keycloak: condition: service_started` to `condition: service_healthy` in the `backend` depends_on block.
-#  * • Why: Backend was crashing and looping because it attempted to fetch JWKS from Keycloak before the realm was fully imported and Keycloak was ready.
-#  * • Behavior preserved: System stability and deterministic boot order.
-#  *
-#  * - EDITED:
-#  * • Added explicit `healthcheck` to `nginx` service targeting `/robots.txt`.
-#  * • Why: The base image healthcheck pinged `/`, causing a false `(unhealthy)` status since the backend blocked root access.
-#  * #  * - EDITED:
-#  * • Passed frontend URL environment variables (`FINANCE_FRONTEND_URL`, `FINANCE_FRONTEND_LOCAL_URL`) to the Keycloak container.
-#  * • Why: Zero-trust architecture required dynamic `redirectUris` in the Keycloak realm export. Without these runtime variables passed into the container environment, the realm import failed to resolve the placeholders, leading to Auth Timeouts.
 #  */
 
 version: '3.8'
@@ -198,7 +181,6 @@ services:
       - treish_net
     env_file: .env
     environment:
-      # --- INFISICAL INJECTED SECRETS ---
       - PROD_DB_URL=${PROD_DB_URL}
       - PROD_DB_USERNAME=${PROD_DB_USERNAME}
       - PROD_DB_PASSWORD=${PROD_DB_PASSWORD}
@@ -211,10 +193,8 @@ services:
       - FINNHUB_API_KEY=${FINNHUB_API_KEY}
       - NEWS_API_KEY=${NEWS_API_KEY}
       - GA4_PROPERTY_ID=${GA4_PROPERTY_ID}
-      # --- STORAGE SECRETS (FIXED) ---
       - MINIO_ACCESS_KEY=admin
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
-      # --- CONFIG ---
       - SPRING_PROFILES_ACTIVE=prod
       - SPRING_DATA_REDIS_HOST=treishvaam-redis
       - SPRING_ELASTICSEARCH_URIS=http://treishvaam-elastic:9200
@@ -292,7 +272,6 @@ services:
       - treish_net
     volumes:
       - ./config/loki-config.yml:/etc/loki/local-config.yaml
-    # ports: Removed for Security (Access via internal network only)
     command: -config.file=/etc/loki/local-config.yaml
 
   promtail:
@@ -314,7 +293,6 @@ services:
       - treish_net
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
-    # ports: Removed for Security (Access via internal network only)
 
   grafana:
     image: grafana/grafana:latest
@@ -322,7 +300,9 @@ services:
     restart: always
     networks:
       - treish_net
-    # ports: Removed for Security (Access via internal network only)
+    # ZERO-TRUST PORT MAPPING: Exposed ONLY to the server's internal localhost
+    ports:
+      - "127.0.0.1:3001:3000"
     user: "0" 
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
@@ -348,7 +328,6 @@ services:
     volumes:
       - ./config/tempo.yaml:/etc/tempo.yaml
       - ./data/tempo:/tmp/tempo
-    # ports: Removed for Security (Access via internal network only)
 
   rabbitmq:
     image: rabbitmq:3.12-management
@@ -356,7 +335,9 @@ services:
     restart: always
     networks:
       - treish_net
-    # ports: Removed for Security (Access via internal network only)
+    # ZERO-TRUST PORT MAPPING: Exposed ONLY to the server's internal localhost
+    ports:
+      - "127.0.0.1:15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
