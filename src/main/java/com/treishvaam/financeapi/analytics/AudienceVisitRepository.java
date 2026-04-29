@@ -12,8 +12,9 @@
  * <p>Change Intent: - Added `clearAutomatically = true, flushAutomatically = true` to
  * `deleteGA4DataForDateRange` to solve the GA4 sync race condition.
  *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED (LATEST): • Upgraded single `clientId` to
- * List `targetClientIds`. • Added `deleteGA4DataForDateRange` with explicit Hibernate flushing.
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Upgraded single `clientId` to List
+ * `targetClientIds`. • Added `deleteGA4DataForDateRange` with explicit Hibernate flushing. - EDITED
+ * (LATEST): • Added `findFaroVisitsForEnrichment` to support the Smart Attribution Enrichment pool.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -46,6 +47,11 @@ public interface AudienceVisitRepository extends JpaRepository<AudienceVisit, Lo
       "DELETE FROM AudienceVisit av WHERE av.sessionDate >= :startDate AND av.sessionDate <= :endDate AND av.sessionId = 'Not available (GA4)'")
   void deleteGA4DataForDateRange(
       @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);
+
+  // Fetches strictly Faro RUM data (ignoring GA4 placeholders) for the daily Enrichment Pool
+  @Query(
+      "SELECT av FROM AudienceVisit av WHERE av.sessionDate = :date AND av.sessionId != 'Not available (GA4)'")
+  List<AudienceVisit> findFaroVisitsForEnrichment(@Param("date") LocalDate date);
 
   @Query(
       "SELECT DISTINCT av.country FROM AudienceVisit av "

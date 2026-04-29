@@ -5,14 +5,24 @@
  * local Audience Dashboard queries.
  *
  * <p>Security Constraints: - The refreshGA4Data MUST use a @Transactional block and explicit
- * repository.flush() to ensure data is strictly dropped before the refetch occurs.
+ * repository.flush() to ensure data is strictly dropped before the refetch occurs. - GA4 Fetch MUST
+ * use 30-day backward chunking to prevent API quota timeouts over large historical date ranges.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Mapped Temporal classes to String
  * manually in `mapEntityToDto` to prevent JS Date errors. • Added explicit
- * `audienceVisitRepository.flush()` during manual GA4 sync to fix stale data reappearing. - EDITED
- * (LATEST): • Implemented OS/Browser version sanitization in `mapEntityToDto` to intercept and
- * normalize Faro Chrome version leaks (e.g., 148.0.0.0) and mask Apple/Windows naming conventions
- * properly before sending to the UI.
+ * `audienceVisitRepository.flush()` during manual GA4 sync to fix stale data reappearing. •
+ * Implemented OS/Browser version sanitization in `mapEntityToDto` to intercept and normalize Faro
+ * Chrome version leaks (e.g., 148.0.0.0) and mask Apple/Windows naming conventions properly before
+ * sending to the UI.
+ *
+ * <p>- FAILED / REJECTED ATTEMPTS: • Tried to wipe Faro data during GA4 sync to replace it.
+ * REJECTED: Wiping `sessionId != 'Not available (GA4)'` permanently destroys high-resolution
+ * tracking (timestamps, clientIDs, User-ID groupings).
+ *
+ * <p>- EDITED (LATEST): • Implemented Smart Attribution Enrichment (`fetchAndEnrichGAData`) to map
+ * GA4 sources directly onto existing Faro rows using a daily statistical pool, rather than deleting
+ * Faro rows. • Added 30-day backward chunking to bypass GA4 API length limitations. • Added Android
+ * Chrome Hardware Masking sanitization in `mapEntityToDto`.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -35,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -112,7 +123,7 @@ public class AnalyticsService {
     logger.info("Starting initial historical fetch...");
     LocalDate startDate = LocalDate.parse(initialFetchStartDate, GA_DATE_FORMATTER);
     LocalDate endDate = LocalDate.now().minusDays(1);
-    fetchAndSaveGAData(startDate, endDate);
+    chunkedFetchAndEnrich(startDate, endDate);
   }
 
   @Scheduled(cron = "0 0 2 * * *")
@@ -128,7 +139,7 @@ public class AnalyticsService {
     LocalDate endDate = LocalDate.now().minusDays(1);
 
     if (startDate.isBefore(endDate) || startDate.isEqual(endDate)) {
-      fetchAndSaveGAData(startDate, endDate);
+      chunkedFetchAndEnrich(startDate, endDate);
     }
   }
 
@@ -140,17 +151,31 @@ public class AnalyticsService {
     }
     logger.info("Manual GA4 Refresh Triggered: {} to {}", startDate, endDate);
 
-    // 1. Wipe ONLY GA4 data for the date range (protect Faro RUM data)
+    // 1. Wipe ONLY legacy GA4 placeholders for the ENTIRE date range
+    // Faro RUM data is strictly protected and remains intact.
     audienceVisitRepository.deleteGA4DataForDateRange(startDate, endDate);
-
-    // Force JPA to flush the deletes to the database immediately to prevent stale cache reads
     audienceVisitRepository.flush();
 
-    // 2. Fetch fresh data from Google
-    fetchAndSaveGAData(startDate, endDate);
+    // 2. Fetch fresh GA4 data and enrich Faro records using 30-day backward chunking
+    chunkedFetchAndEnrich(startDate, endDate);
   }
 
-  private void fetchAndSaveGAData(LocalDate startDate, LocalDate endDate) {
+  private void chunkedFetchAndEnrich(LocalDate startDate, LocalDate endDate) {
+    LocalDate currentEnd = endDate;
+    while (!currentEnd.isBefore(startDate)) {
+      LocalDate currentStart = currentEnd.minusDays(29);
+      if (currentStart.isBefore(startDate)) {
+        currentStart = startDate;
+      }
+
+      logger.info("Processing GA4 Enrichment Chunk: {} to {}", currentStart, currentEnd);
+      fetchAndEnrichGAData(currentStart, currentEnd);
+
+      currentEnd = currentStart.minusDays(1);
+    }
+  }
+
+  private void fetchAndEnrichGAData(LocalDate startDate, LocalDate endDate) {
     if (analyticsDataClient == null) return;
 
     List<Dimension> dimensions =
@@ -184,12 +209,61 @@ public class AnalyticsService {
 
     try {
       RunReportResponse response = analyticsDataClient.runReport(request);
-      List<AudienceVisit> visits = mapResponseToEntity(response);
-      if (!visits.isEmpty()) {
-        audienceVisitRepository.saveAll(visits);
+      List<AudienceVisit> ga4Visits = mapResponseToEntity(response);
+
+      if (ga4Visits.isEmpty()) return;
+
+      Map<LocalDate, List<AudienceVisit>> ga4ByDate =
+          ga4Visits.stream().collect(Collectors.groupingBy(AudienceVisit::getSessionDate));
+
+      List<AudienceVisit> toSave = new ArrayList<>();
+
+      for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
+        List<AudienceVisit> ga4DayData = ga4ByDate.getOrDefault(date, new ArrayList<>());
+        List<AudienceVisit> faroVisits = audienceVisitRepository.findFaroVisitsForEnrichment(date);
+
+        if (faroVisits.isEmpty()) {
+          // If no Faro data exists for this day, save GA4 aggregated rows as placeholders
+          toSave.addAll(ga4DayData);
+          continue;
+        }
+
+        if (ga4DayData.isEmpty()) {
+          continue; // No GA4 data to enrich with for this specific day
+        }
+
+        // Smart Attribution Distribution Pool
+        List<String> sourcePool = new ArrayList<>();
+        for (AudienceVisit ga4v : ga4DayData) {
+          int sessions =
+              ga4v.getViews(); // getViews() temporally holds the 'sessions' metric from GA4
+          for (int i = 0; i < Math.max(1, sessions); i++) {
+            sourcePool.add(ga4v.getSessionSource());
+          }
+        }
+
+        Collections.shuffle(sourcePool);
+
+        int poolIndex = 0;
+        for (AudienceVisit faroVisit : faroVisits) {
+          if (sourcePool.isEmpty()) {
+            break;
+          }
+          // Distribute sources statistically. If Faro rows > GA4 sessions (due to GA4 adblock
+          // loss),
+          // wrap around cleanly to keep sources accurate.
+          faroVisit.setSessionSource(sourcePool.get(poolIndex % sourcePool.size()));
+          poolIndex++;
+          toSave.add(faroVisit);
+        }
       }
+
+      if (!toSave.isEmpty()) {
+        audienceVisitRepository.saveAll(toSave);
+      }
+
     } catch (Exception e) {
-      logger.error("Error fetching GA4 data", e);
+      logger.error("Error fetching and enriching GA4 data", e);
     }
   }
 
@@ -255,6 +329,7 @@ public class AnalyticsService {
         visit.setLandingPage("Not available (GA4)");
         visit.setClientId("Not available (GA4)");
         visit.setSessionId("Not available (GA4)");
+        // Store GA4 sessions metric temporarily into views for the distribution pool
         visit.setViews(Long.valueOf(row.getMetricValues(0).getValue()).intValue());
         visit.setSessionDurationSeconds(
             Math.round(Double.parseDouble(row.getMetricValues(1).getValue())));
@@ -428,8 +503,7 @@ public class AnalyticsService {
         entity.getSessionDate() != null ? entity.getSessionDate().format(GA_DATE_FORMATTER) : null;
 
     // Explicitly enforce Z suffix (UTC) so Javascript parses it properly before converting to IST
-    // in
-    // UI
+    // in UI
     String formattedSessionStartTime =
         entity.getCreatedAt() != null ? entity.getCreatedAt().format(ISO_DATE_TIME) + "Z" : null;
 
@@ -440,7 +514,7 @@ public class AnalyticsService {
     String osVer = entity.getOsVersion();
     String model = entity.getDeviceModel();
 
-    // Hardware & OS Sanitization Layer (Preserves raw DB integrity but fixes UI mapping)
+    // Hardware & OS Sanitization Layer
     if (os != null) {
       if (os.contains("Windows NT") || os.equals("Windows")) {
         os = "Windows 10/11";
@@ -449,19 +523,30 @@ public class AnalyticsService {
       }
     }
 
-    // Detect Faro Chromium version leakage (e.g., 147.0.0.0 or 148.0.0.0 mapping as OS version)
+    // Detect Faro Chromium version leakage
     if (osVer != null && osVer.matches("^\\d{2,3}\\.\\d+\\.\\d+\\.\\d+$")) {
-      osVer = "N/A"; // Nullify fake OS version
-      // If device model is missing or generic, assume Chrome/Edge based on the version signature
+      osVer = "N/A";
       if (model != null
           && (model.equals("Desktop") || model.equals("Unknown") || model.equals("N/A"))) {
         model = "Chrome/Edge";
       }
     }
 
-    // Apple Device Normalization (All iPhones mask as 'iPhone' due to strict Apple Privacy headers)
+    // Apple Device Normalization
     if (model != null && model.equalsIgnoreCase("iPhone")) {
       model = "Apple iPhone";
+    }
+
+    // Smart Android Hardware Privacy Masking Fix (Google Chrome removes device info)
+    if ("Android".equalsIgnoreCase(os)) {
+      if ("N/A".equals(osVer) || "Unknown".equals(osVer) || osVer == null) {
+        osVer = "Version Masked";
+      }
+      if ("Android Mobile".equalsIgnoreCase(model)
+          || "N/A".equalsIgnoreCase(model)
+          || "Unknown".equalsIgnoreCase(model)) {
+        model = "Android Phone (Model Masked by Chrome)";
+      }
     }
 
     return AudienceDataDto.builder()
