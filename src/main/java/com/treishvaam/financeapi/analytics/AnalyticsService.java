@@ -7,9 +7,12 @@
  * <p>Security Constraints: - The refreshGA4Data MUST use a @Transactional block and explicit
  * repository.flush() to ensure data is strictly dropped before the refetch occurs.
  *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED (LATEST): • Mapped Temporal classes to
- * String manually in `mapEntityToDto` to prevent JS Date errors. • Added explicit
- * `audienceVisitRepository.flush()` during manual GA4 sync to fix stale data reappearing.
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Mapped Temporal classes to String
+ * manually in `mapEntityToDto` to prevent JS Date errors. • Added explicit
+ * `audienceVisitRepository.flush()` during manual GA4 sync to fix stale data reappearing. - EDITED
+ * (LATEST): • Implemented OS/Browser version sanitization in `mapEntityToDto` to intercept and
+ * normalize Faro Chrome version leaks (e.g., 148.0.0.0) and mask Apple/Windows naming conventions
+ * properly before sending to the UI.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -425,12 +428,41 @@ public class AnalyticsService {
         entity.getSessionDate() != null ? entity.getSessionDate().format(GA_DATE_FORMATTER) : null;
 
     // Explicitly enforce Z suffix (UTC) so Javascript parses it properly before converting to IST
-    // in UI
+    // in
+    // UI
     String formattedSessionStartTime =
         entity.getCreatedAt() != null ? entity.getCreatedAt().format(ISO_DATE_TIME) + "Z" : null;
 
     String formattedFirstVisitDate =
         firstVisitDate != null ? firstVisitDate.format(GA_DATE_FORMATTER) : null;
+
+    String os = entity.getOperatingSystem();
+    String osVer = entity.getOsVersion();
+    String model = entity.getDeviceModel();
+
+    // Hardware & OS Sanitization Layer (Preserves raw DB integrity but fixes UI mapping)
+    if (os != null) {
+      if (os.contains("Windows NT") || os.equals("Windows")) {
+        os = "Windows 10/11";
+      } else if (os.equals("Mac OS X")) {
+        os = "macOS";
+      }
+    }
+
+    // Detect Faro Chromium version leakage (e.g., 147.0.0.0 or 148.0.0.0 mapping as OS version)
+    if (osVer != null && osVer.matches("^\\d{2,3}\\.\\d+\\.\\d+\\.\\d+$")) {
+      osVer = "N/A"; // Nullify fake OS version
+      // If device model is missing or generic, assume Chrome/Edge based on the version signature
+      if (model != null
+          && (model.equals("Desktop") || model.equals("Unknown") || model.equals("N/A"))) {
+        model = "Chrome/Edge";
+      }
+    }
+
+    // Apple Device Normalization (All iPhones mask as 'iPhone' due to strict Apple Privacy headers)
+    if (model != null && model.equalsIgnoreCase("iPhone")) {
+      model = "Apple iPhone";
+    }
 
     return AudienceDataDto.builder()
         .id(entity.getId())
@@ -442,9 +474,9 @@ public class AnalyticsService {
         .region(entity.getRegion())
         .city(entity.getCity())
         .deviceCategory(entity.getDeviceCategory())
-        .deviceModel(entity.getDeviceModel())
-        .operatingSystem(entity.getOperatingSystem())
-        .osVersion(entity.getOsVersion())
+        .deviceModel(model)
+        .operatingSystem(os)
+        .osVersion(osVer)
         .screenResolution(entity.getScreenResolution())
         .sessionSource(entity.getSessionSource())
         .landingPage(entity.getLandingPage())
