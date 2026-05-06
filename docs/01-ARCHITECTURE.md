@@ -55,8 +55,8 @@ Unlike standard deployments, this system exposes **zero** internal ports. The da
     * **Tenant Isolation**: Uses `TenantInterceptor` to intercept the `X-Tenant-ID` header injected by Edge Workers, locking database queries and services (like `SitemapService`) to the specific frontend context.
     * **Key Services**: 
         * **`HtmlMaterializerService`** - Generates static HTML files (Hybrid SSG) immediately upon post publication to ensure 100% SEO availability.
-        * **Native Analytics Engine** - Internal RUM (Real User Monitoring) processor bypassing third-party tracking reliance.
-        * **API Diagnostics** - Automated tracker for external provider health and latency.
+        * **Native Analytics Engine** - Implements Google Analytics 4 (GA4) integration for historical data and audience dashboard queries, with transactional safeguards and data enrichment.
+        * **API Diagnostics** - Tracks external API health and latency using the `ApiFetchStatus` entity for logging and monitoring.
     * **Concurrency**: Utilizes **Java 21 Virtual Threads** for high-throughput, non-blocking image processing and parallel tasks. 
 * **Edge Workers**: Cloudflare Workers (`treishvaamagro-seo-worker`, `treishfin-seo-worker`)
     * **Role**: Intelligent **Edge Routers** and **Zero-Trust API Proxies**. 

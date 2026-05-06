@@ -98,71 +98,33 @@ To guarantee high concurrency, memory safety, and prevent "Database Denial of Se
     1.  **Connection Starvation**: Network calls (e.g., MinIO uploads) inside a transaction hold DB connections, freezing the app under load.
     2.  **Memory Exhaustion**: Loading large images into RAM (`byte[]`) causes Out-Of-Memory (OOM) crashes.
 * **The Solution**:
-    1.  **Phase 1 (Secure Streaming - Non-Transactional)**: 
-        * **Zero-Allocation**: Uploads are streamed directly to `Files.createTempFile()`. RAM usage remains flat regardless of file size.
-        * **Security**: **Apache Tika** analyzes the file signature (Magic Numbers) to validate MIME types before processing.
-        * **Processing**: Image resizing happens in parallel Virtual Threads using the temp file as source.
-    2.  **Phase 2 (Transactional Persistence)**: Once the file is safely in MinIO, the URL is passed to `persistPost()`, which is annotated with `@Transactional` for fast SQL execution.
-    3.  **Phase 3 (Bulk Optimization)**: **JDBC Batching** is enabled (`batch_size=50`). When performing bulk updates (e.g., Sitemap regeneration), operations are grouped into batches to reduce network round-trips by 50x.
-* **Result**: Database lock time is minimized, and the server is immune to large-file memory spikes.
+    1.  **Phase 1 (Secure Streaming - Non-Transactional)**: Streams large files directly to MinIO outside of transactional boundaries.
+    2.  **Phase 2 (Commit)**: Once the file is successfully uploaded, the database transaction commits the metadata.
 
-### 2.4. Data Integrity (Optimistic Locking)
-To prevent the "Lost Update" anomaly common in collaborative CMS environments:
-* **Mechanism**: The `blog_posts` table uses a `@Version` column.
-* **Logic**: When updating a post, the service compares the `version` provided by the client with the current database `version`.
-* **Outcome**: If they mismatch (indicating another user modified the record), an `ObjectOptimisticLockingFailureException` is thrown (HTTP 409), ensuring no changes are silently overwritten.
+## 3. Static Content Materialization (`HtmlMaterializerService`)
 
-## 3. Sitemap & Edge Caching Service (`SitemapService`)
+The `HtmlMaterializerService` generates static HTML files for blog posts, ensuring SEO optimization and immediate availability. It fetches an HTML shell, injects metadata (e.g., Open Graph, Twitter cards), and uploads the materialized content to MinIO for edge delivery.
 
-This service dynamically generates XML sitemaps for Google Search Console, highly optimized for Cloudflare Edge Workers and Multi-Tenant routing.
+### 3.1. Workflow
+1. **Fetch Shell**: Retrieves the HTML shell from the frontend (internal or public URL).
+2. **Inject Metadata**: Adds SEO tags, JSON-LD structured data, and post content.
+3. **Upload**: Streams the materialized HTML to MinIO for edge caching.
 
-### 3.1. Contextual Routing (The "Tenant Hijack")
-Because the backend powers entirely different corporate websites, `SitemapService` dynamically alters its output based on `TenantContext`.
-* **Finance Tenant**: Generates paginated, large-scale dynamic XML sitemaps reading from the `blog_posts` and `market_data` tables. Handles 10M+ URLs via strict chunking.
-* **Agro Tenant**: The Agro site is an enterprise marketing portal without market data. When `TenantContext.getTenantId().equals("agro")`, the service bypasses the database entirely and serves a static array of enterprise URLs (`/about`, `/infrastructure`, `/products`) with specific E-E-A-T priority tunings.
+## 4. Analytics & Diagnostics
 
-### 3.2. Edge Worker Caching Integration
-The backend is designed to **not** serve sitemaps directly to end-users. 
-1. The Cloudflare Edge Worker checks the Free-Tier `TREISHFIN_SEO_CACHE` KV namespace.
-2. On a cache miss, the Worker proxies to this service (with the `X-Tenant-ID`).
-3. This service generates the XML.
-4. The Worker intercepts the response, serves it, and uses `ctx.waitUntil` to asynchronously update the KV Cache.
-* **Result**: The backend is shielded from aggressive crawler polling.
+### 4.1. Analytics Service (`AnalyticsService`)
+The `AnalyticsService` integrates with Google Analytics 4 (GA4) to fetch historical audience data and manage audience dashboard queries.
+* **Data Enrichment**: Maps GA4 data to local audience visit records.
+* **Filtering**: Supports advanced filtering by date, region, OS, and session source.
+* **Real-Time Analytics**: Provides insights into active sessions and user behavior.
 
-## 4. SEO Materializer Engine (`HtmlMaterializerService`)
+### 4.2. API Diagnostics (`ApiFetchStatus`)
+The `ApiFetchStatus` entity tracks the health and latency of external API calls.
+* **Fields**:
+    * `apiName`: Name of the external API.
+    * `status`: Fetch status (e.g., SUCCESS, FAILURE).
+    * `triggerSource`: Indicates whether the fetch was automatic or manual.
+    * `details`: Stores error messages or additional context.
+* **Usage**: Enables observability and reliability for external integrations.
 
-This service implements the "Hybrid Static Site Generation" logic.
-
-* **Responsibility**: Converts dynamic React states into static HTML files for bots.
-* **Process**:
-    1.  **Fetch Shell**: Calls the internal Nginx URL (`http://treishvaam-nginx/`) to get the currently deployed `index.html`. This ensures the static file version exactly matches the live React app version.
-    2.  **Inject Content**: Uses `Jsoup` to insert:
-        * `<title>` and `<meta>` tags.
-        * JSON-LD Schema (NewsArticle).
-        * Full HTML body content into `<div id="server-content">`.
-        * Redux State into `window.__PRELOADED_STATE__`.
-    3.  **State Serialization Constraint**: Manually serializes `Instant` fields (e.g., `createdAt`) to Strings to avoid Jackson JSON mapping failures.
-    4.  **Upload**: Streams the generated HTML string directly to MinIO (bucket: `treish-public`) with `Cache-Control` headers.
-* **Async Execution**: Runs in a separate thread (`@Async`) to avoid slowing down the Admin UI save operation.
-
-## 5. Analytics & Telemetry Engine (`AnalyticsService`)
-
-A robust internal engine for processing and aggregating visitor and API telemetry data.
-
-* **Audience Telemetry**: Processes Real User Monitoring (RUM) data from the frontend. It groups and filters records by `country`, `region`, `city`, `OS`, and `sessionSource` to provide a GDPR-compliant internal analytics dashboard, removing total reliance on GA4.
-* **API Fetch Tracking**: Works in tandem with the `ApiStatusController` to log the health, latency, and success rates of external market data providers. Prevents blind spots if third-party data feeds silently degrade.
-
-## 6. Data Initialization & Scheduling (Startup Safety)
-
-Background tasks and startup initializers run outside the standard HTTP request lifecycle, meaning they lack an injected `TenantContext`. **Strict isolation protocols apply.**
-
-### 6.1. The Data Initializers (`DataInitializer`, `MarketDataInitializer`)
-* **Role**: Bootstraps the system with essential roles, admin users, and initial market data payloads.
-* **Security Constraint**: Because these run on boot, threads MUST explicitly be wrapped in `TenantContext.setTenantId("finance")`. Failure to do so risks corrupting the `agro` tenant or throwing `NullPointerException`s during entity saves.
-* **Cleanup**: `TenantContext.clear()` must be executed in a `finally` block to prevent memory leaks in the thread pool.
-
-### 6.2. Market Data Scheduler (`MarketDataScheduler`)
-Automates periodic data ingestion.
-* **US Market Movers Fetch**: Runs Monday–Friday at 10 PM UTC. Calls `fetchAndStoreMarketData`.
-* **Global Market Data Sync**: Runs every 4 hours. Triggers the Python data engine.
-* **Tenant Isolation Rule**: As with initializers, `@Scheduled` methods must explicitly declare their Tenant Context before performing operations.
+---

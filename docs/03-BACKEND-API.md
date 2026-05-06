@@ -99,7 +99,7 @@ This document provides a comprehensive reference for the REST API surface of the
 | Method | Endpoint | Role | Description |
 | :--- | :--- | :--- | :--- |
 | **GET** | `/` | **ADMIN** | Get historical audience data. Accepts query params for filtering (`startDate`, `endDate`, `country`, `region`, `city`, `operatingSystem`, `osVersion`, `sessionSource`). |
-| **GET** | `/filters` | **ADMIN** | Returns available distinct filter options (e.g., list of unique countries, OS) for building dynamic admin UI dropdowns. |
+| **GET** | `/realtime` | **ADMIN** | Fetch real-time analytics data for active sessions and user behavior. |
 
 ### Health Check Controller (`HealthCheckController`)
 **Base Path**: `/health`

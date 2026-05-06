@@ -22,9 +22,15 @@
 #  *
 #  * Change Intent:
 #  * - Bind Grafana (3001) and RabbitMQ (15672) exclusively to 127.0.0.1 to allow secure SSH tunnel access without breaking Zero-Trust isolation.
+#  * - Fix Bug KC-01: Update Keycloak healthcheck to target `/health/ready` (as management API ignores relative paths).
 #  *
 #  * Future AI Guidance:
 #  * - Do not remove `condition: service_healthy` checks. They prevent race conditions.
+#  *
+#  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+#  * - EDITED:
+#  * • Modified Keycloak `healthcheck.test` from `http://localhost:8080/auth/health` to `http://localhost:8080/health/ready`.
+#  * • Why: Fixed Bug KC-01 where Docker flagged Keycloak as unhealthy despite being fully functional due to `KC_HTTP_RELATIVE_PATH` not affecting internal management endpoints.
 #  */
 
 version: '3.8'
@@ -101,7 +107,7 @@ services:
       keycloak-db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/auth/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/ready || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 15

@@ -1,3 +1,38 @@
+/**
+ * AI-CONTEXT:
+ *
+ * Purpose:
+ * - Distributed rate limiting filter using Bucket4j to prevent abuse and brute force attacks.
+ *
+ * Scope:
+ * - Intercepts all incoming API requests (except OPTIONS pre-flights) before authentication.
+ *
+ * Critical Dependencies:
+ * - Depends on concurrent memory buckets (future: Redis backing for distributed environments).
+ *
+ * Security Constraints:
+ * - Must fail-closed. If rate limiting logic throws an exception, the request must not proceed to downstream sensitive services.
+ *
+ * Non-Negotiables:
+ * - Always skip OPTIONS requests to avoid breaking CORS.
+ *
+ * Change Intent:
+ * - Fix CVE-003: Altered the catch block to return a 503 Service Unavailable instead of executing filterChain.doFilter(), closing the fail-open vulnerability.
+ *
+ * Future AI Guidance:
+ * - When swapping `ConcurrentHashMap` for Redisson `ProxyManager` in P2, preserve the 503 fail-closed block.
+ *
+ * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+ * - EDITED:
+ * • Replaced `filterChain.doFilter(request, response)` in the exception catch block with a 503 status and JSON error response.
+ * • Why the edit was required: Fix CVE-003 (Fail-open vulnerability leading to rate-limiter bypass under error conditions).
+ * • What behavior must remain unchanged: OPTIONS pre-flight bypass.
+ *
+ * - DO-NOT-DELETE RULE:
+ * This IMMUTABLE CHANGE HISTORY section must never be deleted,
+ * truncated, rewritten, or regenerated.
+ * Future AI must append only.
+ */
 package com.treishvaam.financeapi.security;
 
 import io.github.bucket4j.Bandwidth;
@@ -49,9 +84,12 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         response.getWriter().write("Too Many Requests");
       }
     } catch (Exception e) {
-      // CRITICAL RESILIENCE: If Bucket4j fails, Log it but ALLOW the request.
-      logger.error("Rate Limiting Service Failed (Failing Open): {}", e.getMessage());
-      filterChain.doFilter(request, response);
+      // CRITICAL RESILIENCE: Fail CLOSED under rate limiter exception conditions (CVE-003)
+      logger.error("Rate Limiting Service Failed (Failing Closed): {}", e.getMessage());
+      response.setStatus(503);
+      response.setContentType("application/json");
+      response.getWriter().write("{\"error\":\"Service temporarily unavailable\"}");
+      return; // DO NOT call filterChain.doFilter()
     }
   }
 
