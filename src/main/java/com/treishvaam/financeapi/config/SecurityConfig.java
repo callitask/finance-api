@@ -1,40 +1,32 @@
 /**
  * AI-CONTEXT:
  *
- * Purpose:
- * - Spring Security configuration for REST API protection, CORS, and OAuth2 resource server settings.
+ * <p>Purpose: - Spring Security configuration for REST API protection, CORS, and OAuth2 resource
+ * server settings.
  *
- * Scope:
- * - Defines public vs authenticated routing rules and sets up the security filter chain.
+ * <p>Scope: - Defines public vs authenticated routing rules and sets up the security filter chain.
  *
- * Critical Dependencies:
- * - Backend: Intercepts all incoming API requests.
- * - Frontend: Validates JWT tokens from Keycloak.
+ * <p>Critical Dependencies: - Backend: Intercepts all incoming API requests. - Frontend: Validates
+ * JWT tokens from Keycloak.
  *
- * Security Constraints:
- * - Actuator endpoints (except health) must be restricted to ADMIN.
- * - Do not disable CSRF unless stateless.
- * - Do not open CORS to `*` without evaluating risk.
+ * <p>Security Constraints: - Actuator endpoints (except health) must be restricted to ADMIN. - Do
+ * not disable CSRF unless stateless. - Do not open CORS to `*` without evaluating risk.
  *
- * Non-Negotiables:
- * - Must strictly enforce Zero-Trust access rules for all internal and administrative routes.
+ * <p>Non-Negotiables: - Must strictly enforce Zero-Trust access rules for all internal and
+ * administrative routes.
  *
- * Change Intent:
- * - Fix CVE-001: Restrict `/actuator/**` endpoints to `ROLE_ADMIN` to prevent stack fingerprinting, allowing only `/actuator/health` publicly.
+ * <p>Change Intent: - Fix CVE-001: Restrict `/actuator/**` endpoints to `ROLE_ADMIN` to prevent
+ * stack fingerprinting, allowing only `/actuator/health` publicly.
  *
- * Future AI Guidance:
- * - Always ensure public endpoints are explicitly defined and justified.
+ * <p>Future AI Guidance: - Always ensure public endpoints are explicitly defined and justified.
  *
- * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
- * - EDITED:
- * • Changed `/actuator/**` permitAll to `/actuator/health` permitAll and restricted `/actuator/**` to hasAuthority("ROLE_ADMIN").
- * • Why the edit was required: Fix CVE-001 to prevent unauthorized access to sensitive actuator management data.
- * • What behavior must remain unchanged: CORS and existing public API routing.
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Changed `/actuator/**` permitAll to
+ * `/actuator/health` permitAll and restricted `/actuator/**` to hasAuthority("ROLE_ADMIN"). • Why
+ * the edit was required: Fix CVE-001 to prevent unauthorized access to sensitive actuator
+ * management data. • What behavior must remain unchanged: CORS and existing public API routing.
  *
- * - DO-NOT-DELETE RULE:
- * This IMMUTABLE CHANGE HISTORY section must never be deleted,
- * truncated, rewritten, or regenerated.
- * Future AI must append only.
+ * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
+ * rewritten, or regenerated. Future AI must append only.
  */
 package com.treishvaam.financeapi.config;
 
@@ -104,7 +96,7 @@ public class SecurityConfig {
                     .requestMatchers(
                         "/actuator/health", "/api/v1/health/**", "/api/v1/monitoring/ingest")
                     .permitAll()
-                    
+
                     // 1.5 Actuator Catch-all (Secure)
                     .requestMatchers("/actuator/**")
                     .hasAuthority("ROLE_ADMIN")

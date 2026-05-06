@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <!--
   ~ AI-CONTEXT:
   ~
@@ -26,12 +27,15 @@
   ~ • Why the edit was required: CI/CD must fail on CRITICAL CVEs introduced via dependencies.
   ~ • What behavior must remain unchanged: Existing build and Spotless check configurations.
   ~
+  ~ - EDITED:
+  ~ • Moved `<?xml version="1.0" encoding="UTF-8"?>` to line 1, above the AI-CONTEXT block.
+  ~ • Why the edit was required: Maven build failed with `ModelParseException` because the XML declaration was not the first node in the document.
+  ~ 
   ~ - DO-NOT-DELETE RULE:
   ~ This IMMUTABLE CHANGE HISTORY section must never be deleted,
   ~ truncated, rewritten, or regenerated.
   ~ Future AI must append only.
   -->
-<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" 
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">

@@ -1,37 +1,33 @@
 /**
  * AI-CONTEXT:
  *
- * Purpose:
- * - Distributed rate limiting filter using Bucket4j to prevent abuse and brute force attacks.
+ * <p>Purpose: - Distributed rate limiting filter using Bucket4j to prevent abuse and brute force
+ * attacks.
  *
- * Scope:
- * - Intercepts all incoming API requests (except OPTIONS pre-flights) before authentication.
+ * <p>Scope: - Intercepts all incoming API requests (except OPTIONS pre-flights) before
+ * authentication.
  *
- * Critical Dependencies:
- * - Depends on concurrent memory buckets (future: Redis backing for distributed environments).
+ * <p>Critical Dependencies: - Depends on concurrent memory buckets (future: Redis backing for
+ * distributed environments).
  *
- * Security Constraints:
- * - Must fail-closed. If rate limiting logic throws an exception, the request must not proceed to downstream sensitive services.
+ * <p>Security Constraints: - Must fail-closed. If rate limiting logic throws an exception, the
+ * request must not proceed to downstream sensitive services.
  *
- * Non-Negotiables:
- * - Always skip OPTIONS requests to avoid breaking CORS.
+ * <p>Non-Negotiables: - Always skip OPTIONS requests to avoid breaking CORS.
  *
- * Change Intent:
- * - Fix CVE-003: Altered the catch block to return a 503 Service Unavailable instead of executing filterChain.doFilter(), closing the fail-open vulnerability.
+ * <p>Change Intent: - Fix CVE-003: Altered the catch block to return a 503 Service Unavailable
+ * instead of executing filterChain.doFilter(), closing the fail-open vulnerability.
  *
- * Future AI Guidance:
- * - When swapping `ConcurrentHashMap` for Redisson `ProxyManager` in P2, preserve the 503 fail-closed block.
+ * <p>Future AI Guidance: - When swapping `ConcurrentHashMap` for Redisson `ProxyManager` in P2,
+ * preserve the 503 fail-closed block.
  *
- * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
- * - EDITED:
- * • Replaced `filterChain.doFilter(request, response)` in the exception catch block with a 503 status and JSON error response.
- * • Why the edit was required: Fix CVE-003 (Fail-open vulnerability leading to rate-limiter bypass under error conditions).
- * • What behavior must remain unchanged: OPTIONS pre-flight bypass.
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Replaced `filterChain.doFilter(request,
+ * response)` in the exception catch block with a 503 status and JSON error response. • Why the edit
+ * was required: Fix CVE-003 (Fail-open vulnerability leading to rate-limiter bypass under error
+ * conditions). • What behavior must remain unchanged: OPTIONS pre-flight bypass.
  *
- * - DO-NOT-DELETE RULE:
- * This IMMUTABLE CHANGE HISTORY section must never be deleted,
- * truncated, rewritten, or regenerated.
- * Future AI must append only.
+ * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
+ * rewritten, or regenerated. Future AI must append only.
  */
 package com.treishvaam.financeapi.security;
 
