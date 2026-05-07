@@ -35,6 +35,11 @@
 #  * - EDITED:
 #  * • Removed Keycloak `healthcheck` entirely and changed `backend` and `nginx` `depends_on` conditions for keycloak to `service_started`.
 #  * • Why: Keycloak 23's image lacks `curl`. The failing check kept Keycloak marked as (unhealthy), which caused Nginx to stay in a permanent restart loop, bringing down the reverse proxy.
+#  *
+#  * - EDITED:
+#  * • Re-added Keycloak healthcheck targeting `http://localhost:8080/health/ready` (Bug KC-01) and upgraded downstream dependents to `service_healthy`.
+#  * • Why: Restoring container startup orchestration. Addressed the incorrect management endpoint path mapping.
+#  * • What behavior must remain unchanged: Zero-trust internal networking.
 #  */
 
 version: '3.8'
@@ -110,7 +115,11 @@ services:
     depends_on:
       keycloak-db:
         condition: service_healthy
-    # Healthcheck removed: Image does not contain curl/wget, leading to false negatives that break Nginx.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
 
   redis:
     image: redis:alpine
@@ -234,7 +243,7 @@ services:
       tempo:
         condition: service_started
       keycloak:
-        condition: service_started # Downgraded to service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(1); s.connect((\"localhost\", 8080)); s.close();' || exit 1"]
       interval: 15s
@@ -262,7 +271,7 @@ services:
       backend:
         condition: service_healthy
       keycloak:
-        condition: service_started # Downgraded to service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/robots.txt"]
       interval: 15s
