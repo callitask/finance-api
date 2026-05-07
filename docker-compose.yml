@@ -21,8 +21,7 @@
 #  * - Healthchecks must be robust and dictate startup order.
 #  *
 #  * Change Intent:
-#  * - Bind Grafana (3001) and RabbitMQ (15672) exclusively to 127.0.0.1 to allow secure SSH tunnel access without breaking Zero-Trust isolation.
-#  * - Fix Nginx restart loop: Remove curl-based healthcheck from Keycloak 23 (UBI micro lacks curl) and use service_started for downstream dependents.
+#  * - Remove curl-based healthcheck from Keycloak since its UBI micro image lacks bash/curl, causing false 'unhealthy' states that break downstream dependents.
 #  *
 #  * Future AI Guidance:
 #  * - Keycloak >= 22 uses UBI-micro. Do not attempt to use bash, curl, or wget inside its container for healthchecks.
@@ -33,12 +32,12 @@
 #  * • Why: Fixed Bug KC-01 where Docker flagged Keycloak as unhealthy despite being fully functional due to `KC_HTTP_RELATIVE_PATH` not affecting internal management endpoints.
 #  *
 #  * - EDITED:
-#  * • Removed Keycloak `healthcheck` entirely and changed `backend` and `nginx` `depends_on` conditions for keycloak to `service_started`.
-#  * • Why: Keycloak 23's image lacks `curl`. The failing check kept Keycloak marked as (unhealthy), which caused Nginx to stay in a permanent restart loop, bringing down the reverse proxy.
-#  *
-#  * - EDITED:
 #  * • Re-added Keycloak healthcheck targeting `http://localhost:8080/health/ready` (Bug KC-01) and upgraded downstream dependents to `service_healthy`.
 #  * • Why: Restoring container startup orchestration. Addressed the incorrect management endpoint path mapping.
+#  *
+#  * - EDITED:
+#  * • Removed `healthcheck` block entirely from Keycloak and downgraded downstream dependents to `service_started`.
+#  * • Why: Keycloak 23+ UBI Micro image lacks `curl` and `/dev/tcp`. The healthcheck constantly fails locally, leaving the container marked as `(unhealthy)`, which permanently halts `nginx` and `backend` from starting up.
 #  * • What behavior must remain unchanged: Zero-trust internal networking.
 #  */
 
@@ -115,11 +114,6 @@ services:
     depends_on:
       keycloak-db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/ready || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
 
   redis:
     image: redis:alpine
@@ -243,7 +237,7 @@ services:
       tempo:
         condition: service_started
       keycloak:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(1); s.connect((\"localhost\", 8080)); s.close();' || exit 1"]
       interval: 15s
@@ -271,7 +265,7 @@ services:
       backend:
         condition: service_healthy
       keycloak:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/robots.txt"]
       interval: 15s
