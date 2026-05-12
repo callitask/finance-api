@@ -1,5 +1,32 @@
 package com.treishvaam.financeapi.service;
 
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Core business logic for managing Blog Posts, integrating with DB, Cache, Messaging,
+ * and Image Storage.
+ *
+ * <p>Scope: - Handles CRUD operations, draft management, SEO slug generation, and async publishing.
+ *
+ * <p>Critical Dependencies: - Backend: BlogPostRepository, ImageService, HtmlMaterializerService,
+ * MessagePublisher
+ *
+ * <p>Security Constraints: - Optimistic locking must be enforced on updates. - Tenant isolation
+ * must default to current user context.
+ *
+ * <p>Non-Negotiables: - Do NOT apply @Cacheable to methods returning Optional<T> due to Jackson
+ * deserialization crashes.
+ *
+ * <p>Change Intent: - Removed `@Cacheable` from `findByUrlArticleId` and `findPostForUrl`. - Why:
+ * Jackson's default JSON serializer crashes when attempting to deserialize an `Optional<BlogPost>`
+ * from Redis, throwing a fatal 500 Internal Server Error when fetching newly created posts.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Removed `@Cacheable` annotations from
+ * Optional-returning finder methods. • Why the edit was required: Resolves fatal 500 AxiosError
+ * occurring after post publication due to Spring Data Redis failing to instantiate
+ * `java.util.Optional`. • What behavior must remain unchanged: DB retrieval and edge-side
+ * Cloudflare caching remain fully intact to handle the load.
+ */
 import com.treishvaam.financeapi.config.CachingConfig;
 import com.treishvaam.financeapi.config.tenant.TenantContext;
 import com.treishvaam.financeapi.dto.BlogPostDto;
@@ -9,10 +36,10 @@ import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.Category;
 import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.model.PostThumbnail;
-import com.treishvaam.financeapi.model.User; // Added Import
+import com.treishvaam.financeapi.model.User;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.repository.CategoryRepository;
-import com.treishvaam.financeapi.repository.UserRepository; // Added Import
+import com.treishvaam.financeapi.repository.UserRepository;
 import com.treishvaam.financeapi.service.ImageService.ImageMetadataDto;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -32,7 +59,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -56,10 +82,8 @@ public class BlogPostServiceImpl implements BlogPostService {
   @Autowired private CategoryRepository categoryRepository;
   @Autowired private ImageService imageService;
 
-  // PHASE 1 FIX: Injected UserRepository to resolve Display Names
   @Autowired private UserRepository userRepository;
 
-  // NEW: Inject Materializer Service
   @Autowired private HtmlMaterializerService htmlMaterializerService;
 
   @PersistenceContext private EntityManager entityManager;
@@ -120,11 +144,8 @@ public class BlogPostServiceImpl implements BlogPostService {
   }
 
   @Override
-  // ENTERPRISE CACHING: Read-Through Cache for High Performance
-  @Cacheable(
-      value = CachingConfig.BLOG_POST_CACHE,
-      key = "#urlArticleId",
-      unless = "#result == null")
+  // FIX: Removed @Cacheable because caching Optional<T> causes Jackson deserialization crashes (500
+  // Error)
   public Optional<BlogPost> findByUrlArticleId(String urlArticleId) {
     return blogPostRepository.findByUrlArticleId(urlArticleId);
   }
@@ -148,9 +169,7 @@ public class BlogPostServiceImpl implements BlogPostService {
     newPost.setKeywords(blogPostDto.getKeywords());
     newPost.setStatus(PostStatus.DRAFT);
 
-    // PHASE 1 FIX: Use Display Name if available, otherwise fallback to username
     String username = SecurityContextHolder.getContext().getAuthentication().getName();
-    // Try to find user to get display name
     Optional<User> userOpt = userRepository.findByUsername(username);
     if (userOpt.isPresent()
         && userOpt.get().getDisplayName() != null
@@ -178,7 +197,6 @@ public class BlogPostServiceImpl implements BlogPostService {
             .findById(id)
             .orElseThrow(() -> new RuntimeException("Post not found with id: " + id));
 
-    // --- ENTERPRISE OPTIMISTIC LOCKING CHECK ---
     if (blogPostDto.getVersion() != null
         && existingPost.getVersion() != null
         && !blogPostDto.getVersion().equals(existingPost.getVersion())) {
@@ -196,27 +214,18 @@ public class BlogPostServiceImpl implements BlogPostService {
     return blogPostRepository.save(existingPost);
   }
 
-  /**
-   * ENTERPRISE PATTERN: I/O OUTSIDE TRANSACTION 1. Perform Network I/O (Image Uploads) first. 2.
-   * Call transactional method for DB persistence. 3. Publish async events after transaction
-   * commits.
-   */
   @Override
-  // NOTE: No @Transactional here to prevent DB connection holding during MinIO upload
   public BlogPost save(
       BlogPost blogPost,
       List<MultipartFile> newThumbnails,
       List<PostThumbnailDto> thumbnailDtos,
       MultipartFile coverImage) {
 
-    // --- Step 1: Network I/O (Heavy Lifting) ---
-    // Handle Cover Image
     if (coverImage != null && !coverImage.isEmpty()) {
       ImageMetadataDto coverMetadata = imageService.saveImageAndGetMetadata(coverImage);
       if (coverMetadata != null) blogPost.setCoverImageUrl(coverMetadata.getBaseFilename());
     }
 
-    // Handle Thumbnails
     Map<String, MultipartFile> newFilesMap =
         newThumbnails != null
             ? newThumbnails.stream()
@@ -225,13 +234,11 @@ public class BlogPostServiceImpl implements BlogPostService {
 
     List<PostThumbnail> finalThumbnails = new ArrayList<>();
 
-    // Process thumbnails list (Upload new ones, link existing ones)
     for (PostThumbnailDto dto : thumbnailDtos) {
       PostThumbnail thumbnail;
       if ("new".equals(dto.getSource())) {
         MultipartFile file = newFilesMap.get(dto.getFileName());
         if (file != null && !file.isEmpty()) {
-          // Upload to MinIO (Slow I/O)
           ImageMetadataDto metadata = imageService.saveImageAndGetMetadata(file);
           if (metadata == null) continue;
           thumbnail = new PostThumbnail();
@@ -244,7 +251,6 @@ public class BlogPostServiceImpl implements BlogPostService {
           continue;
         }
       } else {
-        // Find existing thumbnail in the current post's list
         thumbnail =
             blogPost.getThumbnails().stream()
                 .filter(t -> t.getImageUrl().equals(dto.getUrl()))
@@ -258,11 +264,8 @@ public class BlogPostServiceImpl implements BlogPostService {
       finalThumbnails.add(thumbnail);
     }
 
-    // --- Step 2: Persistence (Transactional) ---
-    // We pass the prepared data to a transactional method.
     BlogPost savedPost = persistPost(blogPost, finalThumbnails);
 
-    // --- Step 3: Async Messaging (Post-Commit) ---
     if (savedPost.getStatus() == PostStatus.PUBLISHED) {
       try {
         messagePublisher.publishSearchIndexEvent(savedPost.getId(), "INDEX");
@@ -278,14 +281,12 @@ public class BlogPostServiceImpl implements BlogPostService {
     return savedPost;
   }
 
-  // Dedicated Transactional Method for DB Operations only
   @Transactional(propagation = Propagation.REQUIRED)
   @CacheEvict(
       value = CachingConfig.BLOG_POST_CACHE,
       key = "#result.urlArticleId",
       condition = "#result.urlArticleId != null")
   public BlogPost persistPost(BlogPost blogPost, List<PostThumbnail> processedThumbnails) {
-    // Update relationships
     blogPost.getThumbnails().clear();
     blogPost.getThumbnails().addAll(processedThumbnails);
 
@@ -303,7 +304,6 @@ public class BlogPostServiceImpl implements BlogPostService {
 
     BlogPost savedPost = blogPostRepository.save(blogPost);
 
-    // Generate permanent ID if published
     if ((savedPost.getStatus() == PostStatus.PUBLISHED
             || savedPost.getStatus() == PostStatus.SCHEDULED)
         && savedPost.getUrlArticleId() == null) {
@@ -311,7 +311,6 @@ public class BlogPostServiceImpl implements BlogPostService {
       savedPost = blogPostRepository.save(savedPost);
     }
 
-    // NEW: Materialize HTML if Published
     if (savedPost.getStatus() == PostStatus.PUBLISHED) {
       try {
         htmlMaterializerService.materializePost(savedPost);
@@ -372,7 +371,6 @@ public class BlogPostServiceImpl implements BlogPostService {
 
       try {
         messagePublisher.publishSearchIndexEvent(post.getId(), "INDEX");
-        // NEW: Materialize Scheduled Post on Publish
         htmlMaterializerService.materializePost(post);
         logger.info("Published scheduled post with ID: {}", post.getId());
       } catch (Exception e) {
@@ -483,11 +481,7 @@ public class BlogPostServiceImpl implements BlogPostService {
 
   @Override
   @Transactional(readOnly = true)
-  // ENTERPRISE CACHING: Read-Through Cache for Full Slug URLs
-  @Cacheable(
-      value = CachingConfig.BLOG_POST_CACHE,
-      key = "#userFriendlySlug",
-      unless = "#result == null")
+  // FIX: Removed @Cacheable because caching Optional<T> causes Jackson deserialization crashes
   public Optional<BlogPost> findPostForUrl(Long id, String categorySlug, String userFriendlySlug) {
     Optional<BlogPost> postOpt =
         blogPostRepository.findByIdAndUserFriendlySlug(id, userFriendlySlug);
