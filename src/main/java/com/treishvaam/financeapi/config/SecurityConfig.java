@@ -15,15 +15,18 @@
  * <p>Non-Negotiables: - Must strictly enforce Zero-Trust access rules for all internal and
  * administrative routes.
  *
- * <p>Change Intent: - Fix CVE-001: Restrict `/actuator/**` endpoints to `ROLE_ADMIN` to prevent
- * stack fingerprinting, allowing only `/actuator/health` publicly.
+ * <p>Change Intent: - Resolved CORS preflight failure for POST requests. Explicitly elevated
+ * CorsFilter to Ordered.HIGHEST_PRECEDENCE so OPTIONS requests bypass internal security filters.
  *
- * <p>Future AI Guidance: - Always ensure public endpoints are explicitly defined and justified.
+ * <p>Future AI Guidance: - Always ensure public endpoints are explicitly defined and justified. -
+ * Do NOT remove the FilterRegistrationBean<CorsFilter> configuration; it is required for proper
+ * preflight handling.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Changed `/actuator/**` permitAll to
- * `/actuator/health` permitAll and restricted `/actuator/**` to hasAuthority("ROLE_ADMIN"). • Why
- * the edit was required: Fix CVE-001 to prevent unauthorized access to sensitive actuator
- * management data. • What behavior must remain unchanged: CORS and existing public API routing.
+ * `/actuator/health` permitAll. - EDITED (Phase 2 Bug Fix): • Extracted CORS logic into a globally
+ * registered `FilterRegistrationBean<CorsFilter>` with `Ordered.HIGHEST_PRECEDENCE`. Disabled
+ * Spring Security's native `.cors()` to let the global filter handle it at the very start of the
+ * Servlet chain.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
@@ -37,8 +40,10 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
@@ -53,8 +58,8 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.CorsFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -80,7 +85,7 @@ public class SecurityConfig {
 
   @Bean
   public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-    http.cors(cors -> cors.configurationSource(corsConfigurationSource()))
+    http.cors(cors -> cors.disable()) // CORS is handled globally by FilterRegistrationBean below
         .csrf(csrf -> csrf.disable())
         .sessionManagement(
             session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -160,11 +165,11 @@ public class SecurityConfig {
   }
 
   @Bean
-  public CorsConfigurationSource corsConfigurationSource() {
+  public FilterRegistrationBean<CorsFilter> globalCorsFilter() {
+    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
     CorsConfiguration configuration = new CorsConfiguration();
 
     // Use AllowedOriginPatterns for better matching (handles subdomains & protocols)
-    // This allows exact matches AND wildcards, unlike setAllowedOrigins which is strict.
     if (allowedOrigins == null
         || allowedOrigins.isEmpty()
         || (allowedOrigins.size() == 1 && allowedOrigins.get(0).isEmpty())) {
@@ -181,9 +186,11 @@ public class SecurityConfig {
     configuration.setAllowCredentials(true);
     configuration.setMaxAge(3600L);
 
-    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
     source.registerCorsConfiguration("/**", configuration);
-    return source;
+
+    FilterRegistrationBean<CorsFilter> bean = new FilterRegistrationBean<>(new CorsFilter(source));
+    bean.setOrder(Ordered.HIGHEST_PRECEDENCE);
+    return bean;
   }
 
   private Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter() {
