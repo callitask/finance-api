@@ -14,6 +14,7 @@
 #  *
 #  * Security Constraints:
 #  * - Passwords and keys must strictly use environment variables mapping.
+#  * - ALL secrets must be sourced/injected via Cloudflare (CF) or Infiscal. Reliance on local `.env` files is deprecated for production secrets.
 #  * - No direct port mapping for internal stateful services (db, redis, elasticsearch).
 #  * - Admin UIs (Grafana, RabbitMQ) are mapped strictly to 127.0.0.1 for SSH tunneling access.
 #  *
@@ -35,16 +36,21 @@
 #  *
 #  * - EDITED (2026-05-14 BUG KC-01 FINAL FIX):
 #  * • Removed Keycloak healthcheck block entirely. Downgraded backend and nginx depends_on
-#  *   from `service_healthy` to `service_started` for the keycloak dependency.
+#  * from `service_healthy` to `service_started` for the keycloak dependency.
 #  * • Why: Keycloak 23 UBI Micro image does NOT have curl installed. The healthcheck
-#  *   `curl -f http://localhost:8080/health/ready` always fails immediately, leaving Keycloak
-#  *   permanently marked (unhealthy) even though it starts correctly (confirmed from logs:
-#  *   "Keycloak 23.0.0 started in 12.508s"). This caused a cascade failure: backend and nginx
-#  *   both depend on service_healthy and never started.
+#  * `curl -f http://localhost:8080/health/ready` always fails immediately, leaving Keycloak
+#  * permanently marked (unhealthy) even though it starts correctly (confirmed from logs:
+#  * "Keycloak 23.0.0 started in 12.508s"). This caused a cascade failure: backend and nginx
+#  * both depend on service_healthy and never started.
 #  * • What behavior must remain unchanged: All other healthchecks (MariaDB, Redis, Elasticsearch,
-#  *   MinIO) remain intact. Backend and nginx still wait for all other dependencies.
+#  * MinIO) remain intact. Backend and nginx still wait for all other dependencies.
 #  * • DO NOT re-add a curl-based healthcheck for Keycloak 23 UBI Micro — curl is not present.
 #  * • FAILED ATTEMPT: `curl -f http://localhost:8080/health/ready` — REJECTED. Do not retry.
+#  *
+#  * - EDITED:
+#  * • Mapped `LINKEDIN_TOKEN_ENCRYPTION_KEY` to the backend service environment variables.
+#  * • Why: Resolved application crash (`BeanCreationException` / `IllegalStateException`) caused by the `EncryptedStringConverter` failing to initialize without the zero-trust AES-256-GCM key.
+#  * • Security Note: Acknowledged explicit directive to use CF/Infiscal for secret injection instead of relying on `.env`.
 #  */
 
 version: '3.8'
@@ -229,6 +235,7 @@ services:
       - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=https://backend.treishvaamgroup.com/auth/realms/treishvaam
       - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/auth/realms/treishvaam/protocol/openid-connect/certs
       - LOGGING_FILE_NAME=/app/logs/application-${HOSTNAME}.log
+      - LINKEDIN_TOKEN_ENCRYPTION_KEY=${LINKEDIN_TOKEN_ENCRYPTION_KEY}
     volumes:
       - ./backend-app.war:/app/app.war
       - ./ga4-credentials.json:/app/ga4-credentials.json
