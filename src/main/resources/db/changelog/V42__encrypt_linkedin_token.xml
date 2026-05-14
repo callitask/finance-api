@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AI-CONTEXT:
+  Purpose:
+  - Liquibase migration to resize the linkedin_access_token column from VARCHAR(1024)
+    to VARCHAR(2048) to accommodate AES-256-GCM encrypted + Base64-encoded token values.
+
+  Scope:
+  - Single additive column modification. No data loss. No rollback risk.
+
+  Critical Dependencies:
+  - Must run BEFORE the application starts with EncryptedStringConverter active.
+  - If column is still VARCHAR(1024) and an encrypted token (up to ~1400 chars) is written,
+    MariaDB will truncate it silently (if strict mode off) or throw DataTruncation (strict mode on).
+
+  Security Constraints:
+  - This migration does NOT encrypt existing plaintext tokens already in the database.
+  - Existing plaintext tokens will be returned as-is by EncryptedStringConverter.convertToEntityAttribute()
+    which will fail Base64 decoding and return null (logged as warning, not exception).
+  - To encrypt existing tokens: run a one-time data migration script AFTER this schema change.
+    Do NOT attempt to do this in Liquibase — it requires the application encryption key.
+
+  Non-Negotiables:
+  - changeSet id must be immutable. Never modify a deployed changeSet.
+  - The column must be nullable (existing rows have null linkedin_access_token).
+
+  IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+  - ADDED (2026-05-14 CVE-007 Fix):
+    • Resize linkedin_access_token from VARCHAR(1024) to VARCHAR(2048).
+    • Why: AES-256-GCM encryption with 12-byte IV + 128-bit GCM tag adds overhead.
+      A 1024-char plaintext token becomes approximately 1400 chars after encryption + Base64 encoding.
+      VARCHAR(1024) would truncate the encrypted value, causing data corruption on write.
+-->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="V42-resize-linkedin-token-column" author="claude-agent-2026-05-14">
+        <comment>
+            CVE-007 Fix: Resize linkedin_access_token column to VARCHAR(2048) to accommodate
+            AES-256-GCM encrypted + Base64-encoded token values (up to ~1400 chars for a 1024-char token).
+        </comment>
+        <modifyDataType
+            tableName="users"
+            columnName="linkedin_access_token"
+            newDataType="VARCHAR(2048)"/>
+        <rollback>
+            <modifyDataType
+                tableName="users"
+                columnName="linkedin_access_token"
+                newDataType="VARCHAR(1024)"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

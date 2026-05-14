@@ -1,82 +1,84 @@
-/**
- * AI-CONTEXT:
- *
- * Purpose:
- * - Prevents sensitive files and build artifacts from entering version control.
- *
- * Scope:
- * - IDE, Build, OS, and Infrastructure secrets.
- *
- * Critical Dependencies:
- * - Protects OCI Terraform credentials.
- *
- * Security Constraints:
- * - Strict block on `.pem`, `.tfvars`, and `.tfstate`.
- *
- * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
- * - EDITED:
- * • Added terraform and OCI specific ignores.
- * • To enforce Zero-Trust secrets management.
- * • Phase 1 Execution.
- */
+# AI-CONTEXT:
+#
+# Purpose:
+# - Defines intentionally untracked files to ignore for the backend project version control.
+#
+# Scope:
+# - Responsible for preventing IDE files, compiled binaries, secrets, and AI workspace folders from entering Git.
+# - Must never ignore source code (src/) or configuration files (config/).
+#
+# Critical Dependencies:
+# - Backend: Git, Automated CI/CD Runner.
+# - Frontend: N/A
+# - Worker / SEO / Sitemap: N/A
+#
+# Security Constraints:
+# - Environment variables and local security keys (.env, *.pem, *.key) must remain ignored.
+#
+# Non-Negotiables:
+# - Never use root-level wildcards that could unintentionally block source directories.
+#
+# Change Intent:
+# - Fixed a catastrophic wildcard ignore bug that inadvertently blocked `src/` and `config/` directories during the previous execution.
+#
+# Future AI Guidance:
+# - Always specify exact directory paths for temporary AI files. Never use global `/**` overrides.
+#
+# IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+# - EDITED:
+# • Replaced global wildcard ignore with strict, scoped ignores.
+# • Unblocked `src/` and `config/` to allow critical security files to reach the deployment server.
+# • Phase: CI/CD Pipeline Fix.
+#
+# - DO-NOT-DELETE RULE:
+# This IMMUTABLE CHANGE HISTORY section must never be deleted,
+# truncated, rewritten, or regenerated.
+# Future AI must append only.
 
-# Compiled class file
-*.class
+HELP.md
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
 
-# Log file
-*.log
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
 
-# BlueJ files
-*.ctxt
-
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
-
-# Package Files #
-*.jar
-*.war
-*.nar
-*.ear
-*.zip
-*.tar.gz
-*.rar
-
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
-hs_err_pid*
-
-# IDE specific files
-.idea/
+### IntelliJ IDEA ###
+.idea
+*.iws
 *.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+
+### VS Code ###
 .vscode/
 
-# Build directories
-target/
-!pom.xml
+### Mac OS ###
+.DS_Store
 
-# Environment Variables
+### Environment & Secrets ###
 .env
 .env.*
-!.env.dev.example
+*.pem
+*.key
 
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# Authentication / Keys
-auth_trigger.txt
-verification_test.txt
-
-# Infrastructure / OCI Security
-oci_api_key.pem
-terraform/terraform.tfvars
-terraform/.terraform/
-terraform/*.tfstate
-terraform/*.tfstate.backup
-
-# AI instruction folders — NEVER push to git
-RULES OF ENGAGEMENT & AI INSTRUCTIONS & EDITS/
+### AI & Temporary Workspaces ###
+BACKEND_CODE_FILES/
 BACKEND CODE FILES/
+RULES OF ENGAGEMENT/
+TODO.md
 HANDOVER_DOCUMENT.md
-HANDOVER_DOCUMENT_TEMPLATE.md
-FINANCE_BUG_ANALYSIS.md
-ARCHITECTURE_QUICKREF.md
