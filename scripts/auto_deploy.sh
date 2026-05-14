@@ -30,6 +30,7 @@
 #
 # Future AI Guidance:
 #   - Do not remove the permission fix (sudo chown) without verifying non-root container user mapping.
+#   - Do not remove the `sed` sanitization from the Infisical export.
 #
 # IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
 #   - ADDED:
@@ -38,6 +39,9 @@
 #     • Added Pre-Flight Permission Fix (sudo chown) to prevent Git lockouts.
 #     • Upgraded Nginx restart to 'force-recreate' to guarantee config reload.
 #     • Reason: Fix 404s caused by stale Nginx config and permission denied errors.
+#   - EDITED:
+#     • Added `sed "s/['\"]//g"` pipeline to the Infisical export command.
+#     • Reason: Resolves backend crash (`IllegalStateException: LINKEDIN_TOKEN_ENCRYPTION_KEY missing or empty`). Infisical wraps `.env` values in literal single quotes, which corrupts the exact 32-byte Base64 array required by the Java AES-256-GCM cipher. Stripping quotes ensures clean variable hydration.
 # ==============================================================================
 
 # ==============================================================================
@@ -144,8 +148,8 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     # CAPTURE OUTPUT TO TEMP FILE FOR VALIDATION (Fix for Garbage Injection)
     TEMP_SECRETS=$(mktemp)
     
-    # Run Infisical. 
-    infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$TEMP_SECRETS" 2>/dev/null
+    # Run Infisical and explicitly strip literal quotes to prevent AES/JDBC corruption
+    infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv | sed "s/['\"]//g" > "$TEMP_SECRETS" 2>/dev/null
     EXIT_CODE=$?
 
     # VALIDATION: Check if file contains interactive prompt text or is empty
