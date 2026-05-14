@@ -72,3 +72,11 @@ terraform/terraform.tfvars
 terraform/.terraform/
 terraform/*.tfstate
 terraform/*.tfstate.backup
+
+# AI instruction folders — NEVER push to git
+RULES OF ENGAGEMENT & AI INSTRUCTIONS & EDITS/
+BACKEND CODE FILES/
+HANDOVER_DOCUMENT.md
+HANDOVER_DOCUMENT_TEMPLATE.md
+FINANCE_BUG_ANALYSIS.md
+ARCHITECTURE_QUICKREF.md

@@ -1,6 +1,7 @@
 package com.treishvaam.financeapi.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.treishvaam.financeapi.security.EncryptedStringConverter;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.HashSet;
@@ -45,7 +46,14 @@ public class User {
       inverseJoinColumns = @JoinColumn(name = "role_id"))
   private Set<Role> roles = new HashSet<>();
 
-  @Column(name = "linkedin_access_token", length = 1024)
+  // CVE-007 FIX: LinkedIn access token encrypted at rest using AES-256-GCM.
+  // EncryptedStringConverter transparently encrypts before INSERT/UPDATE and
+  // decrypts on SELECT. Key sourced from env var LINKEDIN_TOKEN_ENCRYPTION_KEY.
+  // Column length increased to 2048 to accommodate Base64(IV + ciphertext).
+  // See Liquibase migration V42__encrypt_linkedin_token.xml for the column
+  // resize.
+  @Column(name = "linkedin_access_token", length = 2048)
+  @Convert(converter = EncryptedStringConverter.class)
   @JsonIgnore // Phase 1 Fix: Prevent Token Leak
   private String linkedinAccessToken;
 
