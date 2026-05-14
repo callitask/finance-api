@@ -32,6 +32,19 @@
 #  * - EDITED:
 #  * • Restored `healthcheck` block for Keycloak using standard `curl -f http://localhost:8080/health/ready` and upgraded dependent services (`backend`, `nginx`) back to `service_healthy`.
 #  * • Why: Addressed Bug KC-01 as explicitly requested. If `curl` is missing in a specific local image, this enforces correct dependency graph constraints for environments where it is provisioned.
+#  *
+#  * - EDITED (2026-05-14 BUG KC-01 FINAL FIX):
+#  * • Removed Keycloak healthcheck block entirely. Downgraded backend and nginx depends_on
+#  *   from `service_healthy` to `service_started` for the keycloak dependency.
+#  * • Why: Keycloak 23 UBI Micro image does NOT have curl installed. The healthcheck
+#  *   `curl -f http://localhost:8080/health/ready` always fails immediately, leaving Keycloak
+#  *   permanently marked (unhealthy) even though it starts correctly (confirmed from logs:
+#  *   "Keycloak 23.0.0 started in 12.508s"). This caused a cascade failure: backend and nginx
+#  *   both depend on service_healthy and never started.
+#  * • What behavior must remain unchanged: All other healthchecks (MariaDB, Redis, Elasticsearch,
+#  *   MinIO) remain intact. Backend and nginx still wait for all other dependencies.
+#  * • DO NOT re-add a curl-based healthcheck for Keycloak 23 UBI Micro — curl is not present.
+#  * • FAILED ATTEMPT: `curl -f http://localhost:8080/health/ready` — REJECTED. Do not retry.
 #  */
 
 version: '3.8'
@@ -55,7 +68,7 @@ services:
       - ./config/mariadb:/etc/mysql/conf.d
     # ports: Removed for Security (Access via internal network only)
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1"]
+      test: [ "CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -74,7 +87,7 @@ services:
     volumes:
       - ./data/keycloak-db:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1"]
+      test: [ "CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -107,11 +120,14 @@ services:
     depends_on:
       keycloak-db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health/ready || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
+    # BUG KC-01 FIX (2026-05-14): Keycloak 23 UBI Micro image has NO curl binary.
+    # The healthcheck using `curl -f http://localhost:8080/health/ready` always fails
+    # because curl is not installed, leaving Keycloak permanently marked (unhealthy).
+    # This causes a cascade: backend and nginx both depend on service_healthy and never start.
+    # Keycloak IS running correctly (confirmed from logs: "started in 12.508s").
+    # Docker just cannot verify it. Removing the healthcheck block entirely is the correct fix.
+    # DO NOT re-add a curl-based healthcheck for Keycloak 23 UBI Micro.
+    # If a future Keycloak image includes wget or curl, use: wget -q -O- http://localhost:8080/health/ready
 
   redis:
     image: redis:alpine
@@ -124,7 +140,7 @@ services:
       - ./data/redis:/data
     command: redis-server --save 60 1 --loglevel warning --stop-writes-on-bgsave-error no
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 3
@@ -143,7 +159,7 @@ services:
       - ./data/minio:/data
     command: server /data --console-address ":9001"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
       interval: 30s
       timeout: 20s
       retries: 3
@@ -165,7 +181,7 @@ services:
     volumes:
       - ./data/elastic:/usr/share/elasticsearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -E -q 'status.*(green|yellow)'"]
+      test: [ "CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -E -q 'status.*(green|yellow)'" ]
       interval: 20s
       timeout: 10s
       retries: 5
@@ -235,9 +251,11 @@ services:
       tempo:
         condition: service_started
       keycloak:
-        condition: service_healthy
+        # BUG KC-01 FIX: Keycloak has no healthcheck (curl missing in UBI Micro image).
+        # Downgraded from service_healthy to service_started so backend can start.
+        condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(1); s.connect((\"localhost\", 8080)); s.close();' || exit 1"]
+      test: [ "CMD-SHELL", "python3 -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(1); s.connect((\"localhost\", 8080)); s.close();' || exit 1" ]
       interval: 15s
       timeout: 10s
       retries: 15
@@ -263,9 +281,11 @@ services:
       backend:
         condition: service_healthy
       keycloak:
-        condition: service_healthy
+        # BUG KC-01 FIX: Keycloak has no healthcheck (curl missing in UBI Micro image).
+        # Downgraded from service_healthy to service_started so nginx can start.
+        condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/robots.txt"]
+      test: [ "CMD", "curl", "-f", "http://localhost/robots.txt" ]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -309,7 +329,7 @@ services:
     # ZERO-TRUST PORT MAPPING: Exposed ONLY to the server's internal localhost
     ports:
       - "127.0.0.1:3001:3000"
-    user: "0" 
+    user: "0"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       - GF_USERS_ALLOW_SIGN_UP=false

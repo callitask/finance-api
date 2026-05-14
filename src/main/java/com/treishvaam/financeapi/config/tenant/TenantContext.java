@@ -1,5 +1,8 @@
 package com.treishvaam.financeapi.config.tenant;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * AI-CONTEXT:
  *
@@ -17,114 +20,63 @@ package com.treishvaam.financeapi.config.tenant;
  * TenantInterceptor.afterCompletion() on every request without exception.
  *
  * <p>Non-Negotiables: - The public API (setTenantId, getTenantId, clear, DEFAULT_TENANT) must
- * remain unchanged — TenantInterceptor depends on it exactly as written. - ScopedValue binding is
- * handled by runWithTenant() which wraps the request execution scope. - getTenantId() must always
- * return a non-null, non-empty string (falls back to DEFAULT_TENANT).
+ * remain unchanged — TenantInterceptor depends on it exactly as written. - getTenantId() must
+ * always return a non-null, non-empty string (falls back to DEFAULT_TENANT).
  *
- * <p>Change Intent: - P2-2 (CVE-008): Migrated from InheritableThreadLocal to ScopedValue (Java
- * 21). InheritableThreadLocal does not guarantee correct propagation with Java 21 Virtual Threads
- * (Project Loom). Under Virtual Thread scheduling, a child virtual thread may inherit a stale or
- * wrong tenant context from a pooled carrier thread, causing cross-tenant data leakage. ScopedValue
- * is immutable per scope and safe for Virtual Threads by design.
+ * <p>Change Intent: - P2-2 (CVE-008): ScopedValue migration was ATTEMPTED but REJECTED because
+ * ScopedValue is a preview API in Java 21 (stable only in Java 23 via JEP 481). Enabling
+ * --enable-preview in production Maven builds is unsafe. Reverted to InheritableThreadLocal.
+ * ScopedValue migration is deferred until the project upgrades to Java 23+.
  *
- * <p>Future AI Guidance: - Do NOT revert to ThreadLocal or InheritableThreadLocal. The ScopedValue
- * pattern is the Java 21 standard for request-scoped context with Virtual Threads. - The
- * runWithTenant() method is the ONLY correct way to bind a tenant for a scope. Do not call
- * TENANT.get() outside of a runWithTenant() scope — it will throw NoSuchElementException. -
- * TenantInterceptor.preHandle() must call runWithTenant() to wrap the downstream filter chain if
- * this pattern is adopted fully. For now, the ThreadLocal fallback field preserves backward
- * compatibility with the interceptor pattern.
+ * <p>Future AI Guidance: - DO NOT attempt ScopedValue migration on Java 21 without adding
+ * --enable-preview to maven-compiler-plugin compilerArgs in pom.xml AND verifying the CI/CD
+ * pipeline supports preview APIs. - When Java 23+ is adopted, replace InheritableThreadLocal with
+ * ScopedValue.newInstance() and use ScopedValue.where(TENANT, id).run(() -> ...) pattern. - Do NOT
+ * use ThreadLocal (non-inheritable) — child threads spawned manually will not inherit the tenant
+ * context. InheritableThreadLocal is the correct choice for Java 21.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Baseline TenantContext using
  * InheritableThreadLocal. • Phase: Initial multi-tenant implementation.
  *
- * <p>- EDITED (2026-05-14 P2-2 CVE-008 Fix): • Replaced InheritableThreadLocal with ScopedValue
- * (Java 21 stable). • Added TENANT ScopedValue field and runWithTenant() helper. • Preserved
- * ThreadLocal fallback (currentTenantFallback) for backward compatibility with TenantInterceptor's
- * preHandle/afterCompletion pattern which cannot wrap a ScopedValue scope around the full filter
- * chain without refactoring the interceptor. • getTenantId() checks ScopedValue first (isBound()),
- * then falls back to ThreadLocal, then DEFAULT_TENANT. • Why the edit was required: Java 21 Virtual
- * Threads do not reliably inherit ThreadLocal values from carrier threads. Cross-tenant
- * contamination is possible under high concurrency. • What behavior must remain unchanged:
- * setTenantId(), getTenantId(), clear(), DEFAULT_TENANT constant — all called identically by
- * TenantInterceptor.
+ * <p>- FAILED / REJECTED (2026-05-14 P2-2 CVE-008 Attempt): • Attempted to replace
+ * InheritableThreadLocal with ScopedValue (Java 21). • FAILED: ScopedValue is a preview API in Java
+ * 21 (JEP 429 — preview only). Stable in Java 23 (JEP 481). • Build error: "java.lang .ScopedValue
+ * is a preview API and is disabled by default. Use --enable-preview to enable." • REJECTED: Adding
+ * --enable-preview to production Maven builds is unsafe and non-standard. • DO NOT RETRY
+ * ScopedValue on Java 21 without --enable-preview. Defer to Java 23 upgrade.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class TenantContext {
 
   private static final Logger logger = LoggerFactory.getLogger(TenantContext.class);
 
-  /** DEFAULT_TENANT is used as a fallback or for public data access. */
+  // DEFAULT_TENANT is used as a fallback or for public data access
   public static final String DEFAULT_TENANT = "public";
 
-  /**
-   * ScopedValue for Java 21 Virtual Thread-safe tenant binding. Use runWithTenant() to bind a
-   * tenant for a specific execution scope. ScopedValue is immutable within a scope and does NOT
-   * leak across Virtual Thread boundaries.
-   */
-  public static final ScopedValue<String> TENANT = ScopedValue.newInstance();
+  // InheritableThreadLocal ensures that if a thread spawns a child thread
+  // manually,
+  // the tenant ID is passed down.
+  // NOTE: ScopedValue migration deferred to Java 23+ — see FAILED/REJECTED
+  // history above.
+  private static final ThreadLocal<String> currentTenant = new InheritableThreadLocal<>();
 
-  /**
-   * ThreadLocal fallback for backward compatibility with TenantInterceptor's
-   * preHandle/afterCompletion lifecycle. This is used when the caller sets tenant via setTenantId()
-   * rather than runWithTenant(). Will be removed in a future phase when TenantInterceptor is
-   * refactored to use ScopedValue.where().run() wrapping.
-   */
-  private static final ThreadLocal<String> currentTenantFallback = new ThreadLocal<>();
-
-  /**
-   * Sets the tenant ID for the current thread via the ThreadLocal fallback. Called by
-   * TenantInterceptor.preHandle(). Prefer runWithTenant() for new code using Virtual Threads.
-   */
   public static void setTenantId(String tenantId) {
-    logger.debug("Setting Tenant Context (ThreadLocal fallback): {}", tenantId);
-    currentTenantFallback.set(tenantId);
+    logger.debug("Setting Tenant Context: {}", tenantId);
+    currentTenant.set(tenantId);
   }
 
-  /**
-   * Returns the current tenant ID. Checks ScopedValue first (Virtual Thread-safe), then ThreadLocal
-   * fallback, then DEFAULT_TENANT. Never returns null or empty string.
-   */
   public static String getTenantId() {
-    // 1. Check ScopedValue (set via runWithTenant — Virtual Thread safe)
-    if (TENANT.isBound()) {
-      String scopedTenant = TENANT.get();
-      if (scopedTenant != null && !scopedTenant.trim().isEmpty()) {
-        return scopedTenant;
-      }
+    String tenantId = currentTenant.get();
+    if (tenantId == null || tenantId.trim().isEmpty()) {
+      return DEFAULT_TENANT;
     }
-    // 2. Fall back to ThreadLocal (set via setTenantId — interceptor pattern)
-    String fallback = currentTenantFallback.get();
-    if (fallback != null && !fallback.trim().isEmpty()) {
-      return fallback;
-    }
-    // 3. Default
-    return DEFAULT_TENANT;
+    return tenantId;
   }
 
-  /**
-   * Clears the ThreadLocal fallback. Called by TenantInterceptor.afterCompletion(). CRITICAL: Must
-   * always be called to prevent memory leaks in thread pools.
-   */
   public static void clear() {
     logger.debug("Clearing Tenant Context");
-    currentTenantFallback.remove();
-  }
-
-  /**
-   * Executes the given Runnable within a ScopedValue-bound tenant context. This is the preferred
-   * Virtual Thread-safe method for binding tenant context in new async code. Example usage:
-   * TenantContext.runWithTenant("finance", () -> blogPostService.findAll());
-   *
-   * @param tenantId the tenant ID to bind for this scope
-   * @param action the code to execute within this tenant scope
-   */
-  public static void runWithTenant(String tenantId, Runnable action) {
-    ScopedValue.where(TENANT, tenantId).run(action);
+    currentTenant.remove();
   }
 }
