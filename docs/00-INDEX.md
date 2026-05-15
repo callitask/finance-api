@@ -2,10 +2,11 @@
 
 ## Project Overview
 
-**Stable Version:** `tfin-financeapi-Develop.0.0.0.1`
+**Stable Version:** `tfin-financeapi-Develop.0.0.0.7`
 **Security Status:** Fort Knox Security Suite Enabled
+**Last Updated:** 2026-05-15
 
-The Treishvaam Finance Platform is a high-performance, enterprise-grade financial analytics and content delivery system. It is designed as a modular, microservices-ready monolith using Spring Boot 3.4 (Java 21) for the backend and React for the frontend, served via Cloudflare Edge.
+The Treishvaam Finance Platform is a high-performance, enterprise-grade financial analytics and content delivery system. It is designed as a modular, microservices-ready monolith using Spring Boot 3.4 (Java 21) for the backend and **Next.js 14 App Router** for the frontend, served via Cloudflare Edge.
 
 This index serves as the central navigation map for all architectural, operational, and security documentation.
 
@@ -15,7 +16,9 @@ This index serves as the central navigation map for all architectural, operation
 | :--- | :--- | :--- |
 | **Java 21** | Backend Runtime | LTS (Temurin) |
 | **Spring Boot** | Application Framework | 3.4.0 |
-| **React** | Frontend Framework | 18 |
+| **Next.js** | Frontend Framework | 14.2.x (App Router) |
+| **React** | UI Library | 18.3.x |
+| **Tiptap** | Rich Text Editor | 3.23.x |
 | **MariaDB** | Primary Relational Database | 10.6 |
 | **Redis** | Caching & Session Store | Alpine |
 | **RabbitMQ** | Asynchronous Messaging | 3.12 Management |
@@ -23,7 +26,7 @@ This index serves as the central navigation map for all architectural, operation
 | **MinIO** | Object Storage (S3 Compatible) | Latest |
 | **Keycloak** | Identity & Access Management | 23.0.0 |
 | **Infisical** | Secret Management | Orchestrator |
-| **Cloudflare** | Edge Network & WAF | Workers |
+| **Cloudflare** | Edge Network & WAF | Workers + Pages |
 
 ## Documentation Modules
 

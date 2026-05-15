@@ -62,8 +62,12 @@ Unlike standard deployments, this system exposes **zero** internal ports. The da
     * **Role**: Intelligent **Edge Routers** and **Zero-Trust API Proxies**. 
     * **SEO Payload**: Injects E-E-A-T JSON-LD schemas directly into HTML via `HTMLRewriter`.
     * **SPA Fallback**: Intercepts 404/403 errors on static routes and rewrites them to `200 OK` (delivering `index.html`) to eliminate GSC Soft 404s.
-* **Frontends**: Next.js/React (Cloudflare Pages)
-    * **Zero-Trust Tagging**: Frontends natively execute a 0ms TBT (Total Blocking Time) Idle Strategy for Analytics and Ads, relying entirely on dynamically injected Cloudflare Environment Variables (e.g., `REACT_APP_GA_MEASUREMENT_ID`).
+* **Frontends**: Next.js 14 App Router (Cloudflare Pages)
+    * **Framework**: Migrated from Create React App (CRA) to Next.js 14 App Router. Routes live in `app/` directory. `src/pages/*.js` are components, not URL routes.
+    * **SEO**: Uses Next.js native `metadata` export and `generateMetadata()` — NOT react-helmet-async.
+    * **GA4**: Fires unconditionally via `strategy="afterInteractive"` in `app/layout.tsx`. `anonymize_ip: true` enabled.
+    * **Env Vars**: Uses `NEXT_PUBLIC_*` prefix (NOT `REACT_APP_*`).
+    * **Hydration**: `suppressHydrationWarning` on `<html>` and `<body>`. Browser-API components use `dynamic(..., { ssr: false })`.
 
 ### 2. Data Layer (The "Vault" - No Exposed Ports)
 * **Database**: MariaDB 10.6

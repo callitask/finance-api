@@ -167,6 +167,8 @@ public class SecurityConfig {
                     .hasAnyAuthority("ROLE_PUBLISHER", "ROLE_ADMIN")
                     .requestMatchers(HttpMethod.PUT, "/api/v1/posts/**")
                     .hasAnyAuthority("ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
+                    .requestMatchers(HttpMethod.DELETE, "/api/v1/posts/bulk")
+                    .hasAnyAuthority("ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
                     .requestMatchers(HttpMethod.DELETE, "/api/v1/posts/**")
                     .hasAnyAuthority("ROLE_PUBLISHER", "ROLE_ADMIN")
 

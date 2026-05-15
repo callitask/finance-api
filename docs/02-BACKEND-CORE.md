@@ -67,13 +67,22 @@ We map Keycloak Realm Roles to Spring Security Authorities using a custom conver
 ### 2.3. Security Filter Chain (`SecurityConfig.java`)
 The filter chain is configured with strict ordering to ensure safety before any business logic executes.
 
-1.  **CORS Filter**: Applied globally. Allows origins defined in `application-prod.properties` (e.g., `https://treishfin.treishvaamgroup.com`, `https://treishvaamagro.com`).
+1.  **CORS Filter**: Applied globally via `FilterRegistrationBean<CorsFilter>` at `Ordered.HIGHEST_PRECEDENCE`. Allows origins defined in `application-prod.properties`: `https://treishvaamfinance.com`, `https://www.treishvaamfinance.com`, `https://treishvaamgroup.com`, `https://www.treishvaamgroup.com`.
 2.  **CSRF**: Disabled (Stateless API does not use session cookies for auth).
 3.  **Session Management**: Set to `STATELESS`.
-4.  **Authorization Rules**:
-    * **Public**: `/actuator/health`, `/api/v1/auth/**`, `/api/v1/posts/public/**`.
-    * **Protected**: All other endpoints require a valid JWT.
-    * **Admin**: Endpoints like `/api/v1/admin/**` require `ROLE_ADMIN`.
+4.  **Authorization Rules** (explicit, in order):
+    * **OPTIONS `/**`**: permitAll (CORS preflight)
+    * **Public**: `/actuator/health`, `/api/v1/health/**`, `/api/v1/monitoring/ingest`
+    * **Public GET**: `/api/v1/posts/**`, `/api/v1/categories/**`, `/api/v1/market/**`, `/api/v1/news/**`, `/api/v1/search/**`
+    * **Public POST**: `/api/v1/market/quotes/batch`, `/api/v1/contact/**`
+    * **Authenticated**: `POST /api/v1/posts/draft`, `PUT /api/v1/posts/draft/**`
+    * **Authenticated**: `/api/v1/auth/**`
+    * **EDITOR/PUBLISHER/ADMIN**: `/api/v1/posts/admin/**`, `PUT /api/v1/posts/**`, `DELETE /api/v1/posts/bulk`
+    * **PUBLISHER/ADMIN**: `POST /api/v1/posts`, `DELETE /api/v1/posts/**`, `/api/v1/files/upload`
+    * **ADMIN**: `/api/v1/admin/**`, `/api/v1/status/**`, `/actuator/**`
+    * **Fallback**: `.anyRequest().authenticated()`
+
+**IMMUTABLE RULE**: Always add explicit rules for new endpoints BEFORE the `.anyRequest()` fallback. Rule ordering matters — more specific rules must come first.
 
 ### 2.4. Subprocess Security (Market Engine)
 The backend invokes a Python subsystem for complex financial analysis.
