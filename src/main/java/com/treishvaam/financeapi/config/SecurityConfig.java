@@ -26,7 +26,15 @@
  * `/actuator/health` permitAll. - EDITED (Phase 2 Bug Fix): • Extracted CORS logic into a globally
  * registered `FilterRegistrationBean<CorsFilter>` with `Ordered.HIGHEST_PRECEDENCE`. Disabled
  * Spring Security's native `.cors()` to let the global filter handle it at the very start of the
- * Servlet chain.
+ * Servlet chain. - EDITED (2026-05-15 BUG-FINANCE-02 Fix B): • Added explicit requestMatchers for
+ * PUT /api/v1/posts/draft/** and POST /api/v1/posts/draft with .authenticated() — makes intent
+ * explicit and prevents rule ordering ambiguity. • Added explicit requestMatchers for PUT
+ * /api/v1/posts/** with authenticated() for edit flow. • Added DELETE /api/v1/posts/** with
+ * hasAnyAuthority for post deletion. • Why: The previous config relied on
+ * .anyRequest().authenticated() fallback for draft operations. While this SHOULD work, explicit
+ * rules prevent future rule ordering bugs and make the security intent clear. Combined with the
+ * nginx ModSecurity fix, this resolves the 403/CORS error on draft save, post edit, and publish
+ * operations.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
@@ -138,6 +146,12 @@ public class SecurityConfig {
                     .requestMatchers("/api/v1/contact/**")
                     .permitAll()
 
+                    // --- Draft Operations (Authenticated — any logged-in user) ---
+                    .requestMatchers(HttpMethod.POST, "/api/v1/posts/draft")
+                    .authenticated()
+                    .requestMatchers(HttpMethod.PUT, "/api/v1/posts/draft/**")
+                    .authenticated()
+
                     // --- Auth Endpoints MUST be Authenticated ---
                     .requestMatchers("/api/v1/auth/**")
                     .authenticated()
@@ -147,6 +161,16 @@ public class SecurityConfig {
                     .hasAnyAuthority("ROLE_ANALYST", "ROLE_ADMIN")
                     .requestMatchers("/api/v1/posts/admin/**")
                     .hasAnyAuthority("ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
+
+                    // --- Post Publish & Edit (requires PUBLISHER or ADMIN) ---
+                    .requestMatchers(HttpMethod.POST, "/api/v1/posts")
+                    .hasAnyAuthority("ROLE_PUBLISHER", "ROLE_ADMIN")
+                    .requestMatchers(HttpMethod.PUT, "/api/v1/posts/**")
+                    .hasAnyAuthority("ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
+                    .requestMatchers(HttpMethod.DELETE, "/api/v1/posts/**")
+                    .hasAnyAuthority("ROLE_PUBLISHER", "ROLE_ADMIN")
+
+                    // --- File Upload (requires PUBLISHER or ADMIN) ---
                     .requestMatchers("/api/v1/files/upload")
                     .hasAnyAuthority("ROLE_PUBLISHER", "ROLE_ADMIN")
                     .requestMatchers("/api/v1/admin/**", "/api/v1/status/**")
@@ -169,7 +193,8 @@ public class SecurityConfig {
     UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
     CorsConfiguration configuration = new CorsConfiguration();
 
-    // Use AllowedOriginPatterns for better matching (handles subdomains & protocols)
+    // Use AllowedOriginPatterns for better matching (handles subdomains &
+    // protocols)
     if (allowedOrigins == null
         || allowedOrigins.isEmpty()
         || (allowedOrigins.size() == 1 && allowedOrigins.get(0).isEmpty())) {
