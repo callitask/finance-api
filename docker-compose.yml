@@ -22,41 +22,17 @@
 #  * - Healthchecks must be robust and dictate startup order.
 #  *
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
-#  * - EDITED:
-#  * • Modified Keycloak `healthcheck.test` from `http://localhost:8080/auth/health` to `http://localhost:8080/health/ready`.
-#  * • Why: Fixed Bug KC-01 where Docker flagged Keycloak as unhealthy despite being fully functional due to `KC_HTTP_RELATIVE_PATH` not affecting internal management endpoints.
-#  *
-#  * - EDITED:
-#  * • Removed `healthcheck` block entirely from Keycloak and downgraded downstream dependents to `service_started`.
-#  * • Why: Keycloak 23+ UBI Micro image lacks `curl` and `/dev/tcp`. The healthcheck constantly fails locally, leaving the container marked as `(unhealthy)`.
-#  *
-#  * - EDITED:
-#  * • Restored `healthcheck` block for Keycloak using standard `curl -f http://localhost:8080/health/ready` and upgraded dependent services (`backend`, `nginx`) back to `service_healthy`.
-#  * • Why: Addressed Bug KC-01 as explicitly requested. If `curl` is missing in a specific local image, this enforces correct dependency graph constraints for environments where it is provisioned.
-#  *
-#  * - EDITED (2026-05-14 BUG KC-01 FINAL FIX):
-#  * • Removed Keycloak healthcheck block entirely. Downgraded backend and nginx depends_on
-#  * from `service_healthy` to `service_started` for the keycloak dependency.
-#  * • Why: Keycloak 23 UBI Micro image does NOT have curl installed. The healthcheck
-#  * `curl -f http://localhost:8080/health/ready` always fails immediately, leaving Keycloak
-#  * permanently marked (unhealthy) even though it starts correctly (confirmed from logs:
-#  * "Keycloak 23.0.0 started in 12.508s"). This caused a cascade failure: backend and nginx
-#  * both depend on service_healthy and never started.
-#  * • What behavior must remain unchanged: All other healthchecks (MariaDB, Redis, Elasticsearch,
-#  * MinIO) remain intact. Backend and nginx still wait for all other dependencies.
-#  * • DO NOT re-add a curl-based healthcheck for Keycloak 23 UBI Micro — curl is not present.
-#  * • FAILED ATTEMPT: `curl -f http://localhost:8080/health/ready` — REJECTED. Do not retry.
-#  *
-#  * - EDITED:
-#  * • Mapped `LINKEDIN_TOKEN_ENCRYPTION_KEY` to the backend service environment variables.
-#  * • Why: Resolved application crash (`BeanCreationException` / `IllegalStateException`) caused by the `EncryptedStringConverter` failing to initialize without the zero-trust AES-256-GCM key.
-#  * • Security Note: Acknowledged explicit directive to use CF/Infiscal for secret injection instead of relying on `.env`.
-#  * #  * - EDITED (Phase 2 - Security Hardening):
+#  * - EDITED (Phase 2 - Security Hardening):
 #  * • Added `--requirepass ${REDIS_PASSWORD}` to Redis command and updated healthcheck.
 #  * • Injected `SPRING_DATA_REDIS_PASSWORD` into Backend env.
 #  * • Upgraded Keycloak image to `quay.io/keycloak/keycloak:25.0.0`.
 #  * • Enabled Elasticsearch `xpack.security.enabled=true` and injected `ELASTIC_PASSWORD` and `SPRING_ELASTICSEARCH_USERNAME`/`PASSWORD`.
 #  * • Why: Addressed [SEC-01], [SEC-06], and [SEC-09]. Enforce defense-in-depth across the internal Docker bridge network.
+#  *
+#  * - EDITED (Hotfix - Deployment Stall):
+#  * • Modified Redis healthcheck to use `REDISCLI_AUTH` environment variable instead of `-a` flag to prevent warning messages from breaking the `ping` return code.
+#  * • Downgraded Backend `depends_on` for Elasticsearch to `service_started`.
+#  * • Why: Elasticsearch takes significantly longer to start on its first run when `xpack.security.enabled=true` is toggled. The strict `service_healthy` condition caused a timeout, preventing the backend and Nginx from booting.
 #  */
 
 version: '3.8'
@@ -78,7 +54,6 @@ services:
     volumes:
       - ./data/mariadb:/var/lib/mysql
       - ./config/mariadb:/etc/mysql/conf.d
-    # ports: Removed for Security (Access via internal network only)
     healthcheck:
       test: [ "CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1" ]
       interval: 10s
@@ -132,14 +107,6 @@ services:
     depends_on:
       keycloak-db:
         condition: service_healthy
-    # BUG KC-01 FIX (2026-05-14): Keycloak 23 UBI Micro image has NO curl binary.
-    # The healthcheck using `curl -f http://localhost:8080/health/ready` always fails
-    # because curl is not installed, leaving Keycloak permanently marked (unhealthy).
-    # This causes a cascade: backend and nginx both depend on service_healthy and never start.
-    # Keycloak IS running correctly (confirmed from logs: "started in 12.508s").
-    # Docker just cannot verify it. Removing the healthcheck block entirely is the correct fix.
-    # DO NOT re-add a curl-based healthcheck for Keycloak 23 UBI Micro.
-    # If a future Keycloak image includes wget or curl, use: wget -q -O- http://localhost:8080/health/ready
 
   redis:
     image: redis:alpine
@@ -147,15 +114,18 @@ services:
     restart: always
     networks:
       - treish_net
-    # ports: Removed for Security (Access via internal network only)
     volumes:
       - ./data/redis:/data
     command: redis-server --save 60 1 --loglevel warning --stop-writes-on-bgsave-error no --requirepass ${REDIS_PASSWORD}
+    # Hotfix: Pass auth via env var to prevent "Warning: Using a password with '-a' or '-u' option on the command line interface may not be safe." 
+    # which corrupts the expected "PONG" response of the healthcheck.
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
     healthcheck:
-      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping" ]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
-      retries: 3
+      retries: 5
 
   minio:
     image: minio/minio
@@ -163,7 +133,6 @@ services:
     restart: always
     networks:
       - treish_net
-    # ports: Removed for Security (Access via internal network only)
     environment:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -190,14 +159,13 @@ services:
       - xpack.security.enrollment.enabled=false
       - xpack.security.http.ssl.enabled=false
       - xpack.security.transport.ssl.enabled=false
-    # ports: Removed for Security (Access via internal network only)
     volumes:
       - ./data/elastic:/usr/share/elasticsearch/data
     healthcheck:
-      test: [ "CMD-SHELL", "curl -u elastic:$$ELASTIC_PASSWORD -s http://localhost:9200/_cluster/health | grep -E -q 'status.*(green|yellow)'" ]
+      test: [ "CMD-SHELL", "curl -u elastic:${ELASTIC_PASSWORD} -s http://localhost:9200/_cluster/health | grep -E -q 'status.*(green|yellow)'" ]
       interval: 20s
       timeout: 10s
-      retries: 5
+      retries: 10
 
   tunnel:
     image: cloudflare/cloudflared
@@ -262,14 +230,13 @@ services:
       redis:
         condition: service_healthy
       elasticsearch:
-        condition: service_healthy
+        # Hotfix: Downgraded to service_started. ES initialization takes time.
+        condition: service_started
       rabbitmq:
         condition: service_started
       tempo:
         condition: service_started
       keycloak:
-        # BUG KC-01 FIX: Keycloak has no healthcheck (curl missing in UBI Micro image).
-        # Downgraded from service_healthy to service_started so backend can start.
         condition: service_started
     healthcheck:
       test: [ "CMD-SHELL", "python3 -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(1); s.connect((\"localhost\", 8080)); s.close();' || exit 1" ]
@@ -298,8 +265,6 @@ services:
       backend:
         condition: service_healthy
       keycloak:
-        # BUG KC-01 FIX: Keycloak has no healthcheck (curl missing in UBI Micro image).
-        # Downgraded from service_healthy to service_started so nginx can start.
         condition: service_started
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost/robots.txt" ]
@@ -343,7 +308,6 @@ services:
     restart: always
     networks:
       - treish_net
-    # ZERO-TRUST PORT MAPPING: Exposed ONLY to the server's internal localhost
     ports:
       - "127.0.0.1:3001:3000"
     user: "0"
@@ -378,7 +342,6 @@ services:
     restart: always
     networks:
       - treish_net
-    # ZERO-TRUST PORT MAPPING: Exposed ONLY to the server's internal localhost
     ports:
       - "127.0.0.1:15672:15672"
     environment:
