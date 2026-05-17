@@ -1,5 +1,28 @@
 package com.treishvaam.financeapi.marketdata;
 
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - REST Controller for exposing market data, top movers, historical data, and
+ * individual quotes.
+ *
+ * <p>Scope: - Handles all `/api/v1/market` public and admin routes.
+ *
+ * <p>Critical Dependencies: - MarketDataService for fetching aggregated widget data. -
+ * QuoteDataRepository for direct live quote lookups.
+ *
+ * <p>Security Constraints: - Admin routes (`/admin/**`) must remain protected by
+ * `@PreAuthorize("hasAuthority('ROLE_ADMIN')")`. - Public routes (`/data`, `/quote`, `/widget`) do
+ * not require authentication.
+ *
+ * <p>Non-Negotiables: - Endpoint paths must match exactly what the Next.js frontend expects to
+ * avoid 404s/500s.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Implemented
+ * `@GetMapping("/quote/{ticker}")` and `@GetMapping("/data/{ticker}")`. • Injected
+ * `QuoteDataRepository`. • Why: Resolves BUG-01 where frontend requested these endpoints but they
+ * did not exist, causing 500 errors via Nginx. • Date: 2026-05-17 (Phase 1 Bug Fixes)
+ */
 import com.treishvaam.financeapi.apistatus.PasswordDto;
 import java.util.List;
 import java.util.Map;
@@ -13,9 +36,12 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/market")
 public class MarketDataController {
+
   @Autowired
   @Qualifier("apiMarketDataService")
   private MarketDataService marketDataService;
+
+  @Autowired private QuoteDataRepository quoteDataRepository;
 
   @PostMapping("/quotes/batch")
   public ResponseEntity<List<QuoteData>> getBatchQuotes(@RequestBody List<String> tickers) {
@@ -25,6 +51,42 @@ public class MarketDataController {
   @GetMapping("/widget")
   public ResponseEntity<WidgetDataDto> getWidgetData(@RequestParam String ticker) {
     return ResponseEntity.ok(marketDataService.getWidgetData(ticker));
+  }
+
+  @GetMapping("/quote/{ticker}")
+  public ResponseEntity<?> getQuoteByTicker(@PathVariable String ticker) {
+    try {
+      String decodedTicker =
+          java.net.URLDecoder.decode(ticker, java.nio.charset.StandardCharsets.UTF_8);
+      QuoteData quote = quoteDataRepository.findById(decodedTicker).orElse(null);
+      if (quote == null) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(
+                Map.of(
+                    "error", true, "message", "No quote data found for ticker: " + decodedTicker));
+      }
+      return ResponseEntity.ok(quote);
+    } catch (Exception e) {
+      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+          .body(Map.of("error", true, "message", e.getMessage()));
+    }
+  }
+
+  @GetMapping("/data/{ticker}")
+  public ResponseEntity<?> getMarketDetailData(@PathVariable String ticker) {
+    try {
+      String decodedTicker =
+          java.net.URLDecoder.decode(ticker, java.nio.charset.StandardCharsets.UTF_8);
+      WidgetDataDto widgetData = marketDataService.getWidgetData(decodedTicker);
+      if (widgetData == null || widgetData.getQuoteData() == null) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(Map.of("error", true, "message", "Asset not found: " + decodedTicker));
+      }
+      return ResponseEntity.ok(widgetData);
+    } catch (Exception e) {
+      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+          .body(Map.of("error", true, "message", e.getMessage()));
+    }
   }
 
   @GetMapping("/top-gainers")
