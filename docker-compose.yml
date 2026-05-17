@@ -33,6 +33,10 @@
 #  * • Modified Redis healthcheck to use `REDISCLI_AUTH` environment variable instead of `-a` flag to prevent warning messages from breaking the `ping` return code.
 #  * • Downgraded Backend `depends_on` for Elasticsearch to `service_started`.
 #  * • Why: Elasticsearch takes significantly longer to start on its first run when `xpack.security.enabled=true` is toggled. The strict `service_healthy` condition caused a timeout, preventing the backend and Nginx from booting.
+#  *
+#  * - EDITED (SEC-13 Fix):
+#  * • Changed Keycloak environment variables: `KEYCLOAK_ADMIN` to `keycloak-admin` and `KEYCLOAK_ADMIN_PASSWORD` to use a dedicated secret `${KEYCLOAK_ADMIN_PASSWORD}` instead of reusing `${APP_ADMIN_PASSWORD}`.
+#  * • Why: Addressed [SEC-13] Critical severity finding. Sharing admin credentials across platforms creates a single point of total failure.
 #  */
 
 version: '3.8'
@@ -93,8 +97,8 @@ services:
       KC_HTTP_RELATIVE_PATH: /auth
       KC_HOSTNAME_URL: https://backend.treishvaamgroup.com/auth
       KC_HOSTNAME_ADMIN_URL: https://backend.treishvaamgroup.com/auth
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD}
+      KEYCLOAK_ADMIN: keycloak-admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KC_PROXY_HEADERS: xforwarded
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
@@ -117,8 +121,6 @@ services:
     volumes:
       - ./data/redis:/data
     command: redis-server --save 60 1 --loglevel warning --stop-writes-on-bgsave-error no --requirepass ${REDIS_PASSWORD}
-    # Hotfix: Pass auth via env var to prevent "Warning: Using a password with '-a' or '-u' option on the command line interface may not be safe." 
-    # which corrupts the expected "PONG" response of the healthcheck.
     environment:
       REDISCLI_AUTH: ${REDIS_PASSWORD}
     healthcheck:
@@ -230,7 +232,6 @@ services:
       redis:
         condition: service_healthy
       elasticsearch:
-        # Hotfix: Downgraded to service_started. ES initialization takes time.
         condition: service_started
       rabbitmq:
         condition: service_started
