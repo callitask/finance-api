@@ -51,6 +51,12 @@
 #  * • Mapped `LINKEDIN_TOKEN_ENCRYPTION_KEY` to the backend service environment variables.
 #  * • Why: Resolved application crash (`BeanCreationException` / `IllegalStateException`) caused by the `EncryptedStringConverter` failing to initialize without the zero-trust AES-256-GCM key.
 #  * • Security Note: Acknowledged explicit directive to use CF/Infiscal for secret injection instead of relying on `.env`.
+#  * #  * - EDITED (Phase 2 - Security Hardening):
+#  * • Added `--requirepass ${REDIS_PASSWORD}` to Redis command and updated healthcheck.
+#  * • Injected `SPRING_DATA_REDIS_PASSWORD` into Backend env.
+#  * • Upgraded Keycloak image to `quay.io/keycloak/keycloak:25.0.0`.
+#  * • Enabled Elasticsearch `xpack.security.enabled=true` and injected `ELASTIC_PASSWORD` and `SPRING_ELASTICSEARCH_USERNAME`/`PASSWORD`.
+#  * • Why: Addressed [SEC-01], [SEC-06], and [SEC-09]. Enforce defense-in-depth across the internal Docker bridge network.
 #  */
 
 version: '3.8'
@@ -99,7 +105,7 @@ services:
       retries: 10
 
   keycloak:
-    image: quay.io/keycloak/keycloak:23.0.0
+    image: quay.io/keycloak/keycloak:25.0.0
     container_name: treishvaam-keycloak
     restart: always
     networks:
@@ -144,9 +150,9 @@ services:
     # ports: Removed for Security (Access via internal network only)
     volumes:
       - ./data/redis:/data
-    command: redis-server --save 60 1 --loglevel warning --stop-writes-on-bgsave-error no
+    command: redis-server --save 60 1 --loglevel warning --stop-writes-on-bgsave-error no --requirepass ${REDIS_PASSWORD}
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 3
@@ -179,7 +185,8 @@ services:
     environment:
       - discovery.type=single-node
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-      - xpack.security.enabled=false
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - xpack.security.enrollment.enabled=false
       - xpack.security.http.ssl.enabled=false
       - xpack.security.transport.ssl.enabled=false
@@ -187,7 +194,7 @@ services:
     volumes:
       - ./data/elastic:/usr/share/elasticsearch/data
     healthcheck:
-      test: [ "CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -E -q 'status.*(green|yellow)'" ]
+      test: [ "CMD-SHELL", "curl -u elastic:$$ELASTIC_PASSWORD -s http://localhost:9200/_cluster/health | grep -E -q 'status.*(green|yellow)'" ]
       interval: 20s
       timeout: 10s
       retries: 5
@@ -225,7 +232,10 @@ services:
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
       - SPRING_PROFILES_ACTIVE=prod
       - SPRING_DATA_REDIS_HOST=treishvaam-redis
+      - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
       - SPRING_ELASTICSEARCH_URIS=http://treishvaam-elastic:9200
+      - SPRING_ELASTICSEARCH_USERNAME=elastic
+      - SPRING_ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
       - STORAGE_S3_ENDPOINT=http://treishvaam-minio:9000
       - SPRING_RABBITMQ_HOST=treishvaam-rabbitmq
       - SPRING_RABBITMQ_USERNAME=${RABBITMQ_DEFAULT_USER}

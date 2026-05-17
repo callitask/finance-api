@@ -28,20 +28,15 @@ TICKERS = [
 ]
 
 def get_db_engine():
-    # SECURITY: Read from Environment Variables (Invisible to Process List)
+    # SECURITY: Read from Environment Variables ONLY (Zero-Trust)
+    # [SEC-04 Fix]: Removed sys.argv fallback to prevent credential leakage in process lists.
     jdbc_url = os.getenv("DB_URL", "")
     user = os.getenv("DB_USER", "")
     password = os.getenv("DB_PASSWORD", "")
 
     if not jdbc_url or not user or not password:
-        # Fallback to args only if env vars are missing (Backward Compatibility)
-        if len(sys.argv) >= 4:
-            jdbc_url = sys.argv[1]
-            user = sys.argv[2]
-            password = sys.argv[3]
-        else:
-            logging.error("Fatal: Database credentials missing from ENV and ARGS.")
-            sys.exit(1)
+        logging.error("Fatal: Database credentials missing from ENV. CLI args are explicitly prohibited.")
+        sys.exit(1)
 
     try:
         clean_url = jdbc_url.replace("jdbc:", "")

@@ -68,6 +68,8 @@ These are configured in Cloudflare Dashboard -> Workers & Pages -> [Project Name
 | `RABBITMQ_DEFAULT_PASS` | Admin password for the Message Broker. | RabbitMQ, Backend |
 | `BACKUP_MINIO_ACCESS_KEY` | Access key for Backup Service to talk to MinIO. | Backup Service |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Token for Zero Trust Tunnel connection. | Cloudflared |
+| `REDIS_PASSWORD` | Authentication password for Redis Cache instance. | Redis, Backend |
+| `ELASTIC_PASSWORD` | Authentication password for Elasticsearch indexing. | Elasticsearch, Backend |
 
 ## BACKEND: Application Secrets (Infisical)
 | Variable Name | Description | Service(s) |

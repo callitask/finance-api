@@ -1,3 +1,26 @@
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Service layer for managing market data fetching, caching, and Python script
+ * execution.
+ *
+ * <p>Scope: - Handles historical data requests and orchestrates the `market_data_updater.py`
+ * process.
+ *
+ * <p>Change Intent: - Fix SEC-05: Removed `@Value` injection of raw DB credentials. The Python
+ * script now strictly inherits DB credentials from the Java process environment variables, closing
+ * a potential memory/dump leakage vector.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Removed `dbUrl`, `dbUsername`, and
+ * `dbPassword` `@Value` fields. • Removed manual `env.put()` injection in
+ * `runPythonHistoryAndQuoteUpdate()`. • Why: Address SEC-05 vulnerability where DB credentials
+ * could be exposed in heap dumps or reflections. • What behavior must remain unchanged: Python
+ * script must still execute and connect to the DB (it will inherit the environment variables
+ * natively).
+ *
+ * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
+ * rewritten, or regenerated. Future AI must append only.
+ */
 package com.treishvaam.financeapi.marketdata;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -69,15 +92,6 @@ public class MarketDataService {
   @Autowired private PasswordEncoder passwordEncoder;
   @Autowired private CsvHistoryLoader csvHistoryLoader;
 
-  @Value("${spring.datasource.url}")
-  private String dbUrl;
-
-  @Value("${spring.datasource.username}")
-  private String dbUsername;
-
-  @Value("${spring.datasource.password}")
-  private String dbPassword;
-
   @Value("${app.python.script.path:scripts/market_data_updater.py}")
   private String pythonScriptPath;
 
@@ -102,12 +116,17 @@ public class MarketDataService {
     apiFetchStatusRepository.save(status);
 
     try {
-      // SECURITY UPGRADE: Pass credentials via Environment Variables, NOT command line args
+      // SECURITY UPGRADE [SEC-05]: Subprocess naturally inherits environment variables from JVM
+      // (PROD_DB_URL, etc., set in docker-compose.yml mapped to DB_URL expected by python).
+      // If variable names differ between Java and Python expectations, we explicitly map them here
+      // by retrieving the System environment, NOT by storing them as @Value fields in heap memory.
       ProcessBuilder pb = new ProcessBuilder("python3", pythonScriptPath);
       Map<String, String> env = pb.environment();
-      env.put("DB_URL", dbUrl);
-      env.put("DB_USER", dbUsername);
-      env.put("DB_PASSWORD", dbPassword);
+      if (System.getenv("PROD_DB_URL") != null) env.put("DB_URL", System.getenv("PROD_DB_URL"));
+      if (System.getenv("PROD_DB_USERNAME") != null)
+        env.put("DB_USER", System.getenv("PROD_DB_USERNAME"));
+      if (System.getenv("PROD_DB_PASSWORD") != null)
+        env.put("DB_PASSWORD", System.getenv("PROD_DB_PASSWORD"));
 
       pb.redirectErrorStream(true);
 
