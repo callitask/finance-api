@@ -37,6 +37,11 @@
 #  * - EDITED (SEC-13 Fix):
 #  * • Changed Keycloak environment variables: `KEYCLOAK_ADMIN` to `keycloak-admin` and `KEYCLOAK_ADMIN_PASSWORD` to use a dedicated secret `${KEYCLOAK_ADMIN_PASSWORD}` instead of reusing `${APP_ADMIN_PASSWORD}`.
 #  * • Why: Addressed [SEC-13] Critical severity finding. Sharing admin credentials across platforms creates a single point of total failure.
+#  *
+#  * - EDITED:
+#  * • Hardened Redis container command with --protected-mode yes, --bind 0.0.0.0, and command renaming (FLUSHALL, FLUSHDB, CONFIG, DEBUG, MONITOR) (SEC-01).
+#  * • Upgraded redis image from alpine to 7-alpine (SEC-01).
+#  * • Why: Prevents data exfiltration or destructive commands if the Redis container is accessed by a compromised adjacent container on treish_net.
 #  */
 
 version: '3.8'
@@ -113,14 +118,26 @@ services:
         condition: service_healthy
 
   redis:
-    image: redis:alpine
+    image: redis:7-alpine
     container_name: treishvaam-redis
     restart: always
     networks:
       - treish_net
     volumes:
       - ./data/redis:/data
-    command: redis-server --save 60 1 --loglevel warning --stop-writes-on-bgsave-error no --requirepass ${REDIS_PASSWORD}
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --save 60 1
+      --loglevel warning
+      --stop-writes-on-bgsave-error no
+      --protected-mode yes
+      --bind 0.0.0.0
+      --rename-command FLUSHALL ""
+      --rename-command FLUSHDB ""
+      --rename-command CONFIG ""
+      --rename-command DEBUG ""
+      --rename-command MONITOR ""
     environment:
       REDISCLI_AUTH: ${REDIS_PASSWORD}
     healthcheck:
