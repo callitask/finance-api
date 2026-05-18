@@ -28,7 +28,10 @@
  * using Lettuce (SEC-02). • Applied granular endpoint limits: AUTH_ATTEMPT_RPM (10),
  * PUBLIC_READ_RPM (200), AUTH_WRITE_RPM (60). • Extracted CF-Connecting-IP logic to prioritize
  * actual client IP behind Cloudflare. • Why: Resolves architecture flaw where distributed instances
- * had independent counters, allowing bypasses via IP rotation.
+ * had independent counters, allowing bypasses via IP rotation. * - EDITED (Hotfix): • Changed
+ * `ProxyManager<String>` to `ProxyManager<byte[]>` and applied UTF-8 byte conversion to the
+ * `bucketKey`. • Why: Resolves compilation type mismatch with Bucket4j's
+ * `LettuceBasedProxyManager`.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
@@ -45,6 +48,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -58,7 +62,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
 
   private static final Logger logger = LoggerFactory.getLogger(RateLimitingFilter.class);
 
-  @Autowired private ProxyManager<String> proxyManager;
+  @Autowired private ProxyManager<byte[]> proxyManager;
 
   // Granular limits for different endpoint categories
   private static final int PUBLIC_READ_RPM = 200; // GET market/posts
@@ -85,6 +89,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
     String path = request.getRequestURI();
     int limit = determineLimit(path, request.getMethod());
     String bucketKey = clientIp + ":" + getCategoryKey(path);
+    byte[] bucketKeyBytes = bucketKey.getBytes(StandardCharsets.UTF_8);
 
     try {
       BucketConfiguration configuration =
@@ -92,7 +97,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
               .addLimit(Bandwidth.classic(limit, Refill.greedy(limit, Duration.ofMinutes(1))))
               .build();
 
-      Bucket bucket = proxyManager.builder().build(bucketKey, configuration);
+      Bucket bucket = proxyManager.builder().build(bucketKeyBytes, configuration);
 
       if (bucket.tryConsume(1)) {
         filterChain.doFilter(request, response);
