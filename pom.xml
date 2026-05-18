@@ -208,7 +208,7 @@
         </dependency>
         <dependency>
             <groupId>com.bucket4j</groupId>
-            <artifactId>bucket4j_jdk17-redis-lettuce</artifactId>
+            <artifactId>bucket4j_jdk8-redis</artifactId>
             <version>8.10.1</version>
         </dependency>
 
