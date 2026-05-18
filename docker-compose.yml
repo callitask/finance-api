@@ -42,6 +42,10 @@
 #  * • Hardened Redis container command with --protected-mode yes, --bind 0.0.0.0, and command renaming (FLUSHALL, FLUSHDB, CONFIG, DEBUG, MONITOR) (SEC-01).
 #  * • Upgraded redis image from alpine to 7-alpine (SEC-01).
 #  * • Why: Prevents data exfiltration or destructive commands if the Redis container is accessed by a compromised adjacent container on treish_net.
+#  *
+#  * - EDITED (Keycloak 25 Hostname Fix):
+#  * • Replaced deprecated `KC_HOSTNAME_URL` and `KC_HOSTNAME_ADMIN_URL` with `KC_HOSTNAME=backend.treishvaamgroup.com` and `KC_HOSTNAME_STRICT=false`.
+#  * • Why: Keycloak 25 removed `hostname:v1` properties. This prevents startup warnings and ensures the correct issuer URI is generated for JWT tokens.
 #  */
 
 version: '3.8'
@@ -100,8 +104,8 @@ services:
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
       KC_HTTP_RELATIVE_PATH: /auth
-      KC_HOSTNAME_URL: https://backend.treishvaamgroup.com/auth
-      KC_HOSTNAME_ADMIN_URL: https://backend.treishvaamgroup.com/auth
+      KC_HOSTNAME: backend.treishvaamgroup.com
+      KC_HOSTNAME_STRICT: "false"
       KEYCLOAK_ADMIN: keycloak-admin
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KC_PROXY_HEADERS: xforwarded
