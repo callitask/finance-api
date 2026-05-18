@@ -35,8 +35,11 @@ def get_db_engine():
     password = os.getenv("DB_PASSWORD", "")
 
     if not jdbc_url or not user or not password:
-        logging.error("Fatal: Database credentials missing from ENV. CLI args are explicitly prohibited.")
-        sys.exit(1)
+        # SECURITY: Remove sys.argv fallback entirely. Fail loudly.
+        logging.error("FATAL SECURITY: DB credentials must be set via environment variables "
+                      "DB_URL, DB_USER, DB_PASSWORD. Command-line argument passing is disabled "
+                      "to prevent credential exposure in process list.")
+        sys.exit(2)
 
     try:
         clean_url = jdbc_url.replace("jdbc:", "")

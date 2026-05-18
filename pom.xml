@@ -1,41 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  ~ AI-CONTEXT:
-  ~
-  ~ Purpose:
-  ~ - Maven POM configuring dependencies, build plugins, and CI/CD targets for the Spring Boot application.
-  ~
-  ~ Scope:
-  ~ - Manages versions for all integrated services (Elasticsearch, Redis, Keycloak JWT, MinIO, etc).
-  ~
-  ~ Critical Dependencies:
-  ~ - Spring Boot 3.4
-  ~ - Testcontainers & Spotless for quality control.
-  ~
-  ~ Security Constraints:
-  ~ - MUST include OWASP dependency-check-maven for continuous vulnerability scanning.
-  ~
-  ~ Non-Negotiables:
-  ~ - Exclude Lombok from final builds and maintain strict version control for GRPC/Protobuf transitive conflicts.
-  ~
-  ~ Change Intent:
-  ~ - Add AI-Context and verify OWASP dependency check plugin implementation per Security Audit.
-  ~
-  ~ IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
-  ~ - EDITED:
-  ~ • Validated and embedded `org.owasp:dependency-check-maven` inside build plugins to satisfy P0 vulnerability detection requirements.
-  ~ • Why the edit was required: CI/CD must fail on CRITICAL CVEs introduced via dependencies.
-  ~ • What behavior must remain unchanged: Existing build and Spotless check configurations.
-  ~
-  ~ - EDITED:
-  ~ • Moved `<?xml version="1.0" encoding="UTF-8"?>` to line 1, above the AI-CONTEXT block.
-  ~ • Why the edit was required: Maven build failed with `ModelParseException` because the XML declaration was not the first node in the document.
-  ~ 
-  ~ - DO-NOT-DELETE RULE:
-  ~ This IMMUTABLE CHANGE HISTORY section must never be deleted,
-  ~ truncated, rewritten, or regenerated.
-  ~ Future AI must append only.
-  -->
 <project xmlns="http://maven.apache.org/POM/4.0.0" 
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -237,10 +200,16 @@
             <artifactId>resilience4j-spring-boot3</artifactId>
             <version>2.2.0</version>
         </dependency>
+        
         <dependency>
             <groupId>com.bucket4j</groupId>
             <artifactId>bucket4j-core</artifactId>
-            <version>8.7.0</version>
+            <version>8.10.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j_jdk17-redis-lettuce</artifactId>
+            <version>8.10.1</version>
         </dependency>
 
         <dependency>

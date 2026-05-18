@@ -18,6 +18,13 @@
  * script must still execute and connect to the DB (it will inherit the environment variables
  * natively).
  *
+ * <p>- EDITED: • Reverted strict JVM inheritance for the Python environment map, as the python
+ * script explicitly requires 'DB_URL', 'DB_USER', and 'DB_PASSWORD'. • Injected
+ * `DatabaseCredentialProvider` to safely fetch and pass the database credentials to the
+ * `ProcessBuilder` environment map, then explicitly cleared them. • Why: Ensures the subprocess has
+ * the correct environment variables mapped without keeping the secrets in the service's heap space
+ * indefinitely (SEC-05).
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -92,6 +99,8 @@ public class MarketDataService {
   @Autowired private PasswordEncoder passwordEncoder;
   @Autowired private CsvHistoryLoader csvHistoryLoader;
 
+  @Autowired private DatabaseCredentialProvider credentialProvider;
+
   @Value("${app.python.script.path:scripts/market_data_updater.py}")
   private String pythonScriptPath;
 
@@ -116,17 +125,17 @@ public class MarketDataService {
     apiFetchStatusRepository.save(status);
 
     try {
-      // SECURITY UPGRADE [SEC-05]: Subprocess naturally inherits environment variables from JVM
-      // (PROD_DB_URL, etc., set in docker-compose.yml mapped to DB_URL expected by python).
-      // If variable names differ between Java and Python expectations, we explicitly map them here
-      // by retrieving the System environment, NOT by storing them as @Value fields in heap memory.
       ProcessBuilder pb = new ProcessBuilder("python3", pythonScriptPath);
       Map<String, String> env = pb.environment();
-      if (System.getenv("PROD_DB_URL") != null) env.put("DB_URL", System.getenv("PROD_DB_URL"));
-      if (System.getenv("PROD_DB_USERNAME") != null)
-        env.put("DB_USER", System.getenv("PROD_DB_USERNAME"));
-      if (System.getenv("PROD_DB_PASSWORD") != null)
-        env.put("DB_PASSWORD", System.getenv("PROD_DB_PASSWORD"));
+
+      // Pass secure credentials to subprocess
+      String url = credentialProvider.getUrl();
+      String user = credentialProvider.getUsername();
+      String pwd = credentialProvider.getPassword();
+
+      if (url != null && !url.isEmpty()) env.put("DB_URL", url);
+      if (user != null && !user.isEmpty()) env.put("DB_USER", user);
+      if (pwd != null && !pwd.isEmpty()) env.put("DB_PASSWORD", pwd);
 
       pb.redirectErrorStream(true);
 
@@ -141,6 +150,9 @@ public class MarketDataService {
         }
       }
       int exitCode = process.waitFor();
+
+      // Clear sensitive data from memory explicitly
+      credentialProvider.clearSensitiveData();
 
       if (exitCode == 0) {
         logger.info("Python script finished successfully.");
