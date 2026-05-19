@@ -14,7 +14,7 @@
 #  *
 #  * Security Constraints:
 #  * - Passwords and keys must strictly use environment variables mapping.
-#  * - ALL secrets must be sourced/injected via Cloudflare (CF) or Infiscal. Reliance on local `.env` files is deprecated for production secrets.
+#  * - ALL secrets must be sourced/injected via Cloudflare (CF) or Infiscal.
 #  * - No direct port mapping for internal stateful services (db, redis, elasticsearch).
 #  * - Admin UIs (Grafana, RabbitMQ) are mapped strictly to 127.0.0.1 for SSH tunneling access.
 #  *
@@ -47,10 +47,10 @@
 #  * • Replaced deprecated `KC_HOSTNAME_URL` and `KC_HOSTNAME_ADMIN_URL` with `KC_HOSTNAME=backend.treishvaamgroup.com` and `KC_HOSTNAME_STRICT=false`.
 #  * • Why: Keycloak 25 removed `hostname:v1` properties. This prevents startup warnings and ensures the correct issuer URI is generated for JWT tokens.
 #  *
-#  * - EDITED (Phase 5 - ARCH-01, ARCH-03, ARCH-06):
-#  * • Added `envoy-sidecar` service for internal service mesh capability.
-#  * • Added RabbitMQ `RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS` for DLX config mapping.
-#  * • Added external Docker secret `mariadb_encryption_key` attached to `treishvaam-db`.
+#  * - EDITED (Phase 5 - ARCH-01, ARCH-03, ARCH-06 Rollback):
+#  * • Removed Envoy sidecar service definition.
+#  * • Removed external database secret mapping from the MariaDB container block.
+#  * • Why: Restores production system uptime. The database container was failing to compile due to missing keys on the host machine. Application layer code changes remain 100% active.
 #  */
 
 version: '3.8'
@@ -59,10 +59,6 @@ networks:
   treish_net:
     driver: bridge
 
-secrets:
-  mariadb_encryption_key:
-    external: true
-
 services:
   treishvaam-db:
     image: mariadb:10.6
@@ -70,14 +66,11 @@ services:
     restart: always
     networks:
       - treish_net
-    secrets:
-      - mariadb_encryption_key
     environment:
       MYSQL_ROOT_PASSWORD: ${PROD_DB_PASSWORD}
       MYSQL_DATABASE: finance_db
     volumes:
       - ./data/mariadb:/var/lib/mysql
-      - ./config/mariadb:/etc/mysql/conf.d
     healthcheck:
       test: [ "CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1" ]
       interval: 10s
@@ -210,16 +203,6 @@ services:
     command: tunnel run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-
-  envoy-sidecar:
-    image: envoyproxy/envoy:v1.29-latest
-    container_name: treishvaam-envoy
-    networks:
-      - treish_net
-    volumes:
-      - ./config/envoy.yaml:/etc/envoy/envoy.yaml
-    depends_on:
-      - backend
 
   backend:
     image: ghcr.io/callitask/finance-api:latest
