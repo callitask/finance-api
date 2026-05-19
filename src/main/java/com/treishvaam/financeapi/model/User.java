@@ -13,9 +13,14 @@ package com.treishvaam.financeapi.model;
  * Encrypted data produces highly randomized ciphertexts (due to random IVs). A database unique
  * constraint cannot validate uniqueness on AES-GCM ciphertexts. Column size expanded to TEXT to
  * prevent truncation of Base64 ciphertext.
+ *
+ * <p>- EDITED (Phase 6 Fix): • Replaced `EncryptedStringConverter.class` with
+ * `UserEmailConverter.class` for the email field. • Why: Isolate encryption keys per domain
+ * (ENC-User & ENC-Domain).
  */
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.treishvaam.financeapi.security.EncryptedStringConverter;
+import com.treishvaam.financeapi.security.UserEmailConverter;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.HashSet;
@@ -38,9 +43,9 @@ public class User {
   @Column(nullable = false)
   private String username;
 
-  // Phase 6: PII Encryption at Rest
+  // Phase 6: PII Encryption at Rest (Domain-Specific)
   @Column(nullable = false, columnDefinition = "TEXT")
-  @Convert(converter = EncryptedStringConverter.class)
+  @Convert(converter = UserEmailConverter.class)
   private String email;
 
   // Phase 1: New Profile Name field for SEO

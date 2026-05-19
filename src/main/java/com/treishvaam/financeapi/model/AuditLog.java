@@ -1,5 +1,15 @@
 package com.treishvaam.financeapi.model;
 
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Represents an application audit event.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED (Phase 6 - ENC-AuditLog): • Converted
+ * `ipAddress` column to `TEXT` and added `@Convert(converter = AuditIpConverter.class)`. • Why:
+ * Securing network PII via AES-256-GCM encryption at rest.
+ */
+import com.treishvaam.financeapi.security.AuditIpConverter;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
@@ -17,7 +27,11 @@ public class AuditLog {
   @Column(columnDefinition = "TEXT")
   private String details; // Full details/error message
 
+  // Phase 6: Encrypting PII identifier (IP)
+  @Column(columnDefinition = "TEXT")
+  @Convert(converter = AuditIpConverter.class)
   private String ipAddress;
+
   private String status; // "SUCCESS", "FAILURE"
   private LocalDateTime timestamp;
 

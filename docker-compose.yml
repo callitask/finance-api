@@ -54,6 +54,9 @@
 #  * #  * - EDITED (Phase 6 - Architecture Upgrades):
 #  * • Re-introduced Envoy sidecar service definition for internal microservice routing (ARCH-01).
 #  * • Added mariadb_encryption_key external secret and mounted encryption.cnf into MariaDB (ARCH-06).
+#  *
+#  * - EDITED (Phase 6 - Domain Encryption Expansion):
+#  * • Added USER_EMAIL_ENCRYPTION_KEY, CONTACT_EMAIL_ENCRYPTION_KEY, CONTACT_MESSAGE_ENCRYPTION_KEY, and AUDIT_IP_ENCRYPTION_KEY to backend environment.
 #  */
 
 version: '3.8'
@@ -257,6 +260,10 @@ services:
       - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI=http://keycloak:8080/auth/realms/treishvaam/protocol/openid-connect/certs
       - LOGGING_FILE_NAME=/app/logs/application-${HOSTNAME}.log
       - LINKEDIN_TOKEN_ENCRYPTION_KEY=${LINKEDIN_TOKEN_ENCRYPTION_KEY}
+      - USER_EMAIL_ENCRYPTION_KEY=${USER_EMAIL_ENCRYPTION_KEY}
+      - CONTACT_EMAIL_ENCRYPTION_KEY=${CONTACT_EMAIL_ENCRYPTION_KEY}
+      - CONTACT_MESSAGE_ENCRYPTION_KEY=${CONTACT_MESSAGE_ENCRYPTION_KEY}
+      - AUDIT_IP_ENCRYPTION_KEY=${AUDIT_IP_ENCRYPTION_KEY}
     volumes:
       - ./backend-app.war:/app/app.war
       - ./ga4-credentials.json:/app/ga4-credentials.json

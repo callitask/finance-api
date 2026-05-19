@@ -8,8 +8,13 @@ package com.treishvaam.financeapi.model;
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED (Phase 6): • Changed `email` and `message`
  * column definitions to `TEXT` and added `@Convert(converter = EncryptedStringConverter.class)`. •
  * Why: Encrypt user-submitted PII at rest to comply with Zero-Trust architecture.
+ *
+ * <p>- EDITED (Phase 6 Fix): • Replaced `EncryptedStringConverter` with domain-specific
+ * `ContactEmailConverter` and `ContactMessageConverter`. • Why: To isolate encryption keys per
+ * domain field.
  */
-import com.treishvaam.financeapi.security.EncryptedStringConverter;
+import com.treishvaam.financeapi.security.ContactEmailConverter;
+import com.treishvaam.financeapi.security.ContactMessageConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -26,14 +31,14 @@ public class ContactMessage {
 
   private String name;
 
-  // Phase 6: PII Encryption at Rest
+  // Phase 6: PII Encryption at Rest (Domain-Specific)
   @Column(columnDefinition = "TEXT")
-  @Convert(converter = EncryptedStringConverter.class)
+  @Convert(converter = ContactEmailConverter.class)
   private String email;
 
-  // Phase 6: PII Encryption at Rest
+  // Phase 6: PII Encryption at Rest (Domain-Specific)
   @Column(columnDefinition = "TEXT")
-  @Convert(converter = EncryptedStringConverter.class)
+  @Convert(converter = ContactMessageConverter.class)
   private String message;
 
   public ContactMessage() {}
