@@ -27,7 +27,10 @@
  *
  * <p>- EDITED (Phase 5 - ARCH-03): • Injected `MessagePublisher` and created
  * `enqueueMarketUpdate(String source)`. • Redirected manual refresh to use the queue as well. •
- * Why: Offload the heavy Python ProcessBuilder to RabbitMQ so Tomcat threads aren't blocked.
+ * Why: Offload the heavy Python ProcessBuilder to RabbitMQ so Tomcat threads aren't blocked. *
+ *
+ * <p>- EDITED (Hotfix - Build Failure 2): • Reverted imports for EventMessage and MessagePublisher
+ * to use `com.treishvaam.finance.messaging` package to align with physical directory structure.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.

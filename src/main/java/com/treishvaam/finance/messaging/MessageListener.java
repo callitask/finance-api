@@ -1,11 +1,11 @@
-package com.treishvaam.financeapi.messaging;
+package com.treishvaam.finance.messaging;
 
 import com.treishvaam.financeapi.config.RabbitMQConfig;
 import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.search.PostDocument;
 import com.treishvaam.financeapi.search.PostSearchRepository;
-import com.treishvaam.financeapi.service.SitemapService; // FIXED IMPORT
+import com.treishvaam.financeapi.service.SitemapService;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,7 +22,6 @@ public class MessageListener {
 
   @Autowired private BlogPostRepository blogPostRepository;
 
-  // FIXED: Injected SitemapService (Dynamic) instead of GenerationService (File-based)
   @Autowired private SitemapService sitemapService;
 
   // WORKER 1: Handles Search Indexing (Elasticsearch)

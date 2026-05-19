@@ -16,7 +16,8 @@ package com.treishvaam.financeapi.marketdata;
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED (Phase 5 - ARCH-03): • Created
  * MarketUpdateConsumer to listen for `MARKET_UPDATE` events. • Why: Resolves system stall during
- * heavy Python ProcessBuilder execution.
+ * heavy Python ProcessBuilder execution. * - EDITED (Hotfix 2): • Corrected import for EventMessage
+ * to use physical package `finance.messaging` package.
  */
 import com.treishvaam.finance.messaging.EventMessage;
 import org.slf4j.Logger;
