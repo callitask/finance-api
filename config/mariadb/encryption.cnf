@@ -1,0 +1,13 @@
+[mysqld]
+# Enable File Key Management Plugin
+plugin_load_add = file_key_management
+file_key_management_filename = /run/secrets/mariadb_encryption_key
+file_key_management_encryption_algorithm = AES_CTR
+
+# Encrypt all tables
+innodb_encrypt_tables = ON
+innodb_encrypt_log = ON
+innodb_encryption_threads = 4
+encrypt_tmp_disk_tables = ON
+encrypt_tmp_files = ON
+encrypt_binlog = ON

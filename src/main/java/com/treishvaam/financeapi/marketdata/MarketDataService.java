@@ -23,7 +23,11 @@
  * `DatabaseCredentialProvider` to safely fetch and pass the database credentials to the
  * `ProcessBuilder` environment map, then explicitly cleared them. • Why: Ensures the subprocess has
  * the correct environment variables mapped without keeping the secrets in the service's heap space
- * indefinitely (SEC-05).
+ * indefinitely (SEC-05). *
+ *
+ * <p>- EDITED (Phase 5 - ARCH-03): • Injected `MessagePublisher` and created
+ * `enqueueMarketUpdate(String source)`. • Redirected manual refresh to use the queue as well. •
+ * Why: Offload the heavy Python ProcessBuilder to RabbitMQ so Tomcat threads aren't blocked.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
@@ -32,6 +36,8 @@ package com.treishvaam.financeapi.marketdata;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.treishvaam.finance.messaging.EventMessage;
+import com.treishvaam.finance.messaging.MessagePublisher;
 import com.treishvaam.financeapi.apistatus.ApiFetchStatus;
 import com.treishvaam.financeapi.apistatus.ApiFetchStatusRepository;
 import com.treishvaam.financeapi.aspect.LogAudit;
@@ -40,6 +46,7 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import jakarta.annotation.PostConstruct;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
@@ -101,6 +108,8 @@ public class MarketDataService {
 
   @Autowired private DatabaseCredentialProvider credentialProvider;
 
+  @Autowired private MessagePublisher messagePublisher;
+
   @Value("${app.python.script.path:scripts/market_data_updater.py}")
   private String pythonScriptPath;
 
@@ -111,6 +120,13 @@ public class MarketDataService {
     logger.info("STARTUP: Initializing Market Data Service...");
     csvHistoryLoader.loadCsvIfEmpty();
     logger.info("Startup initialization complete.");
+  }
+
+  // ARCH-03: Delegate heavy lifting to queue
+  public void enqueueMarketUpdate(String source) {
+    EventMessage message = new EventMessage("MARKET_UPDATE", source, Instant.now().toString());
+    messagePublisher.publish(message);
+    logger.info("Market update queued to RabbitMQ. Source: {}", source);
   }
 
   @Transactional
@@ -272,7 +288,7 @@ public class MarketDataService {
   @LogAudit(action = "MANUAL_REFRESH", target = "Indices")
   public void refreshIndices() {
     logger.info("Manual refresh of Indices triggered. Executing Python pipeline.");
-    runPythonHistoryAndQuoteUpdate("MANUAL_TRIGGER");
+    enqueueMarketUpdate("MANUAL_TRIGGER");
   }
 
   @Transactional

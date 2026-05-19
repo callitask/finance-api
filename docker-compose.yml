@@ -46,6 +46,11 @@
 #  * - EDITED (Keycloak 25 Hostname Fix):
 #  * • Replaced deprecated `KC_HOSTNAME_URL` and `KC_HOSTNAME_ADMIN_URL` with `KC_HOSTNAME=backend.treishvaamgroup.com` and `KC_HOSTNAME_STRICT=false`.
 #  * • Why: Keycloak 25 removed `hostname:v1` properties. This prevents startup warnings and ensures the correct issuer URI is generated for JWT tokens.
+#  *
+#  * - EDITED (Phase 5 - ARCH-01, ARCH-03, ARCH-06):
+#  * • Added `envoy-sidecar` service for internal service mesh capability.
+#  * • Added RabbitMQ `RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS` for DLX config mapping.
+#  * • Added external Docker secret `mariadb_encryption_key` attached to `treishvaam-db`.
 #  */
 
 version: '3.8'
@@ -54,6 +59,10 @@ networks:
   treish_net:
     driver: bridge
 
+secrets:
+  mariadb_encryption_key:
+    external: true
+
 services:
   treishvaam-db:
     image: mariadb:10.6
@@ -61,6 +70,8 @@ services:
     restart: always
     networks:
       - treish_net
+    secrets:
+      - mariadb_encryption_key
     environment:
       MYSQL_ROOT_PASSWORD: ${PROD_DB_PASSWORD}
       MYSQL_DATABASE: finance_db
@@ -199,6 +210,16 @@ services:
     command: tunnel run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+
+  envoy-sidecar:
+    image: envoyproxy/envoy:v1.29-latest
+    container_name: treishvaam-envoy
+    networks:
+      - treish_net
+    volumes:
+      - ./config/envoy.yaml:/etc/envoy/envoy.yaml
+    depends_on:
+      - backend
 
   backend:
     image: ghcr.io/callitask/finance-api:latest
@@ -369,6 +390,7 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbitmq_management load_definitions "/etc/rabbitmq/definitions.json"
 
   backup-service:
     build: ./backup
