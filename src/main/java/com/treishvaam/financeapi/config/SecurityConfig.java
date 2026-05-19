@@ -34,13 +34,21 @@
  * .anyRequest().authenticated() fallback for draft operations. While this SHOULD work, explicit
  * rules prevent future rule ordering bugs and make the security intent clear. Combined with the
  * nginx ModSecurity fix, this resolves the 403/CORS error on draft save, post edit, and publish
- * operations.
+ * operations. * - EDITED (Phase 4 - SEC-07 Fix): • Replaced
+ * `configuration.setAllowedHeaders(Arrays.asList("*"));` with explicit allowed headers. • Why the
+ * edit was required: Prevent attackers from setting custom injection headers that might be picked
+ * up by middleware. • What behavior must remain unchanged: CORS preflight must still function
+ * correctly for legitimate requests. * - EDITED (Phase 4 - SEC-10 Fix): • Added
+ * `InputSanitizationFilter` to the security filter chain to intercept queries and validate against
+ * SQLi. • Why the edit was required: Application-layer defense-in-depth against SQL/NoSQL injection
+ * via Redis.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
 package com.treishvaam.financeapi.config;
 
+import com.treishvaam.financeapi.security.InputSanitizationFilter;
 import com.treishvaam.financeapi.security.InternalSecretFilter;
 import com.treishvaam.financeapi.security.KeycloakRealmRoleConverter;
 import com.treishvaam.financeapi.security.RateLimitingFilter;
@@ -76,14 +84,18 @@ public class SecurityConfig {
 
   private final RateLimitingFilter rateLimitingFilter;
   private final InternalSecretFilter internalSecretFilter;
+  private final InputSanitizationFilter inputSanitizationFilter;
 
   @Value("#{'${cors.allowed-origins}'.split(',')}")
   private List<String> allowedOrigins;
 
   public SecurityConfig(
-      RateLimitingFilter rateLimitingFilter, InternalSecretFilter internalSecretFilter) {
+      RateLimitingFilter rateLimitingFilter,
+      InternalSecretFilter internalSecretFilter,
+      InputSanitizationFilter inputSanitizationFilter) {
     this.rateLimitingFilter = rateLimitingFilter;
     this.internalSecretFilter = internalSecretFilter;
+    this.inputSanitizationFilter = inputSanitizationFilter;
   }
 
   @Bean
@@ -184,7 +196,8 @@ public class SecurityConfig {
         .oauth2ResourceServer(
             oauth2 ->
                 oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
-        .addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class)
+        .addFilterBefore(inputSanitizationFilter, UsernamePasswordAuthenticationFilter.class)
+        .addFilterBefore(rateLimitingFilter, InputSanitizationFilter.class)
         .addFilterBefore(internalSecretFilter, RateLimitingFilter.class);
 
     return http.build();
@@ -207,7 +220,19 @@ public class SecurityConfig {
 
     configuration.setAllowedMethods(
         Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-    configuration.setAllowedHeaders(Arrays.asList("*"));
+
+    // SEC-07: Explicitly limit headers instead of allowing wildcard
+    configuration.setAllowedHeaders(
+        Arrays.asList(
+            "Authorization",
+            "Content-Type",
+            "X-Requested-With",
+            "Accept",
+            "Origin",
+            "Access-Control-Request-Method",
+            "Access-Control-Request-Headers",
+            "X-CSRF-Token"));
+
     configuration.setExposedHeaders(
         Arrays.asList("Authorization", "Content-Type", "X-Requested-With"));
     configuration.setAllowCredentials(true);

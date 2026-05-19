@@ -1,5 +1,30 @@
 package com.treishvaam.financeapi.security;
 
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Converts Keycloak JWT roles (realm_access and resource_access) into Spring Security
+ * GrantedAuthorities.
+ *
+ * <p>Scope: - Auth processing layer for all protected API endpoints.
+ *
+ * <p>Critical Dependencies: - Backend: Keycloak JWT structure.
+ *
+ * <p>Security Constraints: - Do not log plain-text user IDs (PII) at INFO level.
+ *
+ * <p>Non-Negotiables: - Must correctly map both realm and client roles to standard Spring `ROLE_`
+ * prefixed authorities.
+ *
+ * <p>Change Intent: - Fix SEC-11: Remove sensitive user subject data from INFO-level logs to
+ * prevent tracking in log aggregators.
+ *
+ * <p>Future AI Guidance: - Keep logging minimal and non-identifiable at INFO level.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED (Phase 4 - SEC-11 Fix): • Replaced INFO
+ * level plain-text subject logging with DEBUG level hashed subject logging. • Why the edit was
+ * required: Prevent leaking user identity data (UUIDs) to log aggregators (Loki/Grafana). • What
+ * behavior must remain unchanged: The actual role extraction logic must remain completely intact.
+ */
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -62,8 +87,12 @@ public class KeycloakRealmRoleConverter implements Converter<Jwt, Collection<Gra
         logger.debug("JWT Claims Dump: {}", jwt.getClaims());
       }
     } else {
-      // Info level allows us to see this in production logs to verify permissions
-      logger.info("🔐 User {} roles found: {}", jwt.getSubject(), combinedRoles);
+      // SEC-11: Log only hashed subject to prevent user tracking in logs
+      if (logger.isDebugEnabled()) {
+        logger.debug(
+            "JWT roles assigned for subject hash: {}",
+            Integer.toHexString(jwt.getSubject().hashCode()));
+      }
     }
 
     // 4. Convert to Spring Authorities (ROLE_PREFIX + UPPERCASE)
