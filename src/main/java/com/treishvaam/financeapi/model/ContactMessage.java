@@ -1,5 +1,17 @@
 package com.treishvaam.financeapi.model;
 
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Represents a contact form submission.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED (Phase 6): • Changed `email` and `message`
+ * column definitions to `TEXT` and added `@Convert(converter = EncryptedStringConverter.class)`. •
+ * Why: Encrypt user-submitted PII at rest to comply with Zero-Trust architecture.
+ */
+import com.treishvaam.financeapi.security.EncryptedStringConverter;
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -13,7 +25,15 @@ public class ContactMessage {
   private Long id;
 
   private String name;
+
+  // Phase 6: PII Encryption at Rest
+  @Column(columnDefinition = "TEXT")
+  @Convert(converter = EncryptedStringConverter.class)
   private String email;
+
+  // Phase 6: PII Encryption at Rest
+  @Column(columnDefinition = "TEXT")
+  @Convert(converter = EncryptedStringConverter.class)
   private String message;
 
   public ContactMessage() {}

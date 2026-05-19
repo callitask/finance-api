@@ -44,7 +44,12 @@ package com.treishvaam.financeapi.security;
  * with a per-encryption random 12-byte IV prepended to ciphertext. • Key sourced exclusively from
  * env var LINKEDIN_TOKEN_ENCRYPTION_KEY (Base64-encoded 32 bytes). • Applied to
  * User.linkedinAccessToken via @Convert annotation. • Why: LinkedIn OAuth tokens stored plaintext
- * in MariaDB — database compromise exposes all tokens (CVE-007, CVSS 5.3).
+ * in MariaDB — database compromise exposes all tokens (CVE-007, CVSS 5.3). * - EDITED (Phase 6 -
+ * ENC-03, ENC-04): • Implemented `v1:` prefixing for all new ciphertexts to support future key
+ * rotation and domain-specific key separation. • Added seamless fallback to return plaintext if the
+ * `v1:` prefix is missing. • Why: Allows encryption to be rolled out across live data (like emails)
+ * without crashing the application on old plaintext rows. Legacy rows will be automatically
+ * encrypted on their next update.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
@@ -69,6 +74,7 @@ public class EncryptedStringConverter implements AttributeConverter<String, Stri
   private static final String ALGORITHM = "AES/GCM/NoPadding";
   private static final int GCM_IV_LENGTH = 12; // 96-bit IV — recommended for GCM
   private static final int GCM_TAG_LENGTH = 128; // 128-bit authentication tag
+  private static final String KEY_VERSION_PREFIX = "v1:"; // Prefix for key rotation support
 
   private final SecretKey secretKey;
 
@@ -99,11 +105,11 @@ public class EncryptedStringConverter implements AttributeConverter<String, Stri
   }
 
   /**
-   * Encrypts the plaintext token before persisting to the database. Stored format: Base64(IV[12
+   * Encrypts the plaintext token before persisting to the database. Stored format: v1:Base64(IV[12
    * bytes] || Ciphertext).
    *
-   * @param plaintext the raw LinkedIn access token (may be null)
-   * @return Base64-encoded encrypted value, or null if input is null
+   * @param plaintext the raw string (may be null)
+   * @return Version-prefixed, Base64-encoded encrypted value, or null if input is null
    */
   @Override
   public String convertToDatabaseColumn(String plaintext) {
@@ -123,7 +129,7 @@ public class EncryptedStringConverter implements AttributeConverter<String, Stri
       combined.put(iv);
       combined.put(ciphertext);
 
-      return Base64.getEncoder().encodeToString(combined.array());
+      return KEY_VERSION_PREFIX + Base64.getEncoder().encodeToString(combined.array());
     } catch (Exception e) {
       throw new RuntimeException("[EncryptedStringConverter] Encryption failed.", e);
     }
@@ -131,18 +137,27 @@ public class EncryptedStringConverter implements AttributeConverter<String, Stri
 
   /**
    * Decrypts the stored Base64-encoded value back to the plaintext token. Stored format:
-   * Base64(IV[12 bytes] || Ciphertext).
+   * v1:Base64(IV[12 bytes] || Ciphertext). Supports seamless fallback for unencrypted legacy data.
    *
-   * @param encryptedValue the Base64-encoded encrypted value from the database (may be null)
+   * @param dbData the string value from the database (may be null)
    * @return the original plaintext token, or null if input is null
    */
   @Override
-  public String convertToEntityAttribute(String encryptedValue) {
-    if (encryptedValue == null) {
+  public String convertToEntityAttribute(String dbData) {
+    if (dbData == null) {
       return null;
     }
+
+    // Fallback logic: If it doesn't start with our key version prefix,
+    // it is legacy plaintext data. Return as-is so the system doesn't crash.
+    if (!dbData.startsWith(KEY_VERSION_PREFIX)) {
+      return dbData;
+    }
+
     try {
-      byte[] combined = Base64.getDecoder().decode(encryptedValue);
+      // Strip the prefix before decoding
+      String base64Payload = dbData.substring(KEY_VERSION_PREFIX.length());
+      byte[] combined = Base64.getDecoder().decode(base64Payload);
 
       // Extract IV (first 12 bytes) and ciphertext (remainder)
       ByteBuffer buffer = ByteBuffer.wrap(combined);
@@ -158,11 +173,10 @@ public class EncryptedStringConverter implements AttributeConverter<String, Stri
       return new String(plaintext, "UTF-8");
     } catch (Exception e) {
       logger.error(
-          "[EncryptedStringConverter] Decryption failed. Token may be corrupted or key mismatch.",
+          "[EncryptedStringConverter] Decryption failed. Data may be corrupted or key mismatch.",
           e);
-      // Return null rather than throwing — prevents a single corrupted token from
-      // crashing
-      // the entire user load. The application will treat the token as absent.
+      // Return null rather than throwing — prevents a single corrupted record from
+      // crashing the entire API load.
       return null;
     }
   }

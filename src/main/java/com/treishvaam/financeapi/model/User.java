@@ -1,5 +1,19 @@
 package com.treishvaam.financeapi.model;
 
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Core User entity for authentication and authorization.
+ *
+ * <p>Change Intent: - Implement Phase 6 (ENC-02): Encrypt user emails at rest.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED (Phase 6): • Removed
+ * `@UniqueConstraint(columnNames = "email")` from the Table annotation. • Changed `email` column
+ * definition to `TEXT` and added `@Convert(converter = EncryptedStringConverter.class)`. • Why:
+ * Encrypted data produces highly randomized ciphertexts (due to random IVs). A database unique
+ * constraint cannot validate uniqueness on AES-GCM ciphertexts. Column size expanded to TEXT to
+ * prevent truncation of Base64 ciphertext.
+ */
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.treishvaam.financeapi.security.EncryptedStringConverter;
 import jakarta.persistence.*;
@@ -12,8 +26,8 @@ import lombok.Data;
 @Table(
     name = "users",
     uniqueConstraints = {
-      @UniqueConstraint(columnNames = "username"), // --- ADDED CONSTRAINT ---
-      @UniqueConstraint(columnNames = "email")
+      @UniqueConstraint(
+          columnNames = "username") // Email uniqueness is now enforced at the application layer
     })
 @Data
 public class User {
@@ -21,11 +35,12 @@ public class User {
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
-  // --- NEW FIELD ADDED ---
   @Column(nullable = false)
   private String username;
 
-  @Column(nullable = false)
+  // Phase 6: PII Encryption at Rest
+  @Column(nullable = false, columnDefinition = "TEXT")
+  @Convert(converter = EncryptedStringConverter.class)
   private String email;
 
   // Phase 1: New Profile Name field for SEO
@@ -47,12 +62,7 @@ public class User {
   private Set<Role> roles = new HashSet<>();
 
   // CVE-007 FIX: LinkedIn access token encrypted at rest using AES-256-GCM.
-  // EncryptedStringConverter transparently encrypts before INSERT/UPDATE and
-  // decrypts on SELECT. Key sourced from env var LINKEDIN_TOKEN_ENCRYPTION_KEY.
-  // Column length increased to 2048 to accommodate Base64(IV + ciphertext).
-  // See Liquibase migration V42__encrypt_linkedin_token.xml for the column
-  // resize.
-  @Column(name = "linkedin_access_token", length = 2048)
+  @Column(name = "linkedin_access_token", columnDefinition = "TEXT")
   @Convert(converter = EncryptedStringConverter.class)
   @JsonIgnore // Phase 1 Fix: Prevent Token Leak
   private String linkedinAccessToken;
@@ -65,7 +75,6 @@ public class User {
 
   public User() {}
 
-  // --- CONSTRUCTOR UPDATED ---
   public User(String username, String email, String password) {
     this.username = username;
     this.email = email;
@@ -73,8 +82,6 @@ public class User {
     this.enabled = true;
   }
 
-  // Explicit Getters and Setters (Lombok's @Data also provides these)
-  // No changes needed below this line, but included for completeness.
   public Long getId() {
     return id;
   }
