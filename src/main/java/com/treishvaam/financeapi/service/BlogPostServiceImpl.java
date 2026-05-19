@@ -25,13 +25,14 @@ package com.treishvaam.financeapi.service;
  * Optional-returning finder methods. • Why the edit was required: Resolves fatal 500 AxiosError
  * occurring after post publication due to Spring Data Redis failing to instantiate
  * `java.util.Optional`. • What behavior must remain unchanged: DB retrieval and edge-side
- * Cloudflare caching remain fully intact to handle the load.
+ * Cloudflare caching remain fully intact to handle the load. * - EDITED (Hotfix 3): • Corrected
+ * import for MessagePublisher to use `com.treishvaam.finance.messaging` physical package.
  */
+import com.treishvaam.finance.messaging.MessagePublisher; // FIX: Corrected package path
 import com.treishvaam.financeapi.config.CachingConfig;
 import com.treishvaam.financeapi.config.tenant.TenantContext;
 import com.treishvaam.financeapi.dto.BlogPostDto;
 import com.treishvaam.financeapi.dto.PostThumbnailDto;
-import com.treishvaam.financeapi.messaging.MessagePublisher;
 import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.Category;
 import com.treishvaam.financeapi.model.PostStatus;
