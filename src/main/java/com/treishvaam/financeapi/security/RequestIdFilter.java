@@ -1,15 +1,5 @@
 package com.treishvaam.financeapi.security;
 
-/**
- * AI-CONTEXT:
- *
- * <p>Purpose: - Injects X-Request-ID for distributed tracing.
- *
- * <p>Scope: - Highest precedence filter to ensure logs contain request tracing early.
- *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED (Phase 5 - ARCH-04): • Created
- * RequestIdFilter to propagate X-Request-ID.
- */
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,9 +13,24 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Request ID Tracing Across All Layers (ARCH-04).
+ *
+ * <p>Scope: - Intercepts all requests, extracts or generates an X-Request-ID, and populates MDC for
+ * tracing.
+ *
+ * <p>Critical Dependencies: - Nginx: Must propagate X-Request-ID from the reverse proxy block.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Created RequestIdFilter to propagate
+ * X-Request-ID from Nginx through the JVM using MDC. • Why it was added: Architecture upgrade for
+ * full distributed request traceability (ARCH-04).
+ */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class RequestIdFilter extends OncePerRequestFilter {
+
   @Override
   protected void doFilterInternal(
       HttpServletRequest req, HttpServletResponse res, FilterChain chain)

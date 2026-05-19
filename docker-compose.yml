@@ -51,6 +51,9 @@
 #  * • Removed Envoy sidecar service definition.
 #  * • Removed external database secret mapping from the MariaDB container block.
 #  * • Why: Restores production system uptime. The database container was failing to compile due to missing keys on the host machine. Application layer code changes remain 100% active.
+#  * #  * - EDITED (Phase 6 - Architecture Upgrades):
+#  * • Re-introduced Envoy sidecar service definition for internal microservice routing (ARCH-01).
+#  * • Added mariadb_encryption_key external secret and mounted encryption.cnf into MariaDB (ARCH-06).
 #  */
 
 version: '3.8'
@@ -71,6 +74,9 @@ services:
       MYSQL_DATABASE: finance_db
     volumes:
       - ./data/mariadb:/var/lib/mysql
+      - ./config/mariadb/encryption.cnf:/etc/mysql/conf.d/encryption.cnf:ro
+    secrets:
+      - mariadb_encryption_key
     healthcheck:
       test: [ "CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1" ]
       interval: 10s
@@ -203,6 +209,16 @@ services:
     command: tunnel run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+
+  envoy-sidecar:
+    image: envoyproxy/envoy:v1.29-latest
+    container_name: treishvaam-envoy
+    networks:
+      - treish_net
+    volumes:
+      - ./config/envoy.yaml:/etc/envoy/envoy.yaml
+    depends_on:
+      - backend
 
   backend:
     image: ghcr.io/callitask/finance-api:latest
@@ -395,3 +411,7 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+
+secrets:
+  mariadb_encryption_key:
+    external: true

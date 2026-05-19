@@ -1,3 +1,9 @@
+# /**
+#  * AI-CONTEXT:
+#  * Purpose: MariaDB at-rest encryption configuration (ARCH-06).
+#  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+#  * - ADDED: Enabled InnoDB transparent encryption using Docker secrets for key management.
+#  */
 [mysqld]
 # Enable File Key Management Plugin
 plugin_load_add = file_key_management

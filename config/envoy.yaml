@@ -1,3 +1,9 @@
+# /**
+#  * AI-CONTEXT:
+#  * Purpose: Envoy sidecar configuration for internal microservice routing (ARCH-01).
+#  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+#  * - ADDED: Initial configuration to route traffic to backend on port 8080.
+#  */
 static_resources:
   listeners:
   - name: ingress_listener
@@ -11,9 +17,6 @@ static_resources:
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
           stat_prefix: ingress_http
-          http_filters:
-          - name: envoy.filters.http.router
-            typed_config: {}
           route_config:
             virtual_hosts:
             - name: backend
@@ -22,6 +25,10 @@ static_resources:
               - match: { prefix: "/api/v1" }
                 route:
                   cluster: backend_cluster
+          http_filters:
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
   clusters:
   - name: backend_cluster
     connect_timeout: 30s
@@ -32,7 +39,7 @@ static_resources:
       endpoints:
       - lb_endpoints:
         - endpoint:
-            address:
-              socket_address:
-                address: backend
-                port_value: 8080
+          address:
+            socket_address:
+              address: backend
+              port_value: 8080
