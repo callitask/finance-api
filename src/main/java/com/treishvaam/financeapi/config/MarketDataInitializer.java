@@ -20,6 +20,14 @@ import org.springframework.stereotype.Component;
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Phase 3 (Backend Dynamic Integration):
  * Wrapped execution in explicit TenantContext to guarantee data isolation and prevent seeding
  * during cross-tenant operations.
+ *
+ * <p>- EDITED (Startup Performance Fix): • Moved the synchronous FMP `fetchAndStoreMarketData` call
+ * into a dedicated background daemon thread. • Why: External HTTP calls during `CommandLineRunner`
+ * execution block the main thread, preventing Tomcat from fully initializing. This caused Docker
+ * health checks to fail (timeout) and the container to crash loop.
+ *
+ * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
+ * rewritten, or regenerated. Future AI must append only.
  */
 @Component
 @Profile("!test")
@@ -31,24 +39,25 @@ public class MarketDataInitializer implements CommandLineRunner {
 
   @Override
   public void run(String... args) throws Exception {
-    System.out.println("Application started. Performing initial data fetches...");
+    System.out.println(
+        "Application started. Offloading initial data fetches to background thread...");
 
-    // 1. STRICT TENANT ISOLATION: Initialize exclusively for Finance domain
-    TenantContext.setTenantId("finance");
-    try {
-      try {
-        // Fetch Market Movers (FMP) - This is fast
-        marketDataService.fetchAndStoreMarketData("US", "STARTUP");
-        System.out.println("Initial market movers fetch complete.");
-      } catch (Exception e) {
-        System.err.println("Initial market movers fetch failed: " + e.getMessage());
-      }
+    Thread initThread =
+        new Thread(
+            () -> {
+              // 1. STRICT TENANT ISOLATION: Initialize exclusively for Finance domain
+              TenantContext.setTenantId("finance");
+              try {
+                try {
+                  // Fetch Market Movers (FMP) - Moved to async to prevent main thread blocking
+                  System.out.println("Starting initial market movers fetch...");
+                  marketDataService.fetchAndStoreMarketData("US", "STARTUP");
+                  System.out.println("Initial market movers fetch complete.");
+                } catch (Exception e) {
+                  System.err.println("Initial market movers fetch failed: " + e.getMessage());
+                }
 
-      // 2. Run Python script for History + Quotes (async)
-      new Thread(
-              () -> {
-                // ThreadLocals do not inherit context automatically; re-apply inside thread
-                TenantContext.setTenantId("finance");
+                // 2. Run Python script for History + Quotes
                 try {
                   System.out.println(
                       "Starting Python script for historical and quote data (async)...");
@@ -56,14 +65,14 @@ public class MarketDataInitializer implements CommandLineRunner {
                   System.out.println("Python script (async) startup run complete.");
                 } catch (Exception e) {
                   System.err.println("Python script (async) startup run failed: " + e.getMessage());
-                } finally {
-                  TenantContext.clear();
                 }
-              })
-          .start();
+              } finally {
+                TenantContext.clear(); // Always clear context after execution
+              }
+            });
 
-    } finally {
-      TenantContext.clear(); // Always clear context after synchronous execution
-    }
+    initThread.setName("MarketData-Init-Thread");
+    initThread.setDaemon(true); // Allow JVM to exit gracefully if thread is still running
+    initThread.start();
   }
 }
