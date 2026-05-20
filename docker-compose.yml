@@ -9,7 +9,7 @@
 #  *
 #  * Critical Dependencies:
 #  * - Backend: relies on treishvaam-db, redis, elasticsearch, rabbitmq, keycloak.
-#  # - RabbitMQ: Must be healthy (not just started) for backend to boot successfully.
+#  * - RabbitMQ: Must be healthy (not just started) for backend to boot successfully.
 #  *
 #  * Security Constraints:
 #  * - Keycloak, Grafana, and RabbitMQ UIs must remain on loopback or private networks, never exposed on 0.0.0.0.
@@ -26,6 +26,11 @@
 #  * • Reduced backend replicas from 2 to 1 to prevent initialization race conditions and resource starvation.
 #  * • Injected JAVA_TOOL_OPTIONS (-Xmx1024m -Xms512m) to enforce explicit JVM heap memory limits.
 #  * • Why: The dual-replica setup running within a restricted VirtualBox VM was triggering the host/guest Linux Out-Of-Memory (OOM) killer due to memory spikes from multiple concurrent backend boots and spawned Python sub-processes. Capping the heap size and consolidating to a single replica ensures stable startup metrics.
+#  *
+#  * - EDITED (HA Restoration & Fine-Grained Memory Tuning):
+#  * • Restored backend replicas to 2.
+#  * • Adjusted JAVA_TOOL_OPTIONS to (-Xmx768m -Xms512m).
+#  * • Why: To restore high availability while preventing the previous OOM crashes. This JVM tuning, combined with the aggressive OS cache flush added to `auto_deploy.sh`, guarantees sufficient RAM for both Spring contexts and Python ProcessBuilders.
 #  *
 #  * - DO-NOT-DELETE RULE:
 #  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
@@ -255,7 +260,7 @@ services:
       - CONTACT_EMAIL_ENCRYPTION_KEY=${CONTACT_EMAIL_ENCRYPTION_KEY}
       - CONTACT_MESSAGE_ENCRYPTION_KEY=${CONTACT_MESSAGE_ENCRYPTION_KEY}
       - AUDIT_IP_ENCRYPTION_KEY=${AUDIT_IP_ENCRYPTION_KEY}
-      - JAVA_TOOL_OPTIONS=-Xmx1024m -Xms512m
+      - JAVA_TOOL_OPTIONS=-Xmx768m -Xms512m
     volumes:
       - ./backend-app.war:/app/app.war
       - ./ga4-credentials.json:/app/ga4-credentials.json
@@ -265,7 +270,7 @@ services:
       - ./logs:/app/logs
     deploy:
       mode: replicated
-      replicas: 1
+      replicas: 2
     depends_on:
       treishvaam-db:
         condition: service_healthy

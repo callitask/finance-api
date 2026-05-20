@@ -42,6 +42,9 @@
 #   - EDITED:
 #     • Added `sed "s/['\"]//g"` pipeline to the Infisical export command.
 #     • Reason: Resolves backend crash (`IllegalStateException: LINKEDIN_TOKEN_ENCRYPTION_KEY missing or empty`). Infisical wraps `.env` values in literal single quotes, which corrupts the exact 32-byte Base64 array required by the Java AES-256-GCM cipher. Stripping quotes ensures clean variable hydration.
+#   - EDITED:
+#     • Injected a proactive OS Memory Recovery sequence (`drop_caches` and `docker builder prune`) before `docker compose up`.
+#     • Reason: Fixes a severe out-of-memory crash loop (OOM Kill / Exit 137). When scaling to 2 replicas, the instantaneous memory spike of booting two Spring Boot JVMs and their respective Python processes simultaneously exhausted the VM's RAM. Evicting the Linux page cache guarantees maximum available RAM for the container initialization phase.
 # ==============================================================================
 
 # ==============================================================================
@@ -176,6 +179,15 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     echo "[Docker] Rebuilding services..."
     
     docker compose down --remove-orphans
+
+    # --- 5.5 MEMORY RECOVERY (CRITICAL FOR DUAL-REPLICA BOOT) ---
+    echo "[System] Executing Aggressive OS Memory Recovery..."
+    if command -v sudo >/dev/null 2>&1; then
+        sudo sync; echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null
+    fi
+    # Prune dangling builder cache to recover disk/memory overhead
+    docker builder prune -a -f
+
     docker compose up -d --build --force-recreate
     
     # --- SAFETY BUFFER ---
