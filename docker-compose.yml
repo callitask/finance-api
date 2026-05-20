@@ -22,41 +22,10 @@
 #  * - Healthchecks must be robust and dictate startup order.
 #  *
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
-#  * - EDITED (Phase 2 - Security Hardening):
-#  * • Added `--requirepass ${REDIS_PASSWORD}` to Redis command and updated healthcheck.
-#  * • Injected `SPRING_DATA_REDIS_PASSWORD` into Backend env.
-#  * • Upgraded Keycloak image to `quay.io/keycloak/keycloak:25.0.0`.
-#  * • Enabled Elasticsearch `xpack.security.enabled=true` and injected `ELASTIC_PASSWORD` and `SPRING_ELASTICSEARCH_USERNAME`/`PASSWORD`.
-#  * • Why: Addressed [SEC-01], [SEC-06], and [SEC-09]. Enforce defense-in-depth across the internal Docker bridge network.
-#  *
-#  * - EDITED (Hotfix - Deployment Stall):
-#  * • Modified Redis healthcheck to use `REDISCLI_AUTH` environment variable instead of `-a` flag to prevent warning messages from breaking the `ping` return code.
-#  * • Downgraded Backend `depends_on` for Elasticsearch to `service_started`.
-#  * • Why: Elasticsearch takes significantly longer to start on its first run when `xpack.security.enabled=true` is toggled. The strict `service_healthy` condition caused a timeout, preventing the backend and Nginx from booting.
-#  *
-#  * - EDITED (SEC-13 Fix):
-#  * • Changed Keycloak environment variables: `KEYCLOAK_ADMIN` to `keycloak-admin` and `KEYCLOAK_ADMIN_PASSWORD` to use a dedicated secret `${KEYCLOAK_ADMIN_PASSWORD}` instead of reusing `${APP_ADMIN_PASSWORD}`.
-#  * • Why: Addressed [SEC-13] Critical severity finding. Sharing admin credentials across platforms creates a single point of total failure.
-#  *
-#  * - EDITED:
-#  * • Hardened Redis container command with --protected-mode yes, --bind 0.0.0.0, and command renaming (FLUSHALL, FLUSHDB, CONFIG, DEBUG, MONITOR) (SEC-01).
-#  * • Upgraded redis image from alpine to 7-alpine (SEC-01).
-#  * • Why: Prevents data exfiltration or destructive commands if the Redis container is accessed by a compromised adjacent container on treish_net.
-#  *
-#  * - EDITED (Keycloak 25 Hostname Fix):
-#  * • Replaced deprecated `KC_HOSTNAME_URL` and `KC_HOSTNAME_ADMIN_URL` with `KC_HOSTNAME=backend.treishvaamgroup.com` and `KC_HOSTNAME_STRICT=false`.
-#  * • Why: Keycloak 25 removed `hostname:v1` properties. This prevents startup warnings and ensures the correct issuer URI is generated for JWT tokens.
-#  *
-#  * - EDITED (Phase 5 - ARCH-01, ARCH-03, ARCH-06 Rollback):
-#  * • Removed Envoy sidecar service definition.
-#  * • Removed external database secret mapping from the MariaDB container block.
-#  * • Why: Restores production system uptime. The database container was failing to compile due to missing keys on the host machine. Application layer code changes remain 100% active.
-#  * #  * - EDITED (Phase 6 - Architecture Upgrades):
-#  * • Re-introduced Envoy sidecar service definition for internal microservice routing (ARCH-01).
-#  * • Added mariadb_encryption_key external secret and mounted encryption.cnf into MariaDB (ARCH-06).
-#  *
-#  * - EDITED (Phase 6 - Domain Encryption Expansion):
-#  * • Added USER_EMAIL_ENCRYPTION_KEY, CONTACT_EMAIL_ENCRYPTION_KEY, CONTACT_MESSAGE_ENCRYPTION_KEY, and AUDIT_IP_ENCRYPTION_KEY to backend environment.
+#  * - EDITED (Hotfix - Pre-Flight Abort Resolution):
+#  * • Removed `secrets: mariadb_encryption_key: external: true` block.
+#  * • Removed `envoy-sidecar` service and `encryption.cnf` mount.
+#  * • Why: Standalone Docker Compose instantly aborts deployment if an external Swarm secret or host-file volume is missing. This caused the automated deployment script to fail silently and wipe the `.env` file without starting any containers.
 #  */
 
 version: '3.8'
@@ -77,9 +46,6 @@ services:
       MYSQL_DATABASE: finance_db
     volumes:
       - ./data/mariadb:/var/lib/mysql
-      - ./config/mariadb/encryption.cnf:/etc/mysql/conf.d/encryption.cnf:ro
-    secrets:
-      - mariadb_encryption_key
     healthcheck:
       test: [ "CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1" ]
       interval: 10s
@@ -212,16 +178,6 @@ services:
     command: tunnel run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-
-  envoy-sidecar:
-    image: envoyproxy/envoy:v1.29-latest
-    container_name: treishvaam-envoy
-    networks:
-      - treish_net
-    volumes:
-      - ./config/envoy.yaml:/etc/envoy/envoy.yaml
-    depends_on:
-      - backend
 
   backend:
     image: ghcr.io/callitask/finance-api:latest
@@ -418,7 +374,3 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-
-secrets:
-  mariadb_encryption_key:
-    external: true
