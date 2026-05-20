@@ -32,6 +32,11 @@
  * <p>- EDITED (Hotfix - Build Failure 2): • Reverted imports for EventMessage and MessagePublisher
  * to use `com.treishvaam.finance.messaging` package to align with physical directory structure.
  *
+ * <p>- EDITED (Hotfix 3): • Removed `@Transactional` from `runPythonHistoryAndQuoteUpdate`. • Why:
+ * Holding a JPA transaction open while waiting for an external Python subprocess to finish blocks a
+ * HikariCP connection. The python script connects to the DB independently. Holding the transaction
+ * causes connection closed timeouts and rollback failures.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -132,7 +137,8 @@ public class MarketDataService {
     logger.info("Market update queued to RabbitMQ. Source: {}", source);
   }
 
-  @Transactional
+  // CRITICAL: DO NOT add @Transactional here. Spawning ProcessBuilder with an active HikariCP
+  // connection causes starvation.
   // --- CIRCUIT BREAKER: Fault Tolerance for Python Pipeline ---
   @CircuitBreaker(name = "pythonScript", fallbackMethod = "fallbackPythonUpdate")
   public void runPythonHistoryAndQuoteUpdate(String triggerSource) {
