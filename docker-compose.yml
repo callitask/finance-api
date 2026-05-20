@@ -28,6 +28,10 @@
 #  * • Modified `elasticsearch` healthcheck to use `$$ELASTIC_PASSWORD`.
 #  * • Why: `external: true` secrets cause standalone Docker Compose to instantly abort deployments. The `environment` mapping securely pipes the flashed `.env` variable into an in-memory `/run/secrets/` tmpfs file. 
 #  * • Why: Array formatting and `$$` escaping prevent complex passwords containing `!` or `$` from triggering fatal `/bin/sh` expansions inside the containers.
+#  *
+#  * - EDITED (Hotfix - Broker Crashloop Fix):
+#  * • Added volume mount `- ./config/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro` to the `rabbitmq` service.
+#  * • Why: The RabbitMQ Erlang VM was crashing instantly on boot because `load_definitions` was specified in the args but the file was never mounted. This resolves the backend crashloop.
 #  */
 
 version: '3.8'
@@ -387,6 +391,8 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
       RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbitmq_management load_definitions "/etc/rabbitmq/definitions.json"
+    volumes:
+      - ./config/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
 
   backup-service:
     build: ./backup

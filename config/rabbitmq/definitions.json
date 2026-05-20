@@ -1,0 +1,84 @@
+{
+  "rabbit_version": "3.12",
+  "rabbitmq_version": "3.12",
+  "vhosts": [
+    {
+      "name": "/"
+    }
+  ],
+  "queues": [
+    {
+      "name": "dead_letter_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "search_index_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dead_letter_exchange",
+        "x-dead-letter-routing-key": "dead.letter"
+      }
+    },
+    {
+      "name": "sitemap_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dead_letter_exchange",
+        "x-dead-letter-routing-key": "dead.letter"
+      }
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "dead_letter_exchange",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "internal.exchange",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "dead_letter_exchange",
+      "vhost": "/",
+      "destination": "dead_letter_queue",
+      "destination_type": "queue",
+      "routing_key": "dead.letter",
+      "arguments": {}
+    },
+    {
+      "source": "internal.exchange",
+      "vhost": "/",
+      "destination": "search_index_queue",
+      "destination_type": "queue",
+      "routing_key": "event.search",
+      "arguments": {}
+    },
+    {
+      "source": "internal.exchange",
+      "vhost": "/",
+      "destination": "sitemap_queue",
+      "destination_type": "queue",
+      "routing_key": "event.sitemap",
+      "arguments": {}
+    }
+  ]
+}
