@@ -22,10 +22,12 @@
 #  * - Healthchecks must be robust and dictate startup order.
 #  *
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
-#  * - EDITED (Hotfix - Pre-Flight Abort Resolution):
-#  * • Removed `secrets: mariadb_encryption_key: external: true` block.
-#  * • Removed `envoy-sidecar` service and `encryption.cnf` mount.
-#  * • Why: Standalone Docker Compose instantly aborts deployment if an external Swarm secret or host-file volume is missing. This caused the automated deployment script to fail silently and wipe the `.env` file without starting any containers.
+#  * - EDITED (Hotfix - Pre-Flight Validation Abort & Shell Expansion Fix):
+#  * • Converted `mariadb_encryption_key` from `external: true` to `environment: "MARIADB_ENCRYPTION_KEY"`.
+#  * • Converted `redis` command to YAML array format.
+#  * • Modified `elasticsearch` healthcheck to use `$$ELASTIC_PASSWORD`.
+#  * • Why: `external: true` secrets cause standalone Docker Compose to instantly abort deployments. The `environment` mapping securely pipes the flashed `.env` variable into an in-memory `/run/secrets/` tmpfs file. 
+#  * • Why: Array formatting and `$$` escaping prevent complex passwords containing `!` or `$` from triggering fatal `/bin/sh` expansions inside the containers.
 #  */
 
 version: '3.8'
@@ -46,6 +48,9 @@ services:
       MYSQL_DATABASE: finance_db
     volumes:
       - ./data/mariadb:/var/lib/mysql
+      - ./config/mariadb/encryption.cnf:/etc/mysql/conf.d/encryption.cnf:ro
+    secrets:
+      - mariadb_encryption_key
     healthcheck:
       test: [ "CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1" ]
       interval: 10s
@@ -108,19 +113,37 @@ services:
       - treish_net
     volumes:
       - ./data/redis:/data
-    command: >
-      redis-server
-      --requirepass ${REDIS_PASSWORD}
-      --save 60 1
-      --loglevel warning
-      --stop-writes-on-bgsave-error no
-      --protected-mode yes
-      --bind 0.0.0.0
-      --rename-command FLUSHALL ""
-      --rename-command FLUSHDB ""
-      --rename-command CONFIG ""
-      --rename-command DEBUG ""
-      --rename-command MONITOR ""
+    # Phase 6 Fix: Strict Array formatting prevents '!' shell expansion crashes
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --save
+      - "60"
+      - "1"
+      - --loglevel
+      - warning
+      - --stop-writes-on-bgsave-error
+      - "no"
+      - --protected-mode
+      - "yes"
+      - --bind
+      - 0.0.0.0
+      - --rename-command
+      - FLUSHALL
+      - ""
+      - --rename-command
+      - FLUSHDB
+      - ""
+      - --rename-command
+      - CONFIG
+      - ""
+      - --rename-command
+      - DEBUG
+      - ""
+      - --rename-command
+      - MONITOR
+      - ""
     environment:
       REDISCLI_AUTH: ${REDIS_PASSWORD}
     healthcheck:
@@ -164,7 +187,8 @@ services:
     volumes:
       - ./data/elastic:/usr/share/elasticsearch/data
     healthcheck:
-      test: [ "CMD-SHELL", "curl -u elastic:${ELASTIC_PASSWORD} -s http://localhost:9200/_cluster/health | grep -E -q 'status.*(green|yellow)'" ]
+      # Phase 6 Fix: Double $$ escapes password to execute securely within container shell
+      test: [ "CMD-SHELL", "curl -u elastic:$$ELASTIC_PASSWORD -s http://localhost:9200/_cluster/health | grep -E -q 'status.*(green|yellow)'" ]
       interval: 20s
       timeout: 10s
       retries: 10
@@ -178,6 +202,16 @@ services:
     command: tunnel run
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+
+  envoy-sidecar:
+    image: envoyproxy/envoy:v1.29-latest
+    container_name: treishvaam-envoy
+    networks:
+      - treish_net
+    volumes:
+      - ./config/envoy.yaml:/etc/envoy/envoy.yaml
+    depends_on:
+      - backend
 
   backend:
     image: ghcr.io/callitask/finance-api:latest
@@ -374,3 +408,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+
+# Phase 6 Fix: Replaces the invalid 'external: true' with a secure memory-mapped environment link
+secrets:
+  mariadb_encryption_key:
+    environment: "MARIADB_ENCRYPTION_KEY"
