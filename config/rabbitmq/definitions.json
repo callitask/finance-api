@@ -1,4 +1,16 @@
 {
+  "_ai_context": {
+    "Purpose": "Defines static RabbitMQ topology (Queues, Exchanges, Bindings) for container initialization.",
+    "Scope": "Pre-provisions all system queues.",
+    "Critical Dependencies": "RabbitMQ container.",
+    "Security Constraints": "DO NOT INCLUDE 'vhosts' block. As per Handover 2026-05-20, it resets admin permissions.",
+    "Non-Negotiables": "Must remain valid JSON without standard slash comments.",
+    "Change Intent": "Add internal.queue to resolve backend startup crashes.",
+    "Future AI Guidance": "Never add vhosts definition here.",
+    "IMMUTABLE_CHANGE_HISTORY": [
+      "ADDED: internal.queue to queues array (2026-05-20). Resolves backend crashloop."
+    ]
+  },
   "queues": [
     {
       "name": "dead_letter_queue",
@@ -19,6 +31,16 @@
     },
     {
       "name": "sitemap_queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dead_letter_exchange",
+        "x-dead-letter-routing-key": "dead.letter"
+      }
+    },
+    {
+      "name": "internal.queue",
       "vhost": "/",
       "durable": true,
       "auto_delete": false,
