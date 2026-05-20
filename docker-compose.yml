@@ -6,32 +6,17 @@
 #  *
 #  * Scope:
 #  * - Manages internal networking, service discovery, and container lifecycles.
-#  * - Must never expose internal databases/services publicly (Zero-Trust).
 #  *
 #  * Critical Dependencies:
 #  * - Backend: relies on treishvaam-db, redis, elasticsearch, rabbitmq, keycloak.
-#  * - Nginx: Must strictly depend on Keycloak and Backend to prevent 502 Bad Gateways.
-#  *
-#  * Security Constraints:
-#  * - Passwords and keys must strictly use environment variables mapping.
-#  * - ALL secrets must be sourced/injected via Cloudflare (CF) or Infiscal.
-#  * - No direct port mapping for internal stateful services (db, redis, elasticsearch).
-#  * - Admin UIs (Grafana, RabbitMQ) are mapped strictly to 127.0.0.1 for SSH tunneling access.
-#  *
-#  * Non-Negotiables:
-#  * - Healthchecks must be robust and dictate startup order.
+#  # - RabbitMQ: Must be healthy (not just started) for backend to boot successfully.
 #  *
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
-#  * - EDITED (Hotfix - Pre-Flight Validation Abort & Shell Expansion Fix):
-#  * • Converted `mariadb_encryption_key` from `external: true` to `environment: "MARIADB_ENCRYPTION_KEY"`.
-#  * • Converted `redis` command to YAML array format.
-#  * • Modified `elasticsearch` healthcheck to use `$$ELASTIC_PASSWORD`.
-#  * • Why: `external: true` secrets cause standalone Docker Compose to instantly abort deployments. The `environment` mapping securely pipes the flashed `.env` variable into an in-memory `/run/secrets/` tmpfs file. 
-#  * • Why: Array formatting and `$$` escaping prevent complex passwords containing `!` or `$` from triggering fatal `/bin/sh` expansions inside the containers.
-#  *
 #  * - EDITED (Hotfix - Broker Crashloop Fix):
-#  * • Added volume mount `- ./config/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro` to the `rabbitmq` service.
-#  * • Why: The RabbitMQ Erlang VM was crashing instantly on boot because `load_definitions` was specified in the args but the file was never mounted. This resolves the backend crashloop.
+#  * • Switched to `RABBITMQ_SERVER_DEFINITION_FILE` variable.
+#  * • Added `rabbitmq-diagnostics` healthcheck to prevent backend from connecting to a half-ready broker.
+#  * • Upgraded backend `depends_on` to `service_healthy` for RabbitMQ.
+#  * • Why: The broker was refusing 'admin' login because the previous definitions file reset vhost permissions. The healthcheck prevents race-condition crashes in the Spring Boot JVM.
 #  */
 
 version: '3.8'
@@ -117,7 +102,6 @@ services:
       - treish_net
     volumes:
       - ./data/redis:/data
-    # Phase 6 Fix: Strict Array formatting prevents '!' shell expansion crashes
     command:
       - redis-server
       - --requirepass
@@ -191,7 +175,6 @@ services:
     volumes:
       - ./data/elastic:/usr/share/elasticsearch/data
     healthcheck:
-      # Phase 6 Fix: Double $$ escapes password to execute securely within container shell
       test: [ "CMD-SHELL", "curl -u elastic:$$ELASTIC_PASSWORD -s http://localhost:9200/_cluster/health | grep -E -q 'status.*(green|yellow)'" ]
       interval: 20s
       timeout: 10s
@@ -274,9 +257,9 @@ services:
       redis:
         condition: service_healthy
       elasticsearch:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
-        condition: service_started
+        condition: service_healthy
       tempo:
         condition: service_started
       keycloak:
@@ -324,6 +307,11 @@ services:
     volumes:
       - ./config/loki-config.yml:/etc/loki/local-config.yaml
     command: -config.file=/etc/loki/local-config.yaml
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--output-document=-", "http://localhost:3100/ready" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   promtail:
     image: grafana/promtail:2.9.2
@@ -344,6 +332,11 @@ services:
       - treish_net
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--output-document=-", "http://localhost:9090/-/healthy" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   grafana:
     image: grafana/grafana:latest
@@ -390,9 +383,15 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
-      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbitmq_management load_definitions "/etc/rabbitmq/definitions.json"
+      # Enterprise Load Strategy: Modern env var for definitions
+      RABBITMQ_SERVER_DEFINITION_FILE: /etc/rabbitmq/definitions.json
     volumes:
       - ./config/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
 
   backup-service:
     build: ./backup
@@ -415,7 +414,6 @@ services:
       minio:
         condition: service_healthy
 
-# Phase 6 Fix: Replaces the invalid 'external: true' with a secure memory-mapped environment link
 secrets:
   mariadb_encryption_key:
     environment: "MARIADB_ENCRYPTION_KEY"

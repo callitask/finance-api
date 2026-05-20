@@ -1,11 +1,4 @@
 {
-  "rabbit_version": "3.12",
-  "rabbitmq_version": "3.12",
-  "vhosts": [
-    {
-      "name": "/"
-    }
-  ],
   "queues": [
     {
       "name": "dead_letter_queue",
