@@ -44,6 +44,10 @@
 #  * • Added cron `schedule` trigger (Weekly).
 #  * • Added OWASP Dependency Check step before the Maven build.
 #  * • Why: Proactively scan for vulnerable transitive dependencies via the NVD database.
+#  *
+#  * - EDITED (Phase 6 Fix - CI/CD Stability):
+#  * • Injected `-DossindexAnalyzerEnabled=false` into the OWASP Maven command.
+#  * • Why: The Sonatype OSS Index API aggressively rate-limits CI/CD runners (HTTP 429), crashing the build. NVD remains the active primary vulnerability database.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -121,8 +125,8 @@ jobs:
         echo "🛡️ Running OWASP Dependency-Check via Maven..."
         chmod +x mvnw
         export MAVEN_OPTS="-Xmx1024m"
-        # DfailBuildOnCVSS=8 enforces a hard failure if a critical severity vulnerability (CVSS >= 8) is detected.
-        ./mvnw org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=8 -DnvdApiKey="$NVD_API_KEY" || echo "⚠️ Non-critical vulnerabilities found, proceeding to build..."
+        # Phase 6 Fix: Disabled ossindexAnalyzer to prevent 3rd-party API rate limit crashes.
+        ./mvnw org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=8 -DnvdApiKey="$NVD_API_KEY" -DossindexAnalyzerEnabled=false || echo "⚠️ Non-critical vulnerabilities found, proceeding to build..."
 
     - name: Build with Maven
       run: |
