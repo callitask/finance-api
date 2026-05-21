@@ -34,6 +34,11 @@
  * <p>- EDITED (Phase 5.5): • Added `purgeOldAnalyticsEvents` scheduled task and autowired
  * `AnalyticsEventRepository`. • Why: Data retention policy to auto-purge raw events older than 365
  * days, preventing unbounded table growth and ensuring DPDP Act 2023 compliance.
+ *
+ * <p>- EDITED (Phase 5.5 Hotfix): • Fixed Maven Compilation Error by importing
+ * `com.treishvaam.financeapi.repository.AnalyticsEventRepository`. • Corrected type mismatch:
+ * `deleteEventsOlderThan` now correctly uses `Instant` and `ChronoUnit` and handles `void` return
+ * type instead of `LocalDateTime` and `int`.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -50,11 +55,13 @@ import com.google.cloud.bigquery.BigQueryOptions;
 import com.google.cloud.bigquery.FieldValueList;
 import com.google.cloud.bigquery.QueryJobConfiguration;
 import com.google.cloud.bigquery.TableResult;
+import com.treishvaam.financeapi.repository.AnalyticsEventRepository;
 import java.io.File;
 import java.io.FileInputStream;
+import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -152,9 +159,9 @@ public class AnalyticsService {
   @Transactional
   public void purgeOldAnalyticsEvents() {
     if (analyticsEventRepository != null) {
-      LocalDateTime cutoff = LocalDateTime.now().minusDays(365);
-      int deleted = analyticsEventRepository.deleteEventsOlderThan(cutoff);
-      logger.info("[AnalyticsRetention] Purged {} raw events older than 365 days.", deleted);
+      Instant cutoff = Instant.now().minus(365, ChronoUnit.DAYS);
+      analyticsEventRepository.deleteEventsOlderThan(cutoff);
+      logger.info("[AnalyticsRetention] Purged raw events older than 365 days.");
     }
   }
 
