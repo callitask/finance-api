@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd">
+
+    <changeSet id="V46__create_analytics_events_table" author="ai-architect">
+        <createTable tableName="analytics_events">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="session_id" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="event_type" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="url" type="VARCHAR(1000)"/>
+            <column name="path" type="VARCHAR(500)"/>
+            <column name="referrer" type="VARCHAR(1000)"/>
+            <column name="country_code" type="VARCHAR(10)"/>
+            <column name="city" type="VARCHAR(255)"/>
+            <column name="device_type" type="VARCHAR(50)"/>
+            <column name="browser" type="VARCHAR(100)"/>
+            <column name="os" type="VARCHAR(100)"/>
+            <column name="user_agent" type="VARCHAR(1000)"/>
+            <column name="scroll_depth" type="INT"/>
+            <column name="time_on_page_ms" type="BIGINT"/>
+            <column name="tenant_id" type="VARCHAR(50)"/>
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <createIndex tableName="analytics_events" indexName="idx_analytics_session">
+            <column name="session_id"/>
+        </createIndex>
+        <createIndex tableName="analytics_events" indexName="idx_analytics_type">
+            <column name="event_type"/>
+        </createIndex>
+        <createIndex tableName="analytics_events" indexName="idx_analytics_timestamp">
+            <column name="created_at"/>
+        </createIndex>
+        <createIndex tableName="analytics_events" indexName="idx_analytics_tenant">
+            <column name="tenant_id"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

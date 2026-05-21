@@ -41,7 +41,13 @@
  * correctly for legitimate requests. * - EDITED (Phase 4 - SEC-10 Fix): • Added
  * `InputSanitizationFilter` to the security filter chain to intercept queries and validate against
  * SQLi. • Why the edit was required: Application-layer defense-in-depth against SQL/NoSQL injection
- * via Redis.
+ * via Redis. *
+ *
+ * <p>- EDITED (Phase 5 - First-Party Analytics): • Added explicit requestMatchers for
+ * HttpMethod.POST to `/api/v1/analytics/**` with `.permitAll()`. • Retained
+ * `.hasAnyAuthority("ROLE_ANALYST", "ROLE_ADMIN")` for all other methods on `/api/v1/analytics/**`.
+ * • Why: Allows the frontend Faro/Tracking script to submit event beacons (POST) anonymously, while
+ * keeping the analytics dashboard data reads (GET) strictly secured for administrators.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
@@ -158,6 +164,10 @@ public class SecurityConfig {
                     .requestMatchers("/api/v1/contact/**")
                     .permitAll()
 
+                    // PHASE 5: Allow Public First-Party Analytics Beacons (POST ONLY)
+                    .requestMatchers(HttpMethod.POST, "/api/v1/analytics/**")
+                    .permitAll()
+
                     // --- Draft Operations (Authenticated — any logged-in user) ---
                     .requestMatchers(HttpMethod.POST, "/api/v1/posts/draft")
                     .authenticated()
@@ -169,7 +179,8 @@ public class SecurityConfig {
                     .authenticated()
 
                     // 6. Secure Admin/Dashboard Routes
-                    .requestMatchers("/api/v1/analytics/**")
+                    .requestMatchers(
+                        "/api/v1/analytics/**") // Applies to GET requests (Dashboard Reads)
                     .hasAnyAuthority("ROLE_ANALYST", "ROLE_ADMIN")
                     .requestMatchers("/api/v1/posts/admin/**")
                     .hasAnyAuthority("ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
