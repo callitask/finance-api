@@ -12,6 +12,9 @@ package com.treishvaam.financeapi.model;
  * <p>- EDITED (Phase 6 Fix): • Replaced `EncryptedStringConverter` with domain-specific
  * `ContactEmailConverter` and `ContactMessageConverter`. • Why: To isolate encryption keys per
  * domain field.
+ *
+ * <p>- EDITED (Phase 3 — Form Security): • Added `@Transient honeypot` field. • Why: Required to
+ * deserialize honeypot payload without persisting it to database.
  */
 import com.treishvaam.financeapi.security.ContactEmailConverter;
 import com.treishvaam.financeapi.security.ContactMessageConverter;
@@ -40,6 +43,10 @@ public class ContactMessage {
   @Column(columnDefinition = "TEXT")
   @Convert(converter = ContactMessageConverter.class)
   private String message;
+
+  // Phase 3: Honeypot field for bot detection
+  // AI-CONTEXT: This field is hidden from humans via CSS. Bots fill all fields.
+  @jakarta.persistence.Transient private String honeypot;
 
   public ContactMessage() {}
 
@@ -73,5 +80,13 @@ public class ContactMessage {
 
   public void setMessage(String message) {
     this.message = message;
+  }
+
+  public String getHoneypot() {
+    return honeypot;
+  }
+
+  public void setHoneypot(String honeypot) {
+    this.honeypot = honeypot;
   }
 }
