@@ -36,6 +36,10 @@
 #  * • Injected `CONTENT_SIGNING_KEY` environment variable.
 #  * • Why: Required for backend `ContentIntegrityService` HMAC digital signatures.
 #  *
+#  * - EDITED (Phase 4):
+#  * • Injected `BACKUP_ENCRYPTION_KEY` into `backup-service`.
+#  * • Why: Required to encrypt MariaDB dump files at rest before uploading to off-site MinIO storage.
+#  *
 #  * - DO-NOT-DELETE RULE:
 #  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
 #  * truncated, rewritten, or regenerated.
@@ -433,6 +437,7 @@ services:
       S3_BUCKET: treishvaam-backups
       MINIO_ACCESS_KEY: ${BACKUP_MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY}
     depends_on:
       treishvaam-db:
         condition: service_healthy

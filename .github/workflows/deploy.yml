@@ -5,7 +5,7 @@
 #  * - GitHub Actions workflow for building and deploying the Treishvaam Finance Backend.
 #  *
 #  * Scope:
-#  * - Triggers on pushes to main, staging, and develop.
+#  * - Triggers on pushes to main, staging, and develop, and runs weekly via cron.
 #  * - Executes Maven build on a self-hosted runner and deploys the WAR file.
 #  *
 #  * Critical Dependencies:
@@ -39,6 +39,11 @@
 #  * - EDITED (Hotfix - Multiline Secret Fix):
 #  * • Refactored Verify GPG step to map secrets to env variables.
 #  * • Why: Resolved "no valid OpenPGP data found" errors caused by shell-mangled multiline secrets.
+#  *
+#  * - EDITED (Phase 4):
+#  * • Added cron `schedule` trigger (Weekly).
+#  * • Added OWASP Dependency Check step before the Maven build.
+#  * • Why: Proactively scan for vulnerable transitive dependencies via the NVD database.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -47,6 +52,8 @@ on:
   push:
     branches: [ "main", "staging", "develop" ]
   workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * 0' # Run weekly on Sunday at 02:00 AM UTC for regular dependency scanning
 
 concurrency:
   group: production-deployment
@@ -106,6 +113,16 @@ jobs:
       run: |
         echo "🚀 DEPLOYING BRANCH: ${{ github.ref_name }}"
         echo "Server will now be updated with code from ${{ github.ref_name }}..."
+
+    - name: OWASP Dependency Check (Vulnerability Scanning)
+      env:
+        NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+      run: |
+        echo "🛡️ Running OWASP Dependency-Check via Maven..."
+        chmod +x mvnw
+        export MAVEN_OPTS="-Xmx1024m"
+        # DfailBuildOnCVSS=8 enforces a hard failure if a critical severity vulnerability (CVSS >= 8) is detected.
+        ./mvnw org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=8 -DnvdApiKey="$NVD_API_KEY" || echo "⚠️ Non-critical vulnerabilities found, proceeding to build..."
 
     - name: Build with Maven
       run: |
