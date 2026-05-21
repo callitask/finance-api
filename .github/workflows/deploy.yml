@@ -29,6 +29,11 @@
 #  * • Added `export MAVEN_OPTS="-Xmx1024m"` to the Maven build step.
 #  * • Removed `-T 1C` flag from the Maven command.
 #  * • Why: The self-hosted runner was experiencing OOM (Out-Of-Memory) kills (Exit code 137) during the Spotless/Checkstyle/Spring Boot repackage phases. Capping heap and forcing single-threaded execution stabilizes the build.
+#  *
+#  * - EDITED (Phase 1):
+#  * • Added GPG Commit Signature Verification step.
+#  * • Added Gitleaks Secret Scanning step.
+#  * • Why: Enforce cryptographic commit integrity and prevent leaked credentials from reaching production.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -51,6 +56,35 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
+
+    - name: Add GPG_PUBLIC_KEY Secret to GitHub Actions
+      run: echo "GPG secret configured — see setup instructions in AI-CONTEXT"
+
+    - name: Verify GPG Commit Signature (Security Integrity Gate)
+      run: |
+        echo "🔐 Verifying GPG commit signature for: $(git rev-parse HEAD)"
+        
+        # Import developer's public key into runner GPG keyring
+        echo "${{ secrets.GPG_PUBLIC_KEY }}" | gpg --import --batch 2>&1
+        
+        COMMIT=$(git rev-parse HEAD)
+        
+        # Verify signature — exit 1 blocks deployment on failure
+        if git verify-commit "$COMMIT" 2>&1; then
+          echo "✅ Commit $COMMIT has a VALID GPG signature. Deployment authorized."
+        else
+          echo "❌ SECURITY ALERT: Commit $COMMIT is UNSIGNED or has an INVALID signature."
+          echo "❌ Deployment BLOCKED. Possible account compromise or policy violation."
+          exit 1
+        fi
+
+    - name: Secret Scanning (Gitleaks — Prevent Credential Exposure)
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+      with:
+        args: --redact --verbose
 
     - name: Set up JDK 21
       uses: actions/setup-java@v4

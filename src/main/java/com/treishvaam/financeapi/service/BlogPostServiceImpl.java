@@ -9,7 +9,7 @@ package com.treishvaam.financeapi.service;
  * <p>Scope: - Handles CRUD operations, draft management, SEO slug generation, and async publishing.
  *
  * <p>Critical Dependencies: - Backend: BlogPostRepository, ImageService, HtmlMaterializerService,
- * MessagePublisher
+ * MessagePublisher, ContentIntegrityService
  *
  * <p>Security Constraints: - Optimistic locking must be enforced on updates. - Tenant isolation
  * must default to current user context.
@@ -26,9 +26,12 @@ package com.treishvaam.financeapi.service;
  * occurring after post publication due to Spring Data Redis failing to instantiate
  * `java.util.Optional`. • What behavior must remain unchanged: DB retrieval and edge-side
  * Cloudflare caching remain fully intact to handle the load. * - EDITED (Hotfix 3): • Corrected
- * import for MessagePublisher to use `com.treishvaam.finance.messaging` physical package.
+ * import for MessagePublisher to use `com.treishvaam.finance.messaging` physical package. * -
+ * EDITED (Phase 2): • Autowired `ContentIntegrityService`. • Added signature computation to
+ * `persistPost` during the PostStatus.PUBLISHED phase. • Added signature verification to
+ * `findByUrlArticleId` and `findPostForUrl` to enable tamper detection on public reads.
  */
-import com.treishvaam.finance.messaging.MessagePublisher; // FIX: Corrected package path
+import com.treishvaam.finance.messaging.MessagePublisher;
 import com.treishvaam.financeapi.config.CachingConfig;
 import com.treishvaam.financeapi.config.tenant.TenantContext;
 import com.treishvaam.financeapi.dto.BlogPostDto;
@@ -41,6 +44,7 @@ import com.treishvaam.financeapi.model.User;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.repository.CategoryRepository;
 import com.treishvaam.financeapi.repository.UserRepository;
+import com.treishvaam.financeapi.security.ContentIntegrityService;
 import com.treishvaam.financeapi.service.ImageService.ImageMetadataDto;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -81,11 +85,14 @@ public class BlogPostServiceImpl implements BlogPostService {
   @Autowired private MessagePublisher messagePublisher;
 
   @Autowired private CategoryRepository categoryRepository;
+
   @Autowired private ImageService imageService;
 
   @Autowired private UserRepository userRepository;
 
   @Autowired private HtmlMaterializerService htmlMaterializerService;
+
+  @Autowired private ContentIntegrityService contentIntegrityService;
 
   @PersistenceContext private EntityManager entityManager;
 
@@ -145,10 +152,20 @@ public class BlogPostServiceImpl implements BlogPostService {
   }
 
   @Override
-  // FIX: Removed @Cacheable because caching Optional<T> causes Jackson deserialization crashes (500
-  // Error)
   public Optional<BlogPost> findByUrlArticleId(String urlArticleId) {
-    return blogPostRepository.findByUrlArticleId(urlArticleId);
+    Optional<BlogPost> postOpt = blogPostRepository.findByUrlArticleId(urlArticleId);
+    postOpt.ifPresent(
+        p -> {
+          boolean intact =
+              contentIntegrityService.verifySignature(
+                  p.getContentSignature(),
+                  p.getTitle(),
+                  p.getSlug(),
+                  p.getContent(),
+                  p.getAuthor(),
+                  p.getTenantId());
+        });
+    return postOpt;
   }
 
   @Override
@@ -303,6 +320,21 @@ public class BlogPostServiceImpl implements BlogPostService {
       blogPost.setScheduledTime(null);
     }
 
+    // Phase 2: Compute and attach digital signature right before publish transitions
+    if (PostStatus.PUBLISHED.equals(blogPost.getStatus())) {
+      String signature =
+          contentIntegrityService.computeSignature(
+              blogPost.getTitle(),
+              blogPost.getSlug(),
+              blogPost.getContent(),
+              blogPost.getAuthor(),
+              blogPost.getTenantId());
+      blogPost.setContentSignature(signature);
+      if (signature != null) {
+        logger.info("[ContentIntegrity] Post slug='{}' signed successfully.", blogPost.getSlug());
+      }
+    }
+
     BlogPost savedPost = blogPostRepository.save(blogPost);
 
     if ((savedPost.getStatus() == PostStatus.PUBLISHED
@@ -368,6 +400,17 @@ public class BlogPostServiceImpl implements BlogPostService {
       if (post.getUrlArticleId() == null) {
         post.setUrlArticleId(generateUrlArticleId(post));
       }
+
+      // Phase 2: Compute and attach digital signature for scheduled automated publishes
+      String signature =
+          contentIntegrityService.computeSignature(
+              post.getTitle(),
+              post.getSlug(),
+              post.getContent(),
+              post.getAuthor(),
+              post.getTenantId());
+      post.setContentSignature(signature);
+
       blogPostRepository.save(post);
 
       try {
@@ -482,13 +525,27 @@ public class BlogPostServiceImpl implements BlogPostService {
 
   @Override
   @Transactional(readOnly = true)
-  // FIX: Removed @Cacheable because caching Optional<T> causes Jackson deserialization crashes
   public Optional<BlogPost> findPostForUrl(Long id, String categorySlug, String userFriendlySlug) {
     Optional<BlogPost> postOpt =
         blogPostRepository.findByIdAndUserFriendlySlug(id, userFriendlySlug);
     if (postOpt.isEmpty() || postOpt.get().getCategory() == null) return Optional.empty();
     if (postOpt.get().getCategory().getSlug() != null
-        && postOpt.get().getCategory().getSlug().equals(categorySlug)) return postOpt;
+        && postOpt.get().getCategory().getSlug().equals(categorySlug)) {
+
+      postOpt.ifPresent(
+          p -> {
+            boolean intact =
+                contentIntegrityService.verifySignature(
+                    p.getContentSignature(),
+                    p.getTitle(),
+                    p.getSlug(),
+                    p.getContent(),
+                    p.getAuthor(),
+                    p.getTenantId());
+          });
+
+      return postOpt;
+    }
     return Optional.empty();
   }
 

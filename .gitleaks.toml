@@ -1,0 +1,15 @@
+# .gitleaks.toml — Gitleaks configuration for Treishvaam backend
+# Exclude test/example files from secret scanning
+
+[allowlist]
+  description = "Global allowlist"
+  paths = [
+    '''.env.dev.example''',     # Example env — intentionally has placeholder values
+    '''dependency-check-suppressions.xml''',
+    '''.env.example''',
+  ]
+  # Regexes for known false positives
+  regexes = [
+    '''EXAMPLE_KEY_PLACEHOLDER''',
+    '''\$\{[A-Z_]+\}''',        # Spring Boot placeholder variables like ${PROD_DB_PASSWORD}
+  ]

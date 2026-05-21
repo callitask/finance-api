@@ -55,4 +55,10 @@
     <include file="db/changelog/V40__add_version_to_blog_posts.xml"/>
     
     <include file="db/changelog/V41__add_display_name_to_users.xml"/>
+
+    <include file="db/changelog/V42__encrypt_linkedin_token.xml"/>
+    <include file="db/changelog/V43__expand_encryption_columns.xml"/>
+    <include file="db/changelog/V44__encrypt_audit_ip.xml"/>
+    
+    <include file="db/changelog/V45__add_content_signature_to_blog_posts.xml"/>
 </databaseChangeLog>

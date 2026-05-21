@@ -32,6 +32,10 @@
 #  * • Adjusted JAVA_TOOL_OPTIONS to (-Xmx768m -Xms512m).
 #  * • Why: To restore high availability while preventing the previous OOM crashes. This JVM tuning, combined with the aggressive OS cache flush added to `auto_deploy.sh`, guarantees sufficient RAM for both Spring contexts and Python ProcessBuilders.
 #  *
+#  * - EDITED (Phase 2):
+#  * • Injected `CONTENT_SIGNING_KEY` environment variable.
+#  * • Why: Required for backend `ContentIntegrityService` HMAC digital signatures.
+#  *
 #  * - DO-NOT-DELETE RULE:
 #  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
 #  * truncated, rewritten, or regenerated.
@@ -231,6 +235,7 @@ services:
       - PROD_DB_PASSWORD=${PROD_DB_PASSWORD}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - INTERNAL_API_SECRET_KEY=${INTERNAL_API_SECRET_KEY}
+      - CONTENT_SIGNING_KEY=${CONTENT_SIGNING_KEY}
       - APP_ADMIN_EMAIL=${APP_ADMIN_EMAIL}
       - APP_ADMIN_PASSWORD=${APP_ADMIN_PASSWORD}
       - MARKET_DATA_API_KEY=${MARKET_DATA_API_KEY}

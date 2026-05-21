@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd">
+
+    <changeSet id="V45-add-content-signature" author="treishvaam-security-p2">
+        <addColumn tableName="blog_posts">
+            <column name="content_signature" type="VARCHAR(128)"
+                remarks="HMAC-SHA256 hex signature. NULL = pre-signature era. Computed on publish."/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

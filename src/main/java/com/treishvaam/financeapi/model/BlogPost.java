@@ -138,6 +138,12 @@ public class BlogPost implements Serializable {
   @Column(name = "url_article_id")
   private String urlArticleId;
 
+  // Phase 2 — Content Integrity
+  // AI-CONTEXT: HMAC-SHA256 signature computed on publish. Never sent to frontend.
+  // NULL = pre-signature post (verification passes). 128-char hex string when present.
+  @Column(name = "content_signature", length = 128)
+  private String contentSignature;
+
   @PrePersist
   protected void onCreate() {
     this.createdAt = Instant.now();
@@ -353,7 +359,6 @@ public class BlogPost implements Serializable {
     this.urlArticleId = urlArticleId;
   }
 
-  // New SEO & Section Getters/Setters
   public String getSeoTitle() {
     return seoTitle;
   }
@@ -384,5 +389,13 @@ public class BlogPost implements Serializable {
 
   public void setDisplaySection(DisplaySection displaySection) {
     this.displaySection = displaySection;
+  }
+
+  public String getContentSignature() {
+    return contentSignature;
+  }
+
+  public void setContentSignature(String contentSignature) {
+    this.contentSignature = contentSignature;
   }
 }
