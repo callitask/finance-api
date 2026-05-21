@@ -50,3 +50,43 @@ groups:
           description: "The backend is returning 500 errors."
         labels:
           severity: critical
+
+  # Phase 6 Additions
+  - name: backend_health
+    rules:
+      - alert: HighBackendErrorRate
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+            /
+            sum(rate(http_server_requests_seconds_count[5m]))
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend 5xx error rate above 5%"
+          description: "Over 5% of backend requests are returning 5xx errors. Check Loki logs immediately."
+
+      - alert: SlowAPIResponse
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_server_requests_seconds_bucket[5m])) by (le)
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p95 response time above 2 seconds"
+          description: "95th percentile response time has exceeded 2s. Investigate DB queries or external API slowness."
+
+  - name: security_rotation
+    rules:
+      - alert: SecretKeyRotationDue
+        expr: (time() - node_file_mtime_seconds{path="/opt/treishvaam/key_rotation.log"}) > 7776000
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "JWT and internal secret keys are due for rotation"
+          description: "JWT_SECRET_KEY and INTERNAL_API_SECRET_KEY have not been rotated in 90+ days. Run scripts/rotate_secrets.sh."

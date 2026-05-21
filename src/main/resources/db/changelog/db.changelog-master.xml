@@ -61,4 +61,6 @@
     <include file="db/changelog/V44__encrypt_audit_ip.xml"/>
     
     <include file="db/changelog/V45__add_content_signature_to_blog_posts.xml"/>
+    
+    <include file="db/changelog/V46__create_analytics_events_table.xml"/>
 </databaseChangeLog>
