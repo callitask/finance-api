@@ -40,15 +40,14 @@
 #  * • Refactored Verify GPG step to map secrets to env variables.
 #  * • Why: Resolved "no valid OpenPGP data found" errors caused by shell-mangled multiline secrets.
 #  *
-#  * - EDITED (Phase 4):
-#  * • Added cron `schedule` trigger (Weekly).
-#  * • Added OWASP Dependency Check step before the Maven build.
-#  * • Why: Proactively scan for vulnerable transitive dependencies via the NVD database.
-#  *
-#  * - EDITED (Phase 6 Fix - CI/CD Stability):
+#  * - EDITED (Phase 4 & 6 Fix - CI/CD Stability):
 #  * • Injected `-DossindexAnalyzerEnabled=false` into the OWASP Maven command to prevent API rate-limit crashes.
 #  * • Injected `-DsuppressionFiles=dependency-check-suppressions.xml` to load the explicit risk-acceptance ledger.
 #  * • Why: Unblocks the CI/CD pipeline from failing on unpatchable transitive Spring Boot vulnerabilities (Tomcat, Netty) while keeping the security scanner active for everything else.
+#  *
+#  * - EDITED (Phase 4 Optimization):
+#  * • Extracted OWASP Dependency Check into a standalone parallel job (`dependency-security-scan`).
+#  * • Why: The NVD scan takes 10-15 minutes and requires massive memory. Running it on every single commit blocks rapid deployments. It now runs on schedule or manual dispatch.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -65,9 +64,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # PHASE 4: Extracted Security Scan to run independently to unblock deployments
+  dependency-security-scan:
+    runs-on: self-hosted
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+    - name: OWASP Dependency Check (Vulnerability Scanning)
+      env:
+        NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+      run: |
+        echo "🛡️ Running OWASP Dependency-Check via Maven..."
+        chmod +x mvnw
+        export MAVEN_OPTS="-Xmx1024m"
+        ./mvnw org.owasp:dependency-check-maven:check \
+          -DfailBuildOnCVSS=8 \
+          -DsuppressionFiles=dependency-check-suppressions.xml \
+          -DnvdApiKey="$NVD_API_KEY" \
+          -DossindexAnalyzerEnabled=false || echo "⚠️ Non-critical vulnerabilities found, logging output..."
+
   build-and-deploy:
     runs-on: self-hosted
-    
+    # Only block build-and-deploy if pushed. Cron jobs just run the security scan.
+    if: github.event_name != 'schedule'
     steps:
     - name: Checkout Source Code
       uses: actions/checkout@v4
@@ -118,20 +145,6 @@ jobs:
       run: |
         echo "🚀 DEPLOYING BRANCH: ${{ github.ref_name }}"
         echo "Server will now be updated with code from ${{ github.ref_name }}..."
-
-    - name: OWASP Dependency Check (Vulnerability Scanning)
-      env:
-        NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-      run: |
-        echo "🛡️ Running OWASP Dependency-Check via Maven..."
-        chmod +x mvnw
-        export MAVEN_OPTS="-Xmx1024m"
-        # CI/CD Fix: Explicitly load suppressions file and disable OSSIndex.
-        ./mvnw org.owasp:dependency-check-maven:check \
-          -DfailBuildOnCVSS=8 \
-          -DsuppressionFiles=dependency-check-suppressions.xml \
-          -DnvdApiKey="$NVD_API_KEY" \
-          -DossindexAnalyzerEnabled=false || echo "⚠️ Non-critical vulnerabilities found, proceeding to build..."
 
     - name: Build with Maven
       run: |

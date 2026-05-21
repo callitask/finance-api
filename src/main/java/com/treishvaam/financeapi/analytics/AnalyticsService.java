@@ -27,6 +27,13 @@
  * <p>- EDITED (Hotfix): • Resynchronized AnalyticsService method signatures (getHistoricalData,
  * getFilterOptions, refreshGA4Data) with AudienceFilter to resolve Maven compilation failures in
  * CI/CD pipeline.
+ *
+ * <p>- EDITED (Phase 10): • Added queryBigQueryRawEvents using Google Cloud BigQuery API for
+ * un-sampled, raw event extraction.
+ *
+ * <p>- EDITED (Phase 5.5): • Added `purgeOldAnalyticsEvents` scheduled task and autowired
+ * `AnalyticsEventRepository`. • Why: Data retention policy to auto-purge raw events older than 365
+ * days, preventing unbounded table growth and ensuring DPDP Act 2023 compliance.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -38,9 +45,15 @@ import com.google.analytics.data.v1beta.Metric;
 import com.google.analytics.data.v1beta.RunReportRequest;
 import com.google.analytics.data.v1beta.RunReportResponse;
 import com.google.auth.oauth2.GoogleCredentials;
+import com.google.cloud.bigquery.BigQuery;
+import com.google.cloud.bigquery.BigQueryOptions;
+import com.google.cloud.bigquery.FieldValueList;
+import com.google.cloud.bigquery.QueryJobConfiguration;
+import com.google.cloud.bigquery.TableResult;
 import java.io.File;
 import java.io.FileInputStream;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -53,6 +66,7 @@ import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -73,11 +87,19 @@ public class AnalyticsService {
   @Value("${ga4.credentials-path}")
   private String credentialsPath;
 
+  @Value("${ga4.bigquery.project-id:#{null}}")
+  private String bqProjectId;
+
+  @Value("${ga4.bigquery.dataset-id:#{null}}")
+  private String bqDatasetId;
+
   @Value("${ga4.initial-fetch-start-date:2024-01-01}")
   private String initialFetchStartDate;
 
   private BetaAnalyticsDataClient analyticsDataClient;
   private final AudienceVisitRepository audienceVisitRepository;
+
+  @Autowired private AnalyticsEventRepository analyticsEventRepository;
 
   public AnalyticsService(AudienceVisitRepository audienceVisitRepository) {
     this.audienceVisitRepository = audienceVisitRepository;
@@ -117,6 +139,80 @@ public class AnalyticsService {
     } catch (Exception e) {
       logger.error("Failed to initialize Google Analytics Data Client (GA4).", e);
       this.analyticsDataClient = null;
+    }
+  }
+
+  /**
+   * AI-CONTEXT: Data retention policy — auto-purge raw events older than 365 days. Why: Prevents
+   * analytics_events table from growing indefinitely. DPDP Act 2023: Data must not be retained
+   * longer than necessary. Runs at 03:30 AM daily (offset from the 02:00 GA4 sync to avoid DB
+   * contention).
+   */
+  @Scheduled(cron = "0 30 3 * * *")
+  @Transactional
+  public void purgeOldAnalyticsEvents() {
+    if (analyticsEventRepository != null) {
+      LocalDateTime cutoff = LocalDateTime.now().minusDays(365);
+      int deleted = analyticsEventRepository.deleteEventsOlderThan(cutoff);
+      logger.info("[AnalyticsRetention] Purged {} raw events older than 365 days.", deleted);
+    }
+  }
+
+  // PHASE 10: Unsampled BigQuery extraction layer
+  public List<Map<String, Object>> queryBigQueryRawEvents(String dateStr) {
+    if (bqProjectId == null || bqDatasetId == null || credentialsPath == null) {
+      logger.warn("BigQuery integration not fully configured. Missing Project ID or Dataset ID.");
+      return Collections.emptyList();
+    }
+
+    try {
+      File credentialsFile = new File(credentialsPath);
+      GoogleCredentials credentials =
+          GoogleCredentials.fromStream(new FileInputStream(credentialsFile));
+
+      BigQuery bigquery =
+          BigQueryOptions.newBuilder()
+              .setCredentials(credentials)
+              .setProjectId(bqProjectId)
+              .build()
+              .getService();
+
+      String query =
+          String.format(
+              """
+              SELECT
+                  event_timestamp,
+                  event_name,
+                  user_pseudo_id,
+                  geo.country,
+                  device.category,
+                  device.operating_system,
+                  traffic_source.source,
+                  traffic_source.medium,
+                  traffic_source.name as campaign,
+                  (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location') as page_url,
+                  (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'engagement_time_msec') as engagement_ms
+              FROM `%s.%s.events_%s`
+              LIMIT 10000
+              """,
+              bqProjectId, bqDatasetId, dateStr.replace("-", ""));
+
+      QueryJobConfiguration config = QueryJobConfiguration.newBuilder(query).build();
+      TableResult result = bigquery.query(config);
+
+      List<Map<String, Object>> rowMaps = new ArrayList<>();
+      for (FieldValueList row : result.iterateAll()) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("event_timestamp", row.get("event_timestamp").getValue());
+        map.put("event_name", row.get("event_name").getStringValue());
+        map.put("user_pseudo_id", row.get("user_pseudo_id").getStringValue());
+        rowMaps.add(map);
+      }
+      return rowMaps;
+
+    } catch (Exception e) {
+      logger.error("Failed to query BigQuery Raw Events", e);
+      return Collections.emptyList();
     }
   }
 
