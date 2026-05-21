@@ -3,6 +3,9 @@
 #  * Purpose: Envoy sidecar configuration for internal microservice routing (ARCH-01).
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
 #  * - ADDED: Initial configuration to route traffic to backend on port 8080.
+#  * - EDITED (Hotfix - Envoy Crash):
+#  * • Fixed YAML indentation for `address` under `endpoint` in `lb_endpoints`.
+#  * • Why: Envoy's Protobuf parser threw `INVALID_ARGUMENT: no such field: 'address'` because the address object was defined at the same level as endpoint, rather than as a child property.
 #  */
 static_resources:
   listeners:
@@ -39,7 +42,7 @@ static_resources:
       endpoints:
       - lb_endpoints:
         - endpoint:
-          address:
-            socket_address:
-              address: backend
-              port_value: 8080
+            address:
+              socket_address:
+                address: backend
+                port_value: 8080

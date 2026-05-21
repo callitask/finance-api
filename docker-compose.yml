@@ -40,6 +40,10 @@
 #  * • Injected `BACKUP_ENCRYPTION_KEY` into `backup-service`.
 #  * • Why: Required to encrypt MariaDB dump files at rest before uploading to off-site MinIO storage.
 #  *
+#  * - EDITED (Hotfix - BigQuery Config Sync):
+#  * • Injected `GA4_BIGQUERY_PROJECT_ID` and `GA4_BIGQUERY_DATASET_ID` into backend service environment.
+#  * • Why: Spring Boot crashed with `PlaceholderResolutionException` during startup because the Phase 10 variables in `application-prod.properties` were not mapped through the Docker Compose container boundary from the host's Infisical `.env`.
+#  *
 #  * - DO-NOT-DELETE RULE:
 #  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
 #  * truncated, rewritten, or regenerated.
@@ -247,6 +251,8 @@ services:
       - FINNHUB_API_KEY=${FINNHUB_API_KEY}
       - NEWS_API_KEY=${NEWS_API_KEY}
       - GA4_PROPERTY_ID=${GA4_PROPERTY_ID}
+      - GA4_BIGQUERY_PROJECT_ID=${GA4_BIGQUERY_PROJECT_ID}
+      - GA4_BIGQUERY_DATASET_ID=${GA4_BIGQUERY_DATASET_ID}
       - MINIO_ACCESS_KEY=admin
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
       - SPRING_PROFILES_ACTIVE=prod
