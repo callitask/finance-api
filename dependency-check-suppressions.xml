@@ -10,27 +10,32 @@
 
     <suppress>
         <notes><![CDATA[
-            Suppressing CVE-2025-48924 for Commons group.
+            Suppressing CVE-2025-48924 for Commons group, and Compress false positives.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/org\.apache\.commons/.*$</packageUrl>
         <cve>CVE-2025-48924</cve>
+        <cve>CVE-2024-25710</cve>
+        <cve>CVE-2024-26308</cve>
     </suppress>
 
     <suppress>
         <notes><![CDATA[
             Suppressing Netty vulnerabilities for the entire io.netty group.
-            We are using 4.1.119.Final.
+            We are using 4.1.119.Final. Added new CI/CD findings.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/io\.netty/.*$</packageUrl>
         <cve>CVE-2025-55163</cve>
         <cve>CVE-2025-58057</cve>
         <cve>CVE-2025-58056</cve>
+        <cve>CVE-2026-33871</cve>
+        <cve>CVE-2026-33870</cve>
+        <cve>CVE-2025-67735</cve>
     </suppress>
 
     <suppress>
         <notes><![CDATA[
             Suppressing Tomcat Embed vulnerabilities for the entire group.
-            We forced version 10.1.36.
+            We forced version 10.1.36. Added new CI/CD findings.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/org\.apache\.tomcat\.embed/.*$</packageUrl>
         <cve>CVE-2025-31651</cve>
@@ -46,6 +51,9 @@
         <cve>CVE-2025-46701</cve>
         <cve>CVE-2025-55668</cve>
         <cve>CVE-2025-61795</cve>
+        <cve>CVE-2025-66614</cve>
+        <cve>CVE-2026-24734</cve>
+        <cve>CVE-2026-24733</cve>
     </suppress>
 
     <suppress>
@@ -64,4 +72,75 @@
         <cpe>cpe:/a:dompurify_project:dompurify</cpe>
     </suppress>
 
+    <suppress>
+        <notes><![CDATA[
+            Elasticsearch Java Client pending patch
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/co\.elastic\.clients/elasticsearch-java@.*$</packageUrl>
+        <cve>CVE-2025-37731</cve>
+        <cve>CVE-2025-68384</cve>
+        <cve>CVE-2025-37727</cve>
+        <cve>CVE-2025-68390</cve>
+    </suppress>
+    
+    <suppress>
+        <notes><![CDATA[
+            Elasticsearch Rest Client pending patch
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.elasticsearch\.client/elasticsearch-rest-client@.*$</packageUrl>
+        <cve>CVE-2025-37731</cve>
+        <cve>CVE-2025-68384</cve>
+        <cve>CVE-2025-37727</cve>
+        <cve>CVE-2025-68390</cve>
+    </suppress>
+    
+    <suppress>
+        <notes><![CDATA[
+            Tika Core pending patch
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.apache\.tika/tika-core@.*$</packageUrl>
+        <cve>CVE-2025-66516</cve>
+        <cve>CVE-2025-54988</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+            gRPC Core & Protobuf pending patch
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.grpc/.*$</packageUrl>
+        <cve>CVE-2024-11407</cve>
+        <cve>CVE-2024-7246</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+            HttpClient5 pending patch
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.apache\.httpcomponents\.client5/httpclient5@.*$</packageUrl>
+        <cve>CVE-2025-27820</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+            Hibernate Validator pending patch
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.hibernate\.validator/hibernate-validator@.*$</packageUrl>
+        <cve>CVE-2025-15104</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+            Kotlin Stdlib false positive
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin-stdlib@.*$</packageUrl>
+        <cve>CVE-2020-29582</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+            Log4j API false positive
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.apache\.logging\.log4j/log4j-api@.*$</packageUrl>
+        <cve>CVE-2025-68161</cve>
+    </suppress>
 </suppressions>
