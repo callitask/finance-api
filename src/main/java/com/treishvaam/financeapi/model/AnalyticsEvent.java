@@ -1,12 +1,19 @@
 package com.treishvaam.financeapi.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import java.time.Instant;
 
 /**
  * AI-CONTEXT: Purpose: JPA Entity for First-Party Analytics tracking. Security Constraints: MUST
  * NEVER map or store raw IP addresses. IMMUTABLE CHANGE HISTORY: - ADDED (Phase 5): Entity creation
- * mapped to V46 schema.
+ * mapped to V46 schema. - EDITED (Phase 6 Fix): • Added @JsonIgnoreProperties(ignoreUnknown = true)
+ * to class level. • Added @JsonProperty(access = JsonProperty.Access.READ_ONLY) to the primary key
+ * 'id'. • Why: Resolves a critical 500 Internal Server Error. The frontend Web Vitals telemetry
+ * payload sends an 'id' string (e.g., "v2-123") and custom metric fields. Jackson attempted to
+ * deserialize this string into the database Long PK, and crashed on the unmapped properties. These
+ * annotations enforce strict mass-assignment protection and allow dynamic telemetry ingestion.
  */
 @Entity
 @Table(
@@ -16,10 +23,12 @@ import java.time.Instant;
       @Index(name = "idx_analytics_type_jpa", columnList = "eventType"),
       @Index(name = "idx_analytics_timestamp_jpa", columnList = "createdAt")
     })
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class AnalyticsEvent {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
+  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
   private Long id;
 
   @Column(nullable = false)
