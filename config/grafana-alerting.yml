@@ -1,3 +1,28 @@
+# /**
+#  * AI-CONTEXT:
+#  *
+#  * Purpose:
+#  * - Grafana Unified Alerting configuration (as-code).
+#  *
+#  * Scope:
+#  * - Defines all critical alerting rules for backend, API, and security health.
+#  *
+#  * Critical Dependencies:
+#  * - Prometheus data source (datasourceUid: Prometheus).
+#  *
+#  * Security Constraints:
+#  * - Do not lower the severity of critical alerts.
+#  *
+#  * Non-Negotiables:
+#  * - All rules MUST use the Grafana Managed Rules format (uid, title, condition, data array).
+#  * - Group interval MUST be defined to prevent "empty duration string" crashes on startup.
+#  *
+#  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+#  * - EDITED (Phase 6 Fix):
+#  * • Converted Phase 6 Prometheus-style rules into strict Grafana Unified Alerting format.
+#  * • Why: Grafana crashed on startup with "empty duration string" because the raw Prometheus rules lacked the required `interval` property at the group level, and violated the expected `data` array schema.
+#  * • What behavior must remain unchanged: Existing `high_error_rate` rule structure.
+#  */
 apiVersion: 1
 groups:
   - orgId: 1
@@ -5,6 +30,7 @@ groups:
     folder: Critical
     interval: 1m
     rules:
+      # --- Existing Phase 0 Alert ---
       - uid: high_error_rate
         title: High API Error Rate
         condition: B
@@ -51,42 +77,143 @@ groups:
         labels:
           severity: critical
 
-  # Phase 6 Additions
-  - name: backend_health
-    rules:
-      - alert: HighBackendErrorRate
-        expr: |
-          (
-            sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
-            /
-            sum(rate(http_server_requests_seconds_count[5m]))
-          ) > 0.05
+      # --- Phase 6 Addition: Backend Error Rate (> 5%) ---
+      - uid: high_backend_error_rate
+        title: High Backend Error Rate
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus
+            model:
+              expr: sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) / sum(rate(http_server_requests_seconds_count[5m]))
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.05]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: []
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+            datasource:
+              type: __expr__
+              uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+        noDataState: OK
+        execErrState: Error
         for: 2m
-        labels:
-          severity: critical
         annotations:
           summary: "Backend 5xx error rate above 5%"
           description: "Over 5% of backend requests are returning 5xx errors. Check Loki logs immediately."
-
-      - alert: SlowAPIResponse
-        expr: |
-          histogram_quantile(0.95,
-            sum(rate(http_server_requests_seconds_bucket[5m])) by (le)
-          ) > 2.0
-        for: 5m
         labels:
-          severity: warning
+          severity: critical
+
+      # --- Phase 6 Addition: API p95 Latency (> 2s) ---
+      - uid: slow_api_response
+        title: Slow API Response
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus
+            model:
+              expr: histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [2.0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: []
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+            datasource:
+              type: __expr__
+              uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 5m
         annotations:
           summary: "API p95 response time above 2 seconds"
           description: "95th percentile response time has exceeded 2s. Investigate DB queries or external API slowness."
-
-  - name: security_rotation
-    rules:
-      - alert: SecretKeyRotationDue
-        expr: (time() - node_file_mtime_seconds{path="/opt/treishvaam/key_rotation.log"}) > 7776000
-        for: 1h
         labels:
           severity: warning
+
+      # --- Phase 6 Addition: Security Key Rotation (> 90 days) ---
+      - uid: secret_key_rotation_due
+        title: Secret Key Rotation Due
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            datasourceUid: Prometheus
+            model:
+              expr: (time() - node_file_mtime_seconds{path="/opt/treishvaam/key_rotation.log"})
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [7776000]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: []
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+            datasource:
+              type: __expr__
+              uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: threshold
+        noDataState: OK
+        execErrState: Error
+        for: 1h
         annotations:
           summary: "JWT and internal secret keys are due for rotation"
           description: "JWT_SECRET_KEY and INTERNAL_API_SECRET_KEY have not been rotated in 90+ days. Run scripts/rotate_secrets.sh."
+        labels:
+          severity: warning
