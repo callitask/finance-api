@@ -1,17 +1,3 @@
-package com.treishvaam.financeapi.security.aegis;
-
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
-import java.util.regex.Pattern;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.core.annotation.Order;
-import org.springframework.stereotype.Component;
-import org.springframework.web.filter.OncePerRequestFilter;
-
 /**
  * AI-CONTEXT:
  *
@@ -29,8 +15,25 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED (AEGIS Phase 2): • Initial creation of the
  * Chaos Mirror deception filter. • Designed to intercept botnet/scanner traffic and prevent it from
- * reaching actual controllers.
+ * reaching actual controllers. - EDITED (AEGIS Phase 5 Fix): • Added
+ * `servePoisonedResponse(HttpServletResponse)` method required by AegisMainFilter and L8-BCSM. •
+ * Implements an active honeypot response generating a fake 200 OK with a dummy JWT token to trick
+ * automated scanner logic and waste attacker cracking time.
  */
+package com.treishvaam.financeapi.security.aegis;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
 @Component
 @Order(-105) // Runs immediately after InputSanitizationFilter but before Auth
 public class AegisDeceptionFilter extends OncePerRequestFilter {
@@ -79,5 +82,26 @@ public class AegisDeceptionFilter extends OncePerRequestFilter {
     }
 
     filterChain.doFilter(request, response);
+  }
+
+  /**
+   * Called by the L8-BCSM Master Filter when an attack is detected via consensus. Serves a highly
+   * deceptive, fake response to waste attacker analysis time.
+   */
+  public void servePoisonedResponse(HttpServletResponse response) throws IOException {
+    logger.info("AEGIS L4-ADA: Serving poisoned response to deceive scanner.");
+    response.setStatus(HttpServletResponse.SC_OK);
+    response.setContentType("application/json");
+
+    // Inject a fake, cryptographically invalid JWT to waste attacker cracking compute
+    String fakePayload =
+        "{"
+            + "\"status\":\"success\","
+            + "\"config_version\":\"1.0.4\","
+            + "\"debug_token\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiZGV2X2FkbWluIiwiZXhwIjoxNzk5OTk5OTk5fQ.fake_signature_to_waste_cracking_time\""
+            + "}";
+
+    response.getWriter().write(fakePayload);
+    response.getWriter().flush();
   }
 }

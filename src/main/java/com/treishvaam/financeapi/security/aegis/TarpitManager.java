@@ -1,14 +1,3 @@
-package com.treishvaam.financeapi.security.aegis;
-
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-
 /**
  * AI-CONTEXT:
  *
@@ -24,8 +13,22 @@ import org.springframework.stereotype.Service;
  * against our own system.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED (AEGIS Phase 2): • Initial creation
- * utilizing Java 21 Virtual Threads for zero-cost blocking.
+ * utilizing Java 21 Virtual Threads for zero-cost blocking. - EDITED (AEGIS Phase 5 Fix): • Added
+ * `holdConnectionInTarpit(HttpServletRequest, HttpServletResponse)` to support L8-BCSM orchestrated
+ * tarpit routing. Logs the specific originating IP before ensnaring.
  */
+package com.treishvaam.financeapi.security.aegis;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
 @Service
 public class TarpitManager {
 
@@ -34,6 +37,18 @@ public class TarpitManager {
   // Utilize Java 21 Virtual Threads to hold thousands of connections open with minimal RAM
   // footprint
   private final ExecutorService tarpitExecutor = Executors.newVirtualThreadPerTaskExecutor();
+
+  /**
+   * Entry point for L8-BCSM consensus decisions. Logs the request context and routes to the tarpit.
+   */
+  public void holdConnectionInTarpit(HttpServletRequest request, HttpServletResponse response) {
+    String ip = request.getHeader("X-Real-IP");
+    if (ip == null || ip.isEmpty()) {
+      ip = request.getRemoteAddr();
+    }
+    logger.warn("AEGIS L7-CMCS: L8-BCSM requested tarpit for IP [{}]. Ensnaring connection...", ip);
+    ensnare(response);
+  }
 
   public void ensnare(HttpServletResponse response) {
     response.setStatus(HttpServletResponse.SC_OK);
