@@ -47,7 +47,11 @@
  * HttpMethod.POST to `/api/v1/analytics/**` with `.permitAll()`. • Retained
  * `.hasAnyAuthority("ROLE_ANALYST", "ROLE_ADMIN")` for all other methods on `/api/v1/analytics/**`.
  * • Why: Allows the frontend Faro/Tracking script to submit event beacons (POST) anonymously, while
- * keeping the analytics dashboard data reads (GET) strictly secured for administrators.
+ * keeping the analytics dashboard data reads (GET) strictly secured for administrators. *
+ *
+ * <p>- EDITED (Phase 5 - AEGIS Filter Injection): • Injected `AegisMainFilter` at the top of the
+ * Spring Security chain. • Why: Ensures that Temporal Path mutations and Byzantine Consensus
+ * evaluate BEFORE classical rate limiting and authentication flows.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
@@ -58,6 +62,7 @@ import com.treishvaam.financeapi.security.InputSanitizationFilter;
 import com.treishvaam.financeapi.security.InternalSecretFilter;
 import com.treishvaam.financeapi.security.KeycloakRealmRoleConverter;
 import com.treishvaam.financeapi.security.RateLimitingFilter;
+import com.treishvaam.financeapi.security.aegis.AegisMainFilter;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -91,6 +96,7 @@ public class SecurityConfig {
   private final RateLimitingFilter rateLimitingFilter;
   private final InternalSecretFilter internalSecretFilter;
   private final InputSanitizationFilter inputSanitizationFilter;
+  private final AegisMainFilter aegisMainFilter;
 
   @Value("#{'${cors.allowed-origins}'.split(',')}")
   private List<String> allowedOrigins;
@@ -98,10 +104,12 @@ public class SecurityConfig {
   public SecurityConfig(
       RateLimitingFilter rateLimitingFilter,
       InternalSecretFilter internalSecretFilter,
-      InputSanitizationFilter inputSanitizationFilter) {
+      InputSanitizationFilter inputSanitizationFilter,
+      AegisMainFilter aegisMainFilter) {
     this.rateLimitingFilter = rateLimitingFilter;
     this.internalSecretFilter = internalSecretFilter;
     this.inputSanitizationFilter = inputSanitizationFilter;
+    this.aegisMainFilter = aegisMainFilter;
   }
 
   @Bean
@@ -207,6 +215,8 @@ public class SecurityConfig {
         .oauth2ResourceServer(
             oauth2 ->
                 oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
+        .addFilterBefore(
+            aegisMainFilter, InternalSecretFilter.class) // INJECTED AEGIS MASTER FILTER
         .addFilterBefore(inputSanitizationFilter, UsernamePasswordAuthenticationFilter.class)
         .addFilterBefore(rateLimitingFilter, InputSanitizationFilter.class)
         .addFilterBefore(internalSecretFilter, RateLimitingFilter.class);
