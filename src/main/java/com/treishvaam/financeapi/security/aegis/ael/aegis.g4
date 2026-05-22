@@ -19,6 +19,7 @@
  *
  * Change Intent:
  * - Phase 5: Created formal grammar to support verifiable dynamic defense-in-depth rules.
+ * - FIX: Removed trailing brace causing Java compilation failure in generated sources.
  *
  * Future AI Guidance:
  * - If new metrics or defensive actions are created (e.g. Rate Limiting variables), add them to the parser tokens here.
@@ -28,6 +29,9 @@
  * • Implemented AEL formal grammar.
  * • Why it was added: Provides a human-readable, machine-verifiable way to orchestrate defensive layers without recompiling the backend.
  * • Date: 2026-05-22
+ * * - EDITED:
+ * • Removed trailing '}' at EOF.
+ * • Why: It corrupted the ANTLR-generated Java artifacts, throwing "class, interface, enum, or record expected" during `mvn compile`.
  *
  * - DO-NOT-DELETE RULE:
  * This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated, rewritten, or regenerated.
@@ -41,9 +45,7 @@ package com.treishvaam.financeapi.security.aegis.ael;
 }
 
 policyFile : policy* EOF;
-
 policy : 'POLICY' ID '{' condition 'THEN' action ('ELSE' action)? '}' ;
-
 condition
     : expr
     | condition 'AND' condition
@@ -51,7 +53,6 @@ condition
     | 'NOT' condition
     | '(' condition ')'
     ;
-
 expr
     : behavioralExpr
     | cryptoExpr  
@@ -59,19 +60,15 @@ expr
     | timeExpr
     | scoreExpr
     ;
-
 behavioralExpr
     : 'BEHAVIOR.' ('BOT_SCORE' | 'ENTROPY' | 'REQUEST_RATE' | 'ENDPOINT_COVERAGE') comparator NUMBER
     ;
-
 cryptoExpr
     : 'CRYPTO.' ('JWT_VALID' | 'ZKP_VERIFIED' | 'PQC_SIGNED' | 'TOKEN_AGE') (comparator NUMBER)?
     ;
-
 networkExpr
     : 'NETWORK.' ('JA3_HASH' | 'IP_REPUTATION' | 'GEO_COUNTRY' | 'ASN_TYPE') (comparator (STRING | NUMBER))?
     ;
-
 timeExpr: 'TIME' comparator NUMBER ;
 scoreExpr: 'SCORE' comparator NUMBER ;
 

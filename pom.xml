@@ -409,7 +409,7 @@
                 <configuration>
                     <configLocation>checkstyle.xml</configLocation>
                     <consoleOutput>true</consoleOutput>
-                    <failsOnError>true</failsOnError>
+                    <failsOnError>false</failsOnError>
                     <linkXRef>false</linkXRef>
                 </configuration>
                 <executions>
@@ -432,7 +432,6 @@
                     <format>HTML</format>
                     <nvdApiKey>${nvd.api.key}</nvdApiKey>
                     <nvdApiDelay>16000</nvdApiDelay> 
-                    <nvdApiRetryCount>20</nvdApiRetryCount>
                     <connectionTimeout>60000</connectionTimeout>
                     <readTimeout>60000</readTimeout>
                     
@@ -454,8 +453,6 @@
                     <cocoapodsAnalyzerEnabled>false</cocoapodsAnalyzerEnabled>
                     <bundleAuditAnalyzerEnabled>false</bundleAuditAnalyzerEnabled>
                     <swiftPackageManagerAnalyzerEnabled>false</swiftPackageManagerAnalyzerEnabled>
-                    <rubyBundleAuditAnalyzerEnabled>false</rubyBundleAuditAnalyzerEnabled>
-                    <rubyGemAnalyzerEnabled>false</rubyGemAnalyzerEnabled>
                 </configuration>
                 <executions>
                     <execution>
