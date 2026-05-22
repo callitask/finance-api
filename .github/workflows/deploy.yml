@@ -48,6 +48,10 @@
 #  * - EDITED (Phase 4 Optimization):
 #  * • Extracted OWASP Dependency Check into a standalone parallel job (`dependency-security-scan`).
 #  * • Why: The NVD scan takes 10-15 minutes and requires massive memory. Running it on every single commit blocks rapid deployments. It now runs on schedule or manual dispatch.
+#  *
+#  * - EDITED (Hotfix - Self-Hosted Runner Gitleaks Cache):
+#  * • Injected `sudo rm -f /tmp/gitleaks.tmp || true` before the Gitleaks action.
+#  * • Why: Self-hosted runners retain filesystem state. A previously aborted run left a locked temp file, causing the gitleaks-action downloader to crash. This step provides idempotent self-healing.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -126,6 +130,9 @@ jobs:
           echo "❌ Deployment BLOCKED. Possible account compromise or policy violation."
           exit 1
         fi
+
+    - name: Pre-Flight Cleanup (Self-Healing Runner State)
+      run: sudo rm -f /tmp/gitleaks.tmp || true
 
     - name: Secret Scanning (Gitleaks — Prevent Credential Exposure)
       uses: gitleaks/gitleaks-action@v2
