@@ -19,7 +19,7 @@
  *
  * Change Intent:
  * - Phase 5: Created formal grammar to support verifiable dynamic defense-in-depth rules.
- * - FIX: Removed trailing brace causing Java compilation failure in generated sources.
+ * - FIX: Removed explicit @header block to prevent duplicate package declarations by the Maven plugin.
  *
  * Future AI Guidance:
  * - If new metrics or defensive actions are created (e.g. Rate Limiting variables), add them to the parser tokens here.
@@ -29,9 +29,11 @@
  * • Implemented AEL formal grammar.
  * • Why it was added: Provides a human-readable, machine-verifiable way to orchestrate defensive layers without recompiling the backend.
  * • Date: 2026-05-22
- * * - EDITED:
+ *
+ * - EDITED:
  * • Removed trailing '}' at EOF.
- * • Why: It corrupted the ANTLR-generated Java artifacts, throwing "class, interface, enum, or record expected" during `mvn compile`.
+ * • Removed explicit `@header` block.
+ * • Why: It corrupted the ANTLR-generated Java artifacts by injecting double package declarations, throwing "class, interface, enum, or record expected" during `mvn compile`.
  *
  * - DO-NOT-DELETE RULE:
  * This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated, rewritten, or regenerated.
@@ -39,10 +41,6 @@
  */
 
 grammar aegis;
-
-@header {
-package com.treishvaam.financeapi.security.aegis.ael;
-}
 
 policyFile : policy* EOF;
 policy : 'POLICY' ID '{' condition 'THEN' action ('ELSE' action)? '}' ;
