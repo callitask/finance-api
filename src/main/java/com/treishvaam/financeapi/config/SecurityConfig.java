@@ -53,6 +53,11 @@
  * Spring Security chain. • Why: Ensures that Temporal Path mutations and Byzantine Consensus
  * evaluate BEFORE classical rate limiting and authentication flows.
  *
+ * <p>- EDITED (Phase 5 - ZKP Admin Enforcement): • Injected `AegisZkpAdminFilter` into the Spring
+ * Security chain. • Why: Enforces Zero-Knowledge Proof (L3-ZKA) authentication on all
+ * `/api/v1/admin/**` endpoints, intercepting traffic immediately before the
+ * UsernamePasswordAuthenticationFilter.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -63,6 +68,7 @@ import com.treishvaam.financeapi.security.InternalSecretFilter;
 import com.treishvaam.financeapi.security.KeycloakRealmRoleConverter;
 import com.treishvaam.financeapi.security.RateLimitingFilter;
 import com.treishvaam.financeapi.security.aegis.AegisMainFilter;
+import com.treishvaam.financeapi.security.aegis.AegisZkpAdminFilter;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -97,6 +103,7 @@ public class SecurityConfig {
   private final InternalSecretFilter internalSecretFilter;
   private final InputSanitizationFilter inputSanitizationFilter;
   private final AegisMainFilter aegisMainFilter;
+  private final AegisZkpAdminFilter aegisZkpAdminFilter;
 
   @Value("#{'${cors.allowed-origins}'.split(',')}")
   private List<String> allowedOrigins;
@@ -105,11 +112,13 @@ public class SecurityConfig {
       RateLimitingFilter rateLimitingFilter,
       InternalSecretFilter internalSecretFilter,
       InputSanitizationFilter inputSanitizationFilter,
-      AegisMainFilter aegisMainFilter) {
+      AegisMainFilter aegisMainFilter,
+      AegisZkpAdminFilter aegisZkpAdminFilter) {
     this.rateLimitingFilter = rateLimitingFilter;
     this.internalSecretFilter = internalSecretFilter;
     this.inputSanitizationFilter = inputSanitizationFilter;
     this.aegisMainFilter = aegisMainFilter;
+    this.aegisZkpAdminFilter = aegisZkpAdminFilter;
   }
 
   @Bean
@@ -217,7 +226,8 @@ public class SecurityConfig {
                 oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
         .addFilterBefore(
             aegisMainFilter, InternalSecretFilter.class) // INJECTED AEGIS MASTER FILTER
-        .addFilterBefore(inputSanitizationFilter, UsernamePasswordAuthenticationFilter.class)
+        .addFilterBefore(aegisZkpAdminFilter, UsernamePasswordAuthenticationFilter.class) // L3-ZKA
+        .addFilterBefore(inputSanitizationFilter, AegisZkpAdminFilter.class)
         .addFilterBefore(rateLimitingFilter, InputSanitizationFilter.class)
         .addFilterBefore(internalSecretFilter, RateLimitingFilter.class);
 
@@ -229,8 +239,7 @@ public class SecurityConfig {
     UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
     CorsConfiguration configuration = new CorsConfiguration();
 
-    // Use AllowedOriginPatterns for better matching (handles subdomains &
-    // protocols)
+    // Use AllowedOriginPatterns for better matching (handles subdomains & protocols)
     if (allowedOrigins == null
         || allowedOrigins.isEmpty()
         || (allowedOrigins.size() == 1 && allowedOrigins.get(0).isEmpty())) {
@@ -252,10 +261,13 @@ public class SecurityConfig {
             "Origin",
             "Access-Control-Request-Method",
             "Access-Control-Request-Headers",
-            "X-CSRF-Token"));
+            "X-CSRF-Token",
+            "X-AEGIS-ZKP-Proof",
+            "X-AEGIS-Challenge-ID")); // Added ZKP Headers to CORS
 
     configuration.setExposedHeaders(
-        Arrays.asList("Authorization", "Content-Type", "X-Requested-With"));
+        Arrays.asList(
+            "Authorization", "Content-Type", "X-Requested-With", "X-AEGIS-POW-Challenge"));
     configuration.setAllowCredentials(true);
     configuration.setMaxAge(3600L);
 

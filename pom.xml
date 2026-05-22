@@ -7,7 +7,8 @@
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
         <version>3.4.0</version>
-        <relativePath/> </parent>
+        <relativePath/> 
+    </parent>
     <groupId>com.treishvaam</groupId>
     <artifactId>finance-api</artifactId>
     <version>0.0.1-SNAPSHOT</version>
@@ -24,6 +25,7 @@
         <netty.version>4.1.119.Final</netty.version>     
         <elasticsearch.version>8.17.0</elasticsearch.version> 
         <angus-activation.version>2.0.2</angus-activation.version>
+        <antlr4.version>4.13.1</antlr4.version>
     </properties>
 
     <dependencyManagement>
@@ -277,6 +279,12 @@
         </dependency>
 
         <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>${antlr4.version}</version>
+        </dependency>
+
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
@@ -339,6 +347,25 @@
                     </excludes>
                 </configuration>
             </plugin>
+            
+            <plugin>
+                <groupId>org.antlr</groupId>
+                <artifactId>antlr4-maven-plugin</artifactId>
+                <version>${antlr4.version}</version>
+                <executions>
+                    <execution>
+                        <id>antlr</id>
+                        <goals>
+                            <goal>antlr4</goal>
+                        </goals>
+                        <configuration>
+                            <visitor>true</visitor>
+                            <listener>true</listener>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
