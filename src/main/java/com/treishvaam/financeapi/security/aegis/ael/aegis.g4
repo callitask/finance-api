@@ -19,7 +19,7 @@
  *
  * Change Intent:
  * - Phase 5: Created formal grammar to support verifiable dynamic defense-in-depth rules.
- * - FIX: Removed explicit @header block to prevent duplicate package declarations by the Maven plugin.
+ * - FIX: Re-added `@header` block to fix missing package declarations in generated Java files.
  *
  * Future AI Guidance:
  * - If new metrics or defensive actions are created (e.g. Rate Limiting variables), add them to the parser tokens here.
@@ -34,6 +34,9 @@
  * • Removed trailing '}' at EOF.
  * • Removed explicit `@header` block.
  * • Why: It corrupted the ANTLR-generated Java artifacts by injecting double package declarations, throwing "class, interface, enum, or record expected" during `mvn compile`.
+ * * - EDITED (Fix-Forward Build Phase):
+ * • Restored the `@header { package com.treishvaam.financeapi.security.aegis.ael; }` declaration.
+ * • Why: Without this explicit instruction, ANTLR dumps the generated classes into the default package, which `javac` inherently rejects when they are output into a nested directory structure, causing the compilation failure.
  *
  * - DO-NOT-DELETE RULE:
  * This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated, rewritten, or regenerated.
@@ -41,6 +44,10 @@
  */
 
 grammar aegis;
+
+@header {
+    package com.treishvaam.financeapi.security.aegis.ael;
+}
 
 policyFile : policy* EOF;
 policy : 'POLICY' ID '{' condition 'THEN' action ('ELSE' action)? '}' ;
