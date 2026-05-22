@@ -7,5 +7,5 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface HistoricalDataCacheRepository extends JpaRepository<HistoricalDataCache, String> {
 
-  Optional<HistoricalDataCache> findByTicker(String ticker);
+    Optional<HistoricalDataCache> findByTicker(String ticker);
 }

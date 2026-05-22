@@ -34,23 +34,23 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Sitemap", description = "Endpoints for SEO Sitemap generation")
 public class SitemapController {
 
-  private final SitemapService sitemapService;
+    private final SitemapService sitemapService;
 
-  @Operation(summary = "Get the Sitemap Metadata (JSON)")
-  @GetMapping(value = "/meta", produces = MediaType.APPLICATION_JSON_VALUE)
-  public ResponseEntity<Map<String, List<String>>> getSitemapMetadata() {
-    return ResponseEntity.ok(sitemapService.getSitemapMetadata());
-  }
+    @Operation(summary = "Get the Sitemap Metadata (JSON)")
+    @GetMapping(value = "/meta", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Map<String, List<String>>> getSitemapMetadata() {
+        return ResponseEntity.ok(sitemapService.getSitemapMetadata());
+    }
 
-  @Operation(summary = "Get a segment of Blog URLs")
-  @GetMapping(value = "/blog/{page}.xml", produces = MediaType.APPLICATION_XML_VALUE)
-  public ResponseEntity<String> getBlogSitemap(@PathVariable int page) {
-    return ResponseEntity.ok(sitemapService.generateBlogSitemap(page));
-  }
+    @Operation(summary = "Get a segment of Blog URLs")
+    @GetMapping(value = "/blog/{page}.xml", produces = MediaType.APPLICATION_XML_VALUE)
+    public ResponseEntity<String> getBlogSitemap(@PathVariable int page) {
+        return ResponseEntity.ok(sitemapService.generateBlogSitemap(page));
+    }
 
-  @Operation(summary = "Get a segment of Market Data URLs")
-  @GetMapping(value = "/market/{page}.xml", produces = MediaType.APPLICATION_XML_VALUE)
-  public ResponseEntity<String> getMarketSitemap(@PathVariable int page) {
-    return ResponseEntity.ok(sitemapService.generateMarketSitemap(page));
-  }
+    @Operation(summary = "Get a segment of Market Data URLs")
+    @GetMapping(value = "/market/{page}.xml", produces = MediaType.APPLICATION_XML_VALUE)
+    public ResponseEntity<String> getMarketSitemap(@PathVariable int page) {
+        return ResponseEntity.ok(sitemapService.generateMarketSitemap(page));
+    }
 }

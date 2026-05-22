@@ -11,7 +11,7 @@
 package com.treishvaam.financeapi.security.aegis.bcsm;
 
 public record ValidatorResult(int score, SecurityDecision recommendation, String reason) {
-  public static ValidatorResult timeout() {
-    return new ValidatorResult(0, SecurityDecision.ALLOW, "VALIDATOR_TIMEOUT");
-  }
+    public static ValidatorResult timeout() {
+        return new ValidatorResult(0, SecurityDecision.ALLOW, "VALIDATOR_TIMEOUT");
+    }
 }

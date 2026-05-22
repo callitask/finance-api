@@ -60,73 +60,76 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 public class RateLimitingFilter extends OncePerRequestFilter {
 
-  private static final Logger logger = LoggerFactory.getLogger(RateLimitingFilter.class);
+    private static final Logger logger = LoggerFactory.getLogger(RateLimitingFilter.class);
 
-  @Autowired private ProxyManager<byte[]> proxyManager;
+    @Autowired private ProxyManager<byte[]> proxyManager;
 
-  // Granular limits for different endpoint categories
-  private static final int PUBLIC_READ_RPM = 200; // GET market/posts
-  private static final int AUTH_WRITE_RPM = 60; // POST/PUT/DELETE with auth
-  private static final int AUTH_ATTEMPT_RPM = 10; // /auth/ endpoints (brute force protection)
+    // Granular limits for different endpoint categories
+    private static final int PUBLIC_READ_RPM = 200; // GET market/posts
+    private static final int AUTH_WRITE_RPM = 60; // POST/PUT/DELETE with auth
+    private static final int AUTH_ATTEMPT_RPM = 10; // /auth/ endpoints (brute force protection)
 
-  @Override
-  protected void doFilterInternal(
-      HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
-      throws ServletException, IOException {
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
 
-    // 1. SKIP OPTIONS (Pre-flight) requests
-    if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
-      filterChain.doFilter(request, response);
-      return;
+        // 1. SKIP OPTIONS (Pre-flight) requests
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        // Prefer CF-Connecting-IP (Cloudflare real IP), fallback to RemoteAddr
+        String clientIp =
+                Optional.ofNullable(request.getHeader("CF-Connecting-IP"))
+                        .filter(ip -> !ip.isBlank())
+                        .orElse(request.getRemoteAddr());
+
+        String path = request.getRequestURI();
+        int limit = determineLimit(path, request.getMethod());
+        String bucketKey = clientIp + ":" + getCategoryKey(path);
+        byte[] bucketKeyBytes = bucketKey.getBytes(StandardCharsets.UTF_8);
+
+        try {
+            BucketConfiguration configuration =
+                    BucketConfiguration.builder()
+                            .addLimit(
+                                    Bandwidth.classic(
+                                            limit, Refill.greedy(limit, Duration.ofMinutes(1))))
+                            .build();
+
+            Bucket bucket = proxyManager.builder().build(bucketKeyBytes, configuration);
+
+            if (bucket.tryConsume(1)) {
+                filterChain.doFilter(request, response);
+            } else {
+                logger.warn("Rate limit exceeded for IP: {} on path: {}", clientIp, path);
+                response.setStatus(429);
+                response.setContentType("application/json");
+                response.getWriter()
+                        .write("{\"error\":\"Rate limit exceeded. Try again in 60 seconds.\"}");
+            }
+        } catch (Exception e) {
+            // CRITICAL RESILIENCE: Fail CLOSED under rate limiter exception conditions (CVE-003)
+            logger.error("Rate Limiting Service Failed (Failing Closed): {}", e.getMessage());
+            response.setStatus(503);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\":\"Service temporarily unavailable\"}");
+            return; // DO NOT call filterChain.doFilter()
+        }
     }
 
-    // Prefer CF-Connecting-IP (Cloudflare real IP), fallback to RemoteAddr
-    String clientIp =
-        Optional.ofNullable(request.getHeader("CF-Connecting-IP"))
-            .filter(ip -> !ip.isBlank())
-            .orElse(request.getRemoteAddr());
-
-    String path = request.getRequestURI();
-    int limit = determineLimit(path, request.getMethod());
-    String bucketKey = clientIp + ":" + getCategoryKey(path);
-    byte[] bucketKeyBytes = bucketKey.getBytes(StandardCharsets.UTF_8);
-
-    try {
-      BucketConfiguration configuration =
-          BucketConfiguration.builder()
-              .addLimit(Bandwidth.classic(limit, Refill.greedy(limit, Duration.ofMinutes(1))))
-              .build();
-
-      Bucket bucket = proxyManager.builder().build(bucketKeyBytes, configuration);
-
-      if (bucket.tryConsume(1)) {
-        filterChain.doFilter(request, response);
-      } else {
-        logger.warn("Rate limit exceeded for IP: {} on path: {}", clientIp, path);
-        response.setStatus(429);
-        response.setContentType("application/json");
-        response.getWriter().write("{\"error\":\"Rate limit exceeded. Try again in 60 seconds.\"}");
-      }
-    } catch (Exception e) {
-      // CRITICAL RESILIENCE: Fail CLOSED under rate limiter exception conditions (CVE-003)
-      logger.error("Rate Limiting Service Failed (Failing Closed): {}", e.getMessage());
-      response.setStatus(503);
-      response.setContentType("application/json");
-      response.getWriter().write("{\"error\":\"Service temporarily unavailable\"}");
-      return; // DO NOT call filterChain.doFilter()
+    private int determineLimit(String path, String method) {
+        if (path.contains("/auth/")) return AUTH_ATTEMPT_RPM;
+        if ("GET".equals(method)) return PUBLIC_READ_RPM;
+        return AUTH_WRITE_RPM;
     }
-  }
 
-  private int determineLimit(String path, String method) {
-    if (path.contains("/auth/")) return AUTH_ATTEMPT_RPM;
-    if ("GET".equals(method)) return PUBLIC_READ_RPM;
-    return AUTH_WRITE_RPM;
-  }
-
-  private String getCategoryKey(String path) {
-    if (path.contains("/auth/")) return "auth";
-    if (path.contains("/market/")) return "market";
-    if (path.contains("/posts/")) return "posts";
-    return "general";
-  }
+    private String getCategoryKey(String path) {
+        if (path.contains("/auth/")) return "auth";
+        if (path.contains("/market/")) return "market";
+        if (path.contains("/posts/")) return "posts";
+        return "general";
+    }
 }

@@ -33,46 +33,52 @@ import org.springframework.stereotype.Component;
 @Profile("!test")
 public class MarketDataInitializer implements CommandLineRunner {
 
-  @Autowired
-  @Qualifier("apiMarketDataService")
-  private MarketDataService marketDataService;
+    @Autowired
+    @Qualifier("apiMarketDataService")
+    private MarketDataService marketDataService;
 
-  @Override
-  public void run(String... args) throws Exception {
-    System.out.println(
-        "Application started. Offloading initial data fetches to background thread...");
+    @Override
+    public void run(String... args) throws Exception {
+        System.out.println(
+                "Application started. Offloading initial data fetches to background thread...");
 
-    Thread initThread =
-        new Thread(
-            () -> {
-              // 1. STRICT TENANT ISOLATION: Initialize exclusively for Finance domain
-              TenantContext.setTenantId("finance");
-              try {
-                try {
-                  // Fetch Market Movers (FMP) - Moved to async to prevent main thread blocking
-                  System.out.println("Starting initial market movers fetch...");
-                  marketDataService.fetchAndStoreMarketData("US", "STARTUP");
-                  System.out.println("Initial market movers fetch complete.");
-                } catch (Exception e) {
-                  System.err.println("Initial market movers fetch failed: " + e.getMessage());
-                }
+        Thread initThread =
+                new Thread(
+                        () -> {
+                            // 1. STRICT TENANT ISOLATION: Initialize exclusively for Finance domain
+                            TenantContext.setTenantId("finance");
+                            try {
+                                try {
+                                    // Fetch Market Movers (FMP) - Moved to async to prevent main
+                                    // thread blocking
+                                    System.out.println("Starting initial market movers fetch...");
+                                    marketDataService.fetchAndStoreMarketData("US", "STARTUP");
+                                    System.out.println("Initial market movers fetch complete.");
+                                } catch (Exception e) {
+                                    System.err.println(
+                                            "Initial market movers fetch failed: "
+                                                    + e.getMessage());
+                                }
 
-                // 2. Run Python script for History + Quotes
-                try {
-                  System.out.println(
-                      "Starting Python script for historical and quote data (async)...");
-                  marketDataService.runPythonHistoryAndQuoteUpdate("STARTUP");
-                  System.out.println("Python script (async) startup run complete.");
-                } catch (Exception e) {
-                  System.err.println("Python script (async) startup run failed: " + e.getMessage());
-                }
-              } finally {
-                TenantContext.clear(); // Always clear context after execution
-              }
-            });
+                                // 2. Run Python script for History + Quotes
+                                try {
+                                    System.out.println(
+                                            "Starting Python script for historical and quote data (async)...");
+                                    marketDataService.runPythonHistoryAndQuoteUpdate("STARTUP");
+                                    System.out.println(
+                                            "Python script (async) startup run complete.");
+                                } catch (Exception e) {
+                                    System.err.println(
+                                            "Python script (async) startup run failed: "
+                                                    + e.getMessage());
+                                }
+                            } finally {
+                                TenantContext.clear(); // Always clear context after execution
+                            }
+                        });
 
-    initThread.setName("MarketData-Init-Thread");
-    initThread.setDaemon(true); // Allow JVM to exit gracefully if thread is still running
-    initThread.start();
-  }
+        initThread.setName("MarketData-Init-Thread");
+        initThread.setDaemon(true); // Allow JVM to exit gracefully if thread is still running
+        initThread.start();
+    }
 }

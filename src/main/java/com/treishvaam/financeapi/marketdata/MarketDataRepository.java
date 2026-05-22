@@ -7,8 +7,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public interface MarketDataRepository extends JpaRepository<MarketData, Long> {
-  List<MarketData> findByType(String type);
+    List<MarketData> findByType(String type);
 
-  @Transactional
-  void deleteByType(String type);
+    @Transactional
+    void deleteByType(String type);
 }

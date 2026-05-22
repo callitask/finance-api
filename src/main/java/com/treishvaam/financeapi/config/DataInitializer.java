@@ -47,63 +47,67 @@ import org.springframework.stereotype.Component;
 @Profile("!test")
 public class DataInitializer implements CommandLineRunner {
 
-  private final UserRepository userRepository;
-  private final RoleRepository roleRepository;
-  private final PasswordEncoder passwordEncoder;
+    private final UserRepository userRepository;
+    private final RoleRepository roleRepository;
+    private final PasswordEncoder passwordEncoder;
 
-  @Value("${app.admin.username}")
-  private String adminUsername;
+    @Value("${app.admin.username}")
+    private String adminUsername;
 
-  @Value("${app.admin.email}")
-  private String adminEmail;
+    @Value("${app.admin.email}")
+    private String adminEmail;
 
-  @Value("${app.admin.password}")
-  private String adminPassword;
+    @Value("${app.admin.password}")
+    private String adminPassword;
 
-  public DataInitializer(
-      UserRepository userRepository,
-      RoleRepository roleRepository,
-      PasswordEncoder passwordEncoder) {
-    this.userRepository = userRepository;
-    this.roleRepository = roleRepository;
-    this.passwordEncoder = passwordEncoder;
-  }
-
-  @Override
-  public void run(String... args) throws Exception {
-    System.out.println("Starting DataInitializer seeding...");
-
-    // 1. STRICT TENANT ISOLATION: Initialize exclusively for Finance domain
-    TenantContext.setTenantId("finance");
-
-    try {
-      if (roleRepository.findByName(ERole.ROLE_ADMIN).isEmpty()) {
-        roleRepository.save(new Role(ERole.ROLE_ADMIN));
-      }
-      if (roleRepository.findByName(ERole.ROLE_USER).isEmpty()) {
-        roleRepository.save(new Role(ERole.ROLE_USER));
-      }
-
-      if (userRepository.findByEmail(adminEmail).isEmpty()) {
-        User adminUser = new User(adminUsername, adminEmail, passwordEncoder.encode(adminPassword));
-
-        Set<Role> roles = new HashSet<>();
-        Role adminRole =
-            roleRepository
-                .findByName(ERole.ROLE_ADMIN)
-                .orElseThrow(() -> new RuntimeException("Error: Admin role is not found."));
-        roles.add(adminRole);
-
-        adminUser.setRoles(roles);
-        userRepository.save(adminUser);
-        System.out.println("Admin user created successfully with ADMIN role!");
-      }
-    } catch (Exception e) {
-      System.err.println("DataInitializer seeding failed: " + e.getMessage());
-      // We catch the exception so that it does NOT bubble up to SpringApplication.run()
-      // preventing the JVM from shutting down gracefully immediately after startup.
-    } finally {
-      TenantContext.clear(); // Prevent thread contamination
+    public DataInitializer(
+            UserRepository userRepository,
+            RoleRepository roleRepository,
+            PasswordEncoder passwordEncoder) {
+        this.userRepository = userRepository;
+        this.roleRepository = roleRepository;
+        this.passwordEncoder = passwordEncoder;
     }
-  }
+
+    @Override
+    public void run(String... args) throws Exception {
+        System.out.println("Starting DataInitializer seeding...");
+
+        // 1. STRICT TENANT ISOLATION: Initialize exclusively for Finance domain
+        TenantContext.setTenantId("finance");
+
+        try {
+            if (roleRepository.findByName(ERole.ROLE_ADMIN).isEmpty()) {
+                roleRepository.save(new Role(ERole.ROLE_ADMIN));
+            }
+            if (roleRepository.findByName(ERole.ROLE_USER).isEmpty()) {
+                roleRepository.save(new Role(ERole.ROLE_USER));
+            }
+
+            if (userRepository.findByEmail(adminEmail).isEmpty()) {
+                User adminUser =
+                        new User(adminUsername, adminEmail, passwordEncoder.encode(adminPassword));
+
+                Set<Role> roles = new HashSet<>();
+                Role adminRole =
+                        roleRepository
+                                .findByName(ERole.ROLE_ADMIN)
+                                .orElseThrow(
+                                        () ->
+                                                new RuntimeException(
+                                                        "Error: Admin role is not found."));
+                roles.add(adminRole);
+
+                adminUser.setRoles(roles);
+                userRepository.save(adminUser);
+                System.out.println("Admin user created successfully with ADMIN role!");
+            }
+        } catch (Exception e) {
+            System.err.println("DataInitializer seeding failed: " + e.getMessage());
+            // We catch the exception so that it does NOT bubble up to SpringApplication.run()
+            // preventing the JVM from shutting down gracefully immediately after startup.
+        } finally {
+            TenantContext.clear(); // Prevent thread contamination
+        }
+    }
 }

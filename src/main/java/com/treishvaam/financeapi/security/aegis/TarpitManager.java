@@ -32,50 +32,52 @@ import org.springframework.stereotype.Service;
 @Service
 public class TarpitManager {
 
-  private static final Logger logger = LoggerFactory.getLogger(TarpitManager.class);
+    private static final Logger logger = LoggerFactory.getLogger(TarpitManager.class);
 
-  // Utilize Java 21 Virtual Threads to hold thousands of connections open with minimal RAM
-  // footprint
-  private final ExecutorService tarpitExecutor = Executors.newVirtualThreadPerTaskExecutor();
+    // Utilize Java 21 Virtual Threads to hold thousands of connections open with minimal RAM
+    // footprint
+    private final ExecutorService tarpitExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
-  /**
-   * Entry point for L8-BCSM consensus decisions. Logs the request context and routes to the tarpit.
-   */
-  public void holdConnectionInTarpit(HttpServletRequest request, HttpServletResponse response) {
-    String ip = request.getHeader("X-Real-IP");
-    if (ip == null || ip.isEmpty()) {
-      ip = request.getRemoteAddr();
+    /**
+     * Entry point for L8-BCSM consensus decisions. Logs the request context and routes to the
+     * tarpit.
+     */
+    public void holdConnectionInTarpit(HttpServletRequest request, HttpServletResponse response) {
+        String ip = request.getHeader("X-Real-IP");
+        if (ip == null || ip.isEmpty()) {
+            ip = request.getRemoteAddr();
+        }
+        logger.warn(
+                "AEGIS L7-CMCS: L8-BCSM requested tarpit for IP [{}]. Ensnaring connection...", ip);
+        ensnare(response);
     }
-    logger.warn("AEGIS L7-CMCS: L8-BCSM requested tarpit for IP [{}]. Ensnaring connection...", ip);
-    ensnare(response);
-  }
 
-  public void ensnare(HttpServletResponse response) {
-    response.setStatus(HttpServletResponse.SC_OK);
-    response.setContentType("text/html");
+    public void ensnare(HttpServletResponse response) {
+        response.setStatus(HttpServletResponse.SC_OK);
+        response.setContentType("text/html");
 
-    // Prevent Cloudflare from closing the connection early
-    response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-    response.setHeader("Connection", "keep-alive");
+        // Prevent Cloudflare from closing the connection early
+        response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+        response.setHeader("Connection", "keep-alive");
 
-    tarpitExecutor.submit(
-        () -> {
-          try {
-            OutputStream out = response.getOutputStream();
-            out.write("\n".getBytes());
-            out.flush();
+        tarpitExecutor.submit(
+                () -> {
+                    try {
+                        OutputStream out = response.getOutputStream();
+                        out.write("\n".getBytes());
+                        out.flush();
 
-            // Infinite trickle to exhaust attacker resources
-            while (!Thread.currentThread().isInterrupted()) {
-              Thread.sleep(10000); // 10 second delay
-              out.write("0".getBytes()); // Send a single meaningless byte
-              out.flush();
-            }
-          } catch (IOException | InterruptedException e) {
-            // Connection finally dropped by attacker or timeout
-            logger.debug("AEGIS Tarpit connection terminated by client.");
-            Thread.currentThread().interrupt();
-          }
-        });
-  }
+                        // Infinite trickle to exhaust attacker resources
+                        while (!Thread.currentThread().isInterrupted()) {
+                            Thread.sleep(10000); // 10 second delay
+                            out.write("0".getBytes()); // Send a single meaningless byte
+                            out.flush();
+                        }
+                    } catch (IOException | InterruptedException e) {
+                        // Connection finally dropped by attacker or timeout
+                        logger.debug("AEGIS Tarpit connection terminated by client.");
+                        Thread.currentThread().interrupt();
+                    }
+                });
+    }
 }

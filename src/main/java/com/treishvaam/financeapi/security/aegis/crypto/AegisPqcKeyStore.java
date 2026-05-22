@@ -40,44 +40,45 @@ import org.springframework.stereotype.Service;
 @Service
 public class AegisPqcKeyStore {
 
-  private static final Logger log = LoggerFactory.getLogger(AegisPqcKeyStore.class);
-  private final AegisEntropyManager entropyManager;
-  private KeyPair currentPqcKeyPair;
+    private static final Logger log = LoggerFactory.getLogger(AegisPqcKeyStore.class);
+    private final AegisEntropyManager entropyManager;
+    private KeyPair currentPqcKeyPair;
 
-  public AegisPqcKeyStore(AegisEntropyManager entropyManager) {
-    this.entropyManager = entropyManager;
-  }
-
-  @PostConstruct
-  public void init() {
-    log.info("AEGIS L1-PQCf: Registering BouncyCastle Providers...");
-    if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
-      Security.addProvider(new BouncyCastleProvider());
+    public AegisPqcKeyStore(AegisEntropyManager entropyManager) {
+        this.entropyManager = entropyManager;
     }
-    if (Security.getProvider(BouncyCastlePQCProvider.PROVIDER_NAME) == null) {
-      Security.addProvider(new BouncyCastlePQCProvider());
+
+    @PostConstruct
+    public void init() {
+        log.info("AEGIS L1-PQCf: Registering BouncyCastle Providers...");
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(new BouncyCastleProvider());
+        }
+        if (Security.getProvider(BouncyCastlePQCProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(new BouncyCastlePQCProvider());
+        }
+        generateNewKeypair();
     }
-    generateNewKeypair();
-  }
 
-  public void generateNewKeypair() {
-    try {
-      log.info(
-          "AEGIS L1-PQCf: Generating ML-DSA-87 (Dilithium5) KeyPair. This may take a moment...");
-      KeyPairGenerator kpg =
-          KeyPairGenerator.getInstance("Dilithium", BouncyCastlePQCProvider.PROVIDER_NAME);
+    public void generateNewKeypair() {
+        try {
+            log.info(
+                    "AEGIS L1-PQCf: Generating ML-DSA-87 (Dilithium5) KeyPair. This may take a moment...");
+            KeyPairGenerator kpg =
+                    KeyPairGenerator.getInstance(
+                            "Dilithium", BouncyCastlePQCProvider.PROVIDER_NAME);
 
-      // Dilithium5 is equivalent to ML-DSA-87 (NIST Level 5)
-      kpg.initialize(DilithiumParameterSpec.dilithium5, entropyManager.getSecureRandom());
-      this.currentPqcKeyPair = kpg.generateKeyPair();
-      log.info("AEGIS L1-PQCf: ML-DSA-87 KeyPair generated successfully.");
-    } catch (Exception e) {
-      log.error("AEGIS L1-PQCf: CRITICAL FAILURE generating PQC keys!", e);
-      throw new RuntimeException("Failed to generate PQC keys", e);
+            // Dilithium5 is equivalent to ML-DSA-87 (NIST Level 5)
+            kpg.initialize(DilithiumParameterSpec.dilithium5, entropyManager.getSecureRandom());
+            this.currentPqcKeyPair = kpg.generateKeyPair();
+            log.info("AEGIS L1-PQCf: ML-DSA-87 KeyPair generated successfully.");
+        } catch (Exception e) {
+            log.error("AEGIS L1-PQCf: CRITICAL FAILURE generating PQC keys!", e);
+            throw new RuntimeException("Failed to generate PQC keys", e);
+        }
     }
-  }
 
-  public KeyPair getCurrentKeyPair() {
-    return currentPqcKeyPair;
-  }
+    public KeyPair getCurrentKeyPair() {
+        return currentPqcKeyPair;
+    }
 }

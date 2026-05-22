@@ -34,68 +34,68 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class AegisMainFilter extends OncePerRequestFilter {
 
-  private static final Logger log = LoggerFactory.getLogger(AegisMainFilter.class);
+    private static final Logger log = LoggerFactory.getLogger(AegisMainFilter.class);
 
-  private final AegisBcsm bcsm;
-  private final AegisTemporalPathManager temporalPathManager;
-  private final AegisDeceptionFilter
-      deceptionFilter; // Re-using Phase 2's Deception Filter for payload generation
-  private final TarpitManager tarpitManager;
+    private final AegisBcsm bcsm;
+    private final AegisTemporalPathManager temporalPathManager;
+    private final AegisDeceptionFilter
+            deceptionFilter; // Re-using Phase 2's Deception Filter for payload generation
+    private final TarpitManager tarpitManager;
 
-  public AegisMainFilter(
-      AegisBcsm bcsm,
-      AegisTemporalPathManager temporalPathManager,
-      AegisDeceptionFilter deceptionFilter,
-      TarpitManager tarpitManager) {
-    this.bcsm = bcsm;
-    this.temporalPathManager = temporalPathManager;
-    this.deceptionFilter = deceptionFilter;
-    this.tarpitManager = tarpitManager;
-  }
-
-  @Override
-  protected void doFilterInternal(
-      HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
-      throws ServletException, IOException {
-
-    try {
-      // 1. Temporal Path Validation (L2-PPO)
-      String resolvedPath = temporalPathManager.resolveCanonicalPath(request.getRequestURI());
-      if ("DECEPTION".equals(resolvedPath)) {
-        // Attacker tried to access a hidden canonical path directly
-        deceptionFilter.servePoisonedResponse(response);
-        return;
-      }
-
-      // 2. Byzantine Consensus Evaluation (L8-BCSM)
-      String sessionId = request.getSession().getId(); // Or extract from custom header
-      SecurityDecision decision = bcsm.evaluate(request, sessionId);
-
-      switch (decision) {
-        case ALLOW:
-        case WARN: // Warn just logs, still allows traffic
-          request.setAttribute("AEGIS_DECISION", decision.name());
-          filterChain.doFilter(request, response);
-          return;
-
-        case BLOCK:
-          response.setStatus(429); // Return 429 to obscure intent
-          response.getWriter().write("{\"error\":\"Request rejected\"}");
-          return;
-
-        case DECEPTION:
-          deceptionFilter.servePoisonedResponse(response);
-          return;
-
-        case TARPIT:
-        case EMERGENCY:
-          tarpitManager.holdConnectionInTarpit(request, response);
-          return;
-      }
-
-    } catch (Exception e) {
-      log.error("AEGIS MAIN FILTER CRITICAL FAILURE. Failsafe activated -> BLOCK", e);
-      response.setStatus(500);
+    public AegisMainFilter(
+            AegisBcsm bcsm,
+            AegisTemporalPathManager temporalPathManager,
+            AegisDeceptionFilter deceptionFilter,
+            TarpitManager tarpitManager) {
+        this.bcsm = bcsm;
+        this.temporalPathManager = temporalPathManager;
+        this.deceptionFilter = deceptionFilter;
+        this.tarpitManager = tarpitManager;
     }
-  }
+
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
+
+        try {
+            // 1. Temporal Path Validation (L2-PPO)
+            String resolvedPath = temporalPathManager.resolveCanonicalPath(request.getRequestURI());
+            if ("DECEPTION".equals(resolvedPath)) {
+                // Attacker tried to access a hidden canonical path directly
+                deceptionFilter.servePoisonedResponse(response);
+                return;
+            }
+
+            // 2. Byzantine Consensus Evaluation (L8-BCSM)
+            String sessionId = request.getSession().getId(); // Or extract from custom header
+            SecurityDecision decision = bcsm.evaluate(request, sessionId);
+
+            switch (decision) {
+                case ALLOW:
+                case WARN: // Warn just logs, still allows traffic
+                    request.setAttribute("AEGIS_DECISION", decision.name());
+                    filterChain.doFilter(request, response);
+                    return;
+
+                case BLOCK:
+                    response.setStatus(429); // Return 429 to obscure intent
+                    response.getWriter().write("{\"error\":\"Request rejected\"}");
+                    return;
+
+                case DECEPTION:
+                    deceptionFilter.servePoisonedResponse(response);
+                    return;
+
+                case TARPIT:
+                case EMERGENCY:
+                    tarpitManager.holdConnectionInTarpit(request, response);
+                    return;
+            }
+
+        } catch (Exception e) {
+            log.error("AEGIS MAIN FILTER CRITICAL FAILURE. Failsafe activated -> BLOCK", e);
+            response.setStatus(500);
+        }
+    }
 }

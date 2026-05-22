@@ -9,11 +9,11 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 @OpenAPIDefinition(
-    info = @Info(title = "Treishvaam Finance API", version = "v1"),
-    security = @SecurityRequirement(name = "bearerAuth"))
+        info = @Info(title = "Treishvaam Finance API", version = "v1"),
+        security = @SecurityRequirement(name = "bearerAuth"))
 @SecurityScheme(
-    name = "bearerAuth",
-    type = SecuritySchemeType.HTTP,
-    scheme = "bearer",
-    bearerFormat = "JWT")
+        name = "bearerAuth",
+        type = SecuritySchemeType.HTTP,
+        scheme = "bearer",
+        bearerFormat = "JWT")
 public class OpenApiConfig {}

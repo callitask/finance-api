@@ -17,43 +17,43 @@ import org.springframework.web.client.RestTemplate;
 @Component("alphaVantageProvider")
 public class AlphaVantageProvider implements MarketDataProvider {
 
-  private static final Logger logger = LoggerFactory.getLogger(AlphaVantageProvider.class);
+    private static final Logger logger = LoggerFactory.getLogger(AlphaVantageProvider.class);
 
-  @Value("${alphavantage.api.key}")
-  private String apiKey;
+    @Value("${alphavantage.api.key}")
+    private String apiKey;
 
-  private final RestTemplate restTemplate = new RestTemplate();
-  private final ObjectMapper objectMapper = new ObjectMapper();
+    private final RestTemplate restTemplate = new RestTemplate();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-  @Override
-  public List<MarketData> fetchTopGainers() {
-    return Collections.emptyList();
-  }
+    @Override
+    public List<MarketData> fetchTopGainers() {
+        return Collections.emptyList();
+    }
 
-  @Override
-  public List<MarketData> fetchTopLosers() {
-    return Collections.emptyList();
-  }
+    @Override
+    public List<MarketData> fetchTopLosers() {
+        return Collections.emptyList();
+    }
 
-  @Override
-  public List<MarketData> fetchMostActive() {
-    return Collections.emptyList();
-  }
+    @Override
+    public List<MarketData> fetchMostActive() {
+        return Collections.emptyList();
+    }
 
-  // Kept for legacy /api/market/historical/{ticker} endpoint
-  @Override
-  public Object fetchHistoricalData(String ticker) {
-    logger.warn("Using legacy fetchHistoricalData for {}. Python script is preferred.", ticker);
-    String url =
-        String.format(
-            "https.www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=%s&apikey=%s",
-            ticker, apiKey);
-    return restTemplate.getForObject(url, Object.class);
-  }
+    // Kept for legacy /api/market/historical/{ticker} endpoint
+    @Override
+    public Object fetchHistoricalData(String ticker) {
+        logger.warn("Using legacy fetchHistoricalData for {}. Python script is preferred.", ticker);
+        String url =
+                String.format(
+                        "https.www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=%s&apikey=%s",
+                        ticker, apiKey);
+        return restTemplate.getForObject(url, Object.class);
+    }
 
-  // --- DISABLED ---
-  public List<HistoricalPrice> fetchDailyHistory(String ticker, boolean fullHistory) {
-    logger.warn("fetchDailyHistory() is TEMPORARILY DISABLED. Python script handles this now.");
-    return Collections.emptyList();
-  }
+    // --- DISABLED ---
+    public List<HistoricalPrice> fetchDailyHistory(String ticker, boolean fullHistory) {
+        logger.warn("fetchDailyHistory() is TEMPORARILY DISABLED. Python script handles this now.");
+        return Collections.emptyList();
+    }
 }

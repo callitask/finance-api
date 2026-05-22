@@ -13,5 +13,5 @@ package com.treishvaam.financeapi.security.aegis.bcsm;
 import jakarta.servlet.http.HttpServletRequest;
 
 public interface AegisValidator {
-  ValidatorResult evaluate(HttpServletRequest request, String sessionId);
+    ValidatorResult evaluate(HttpServletRequest request, String sessionId);
 }

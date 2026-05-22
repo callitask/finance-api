@@ -14,48 +14,48 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 @EnableAsync
 public class AsyncConfig implements AsyncConfigurer {
 
-  @Override
-  public Executor getAsyncExecutor() {
-    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-    executor.setCorePoolSize(5);
-    executor.setMaxPoolSize(10);
-    executor.setQueueCapacity(25);
-    executor.setThreadNamePrefix("Async-");
-
-    // ENTERPRISE FIX: Decorate tasks to propagate Tenant ID to new threads
-    executor.setTaskDecorator(new ContextCopyingDecorator());
-
-    executor.initialize();
-    return executor;
-  }
-
-  /** Copies the TenantContext and MDC (Logs) from the parent thread to the async thread. */
-  static class ContextCopyingDecorator implements TaskDecorator {
     @Override
-    @NonNull
-    public Runnable decorate(@NonNull Runnable runnable) {
-      // Capture context from the caller thread
-      String tenantId = TenantContext.getTenantId();
-      java.util.Map<String, String> mdcContext = MDC.getCopyOfContextMap();
+    public Executor getAsyncExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(5);
+        executor.setMaxPoolSize(10);
+        executor.setQueueCapacity(25);
+        executor.setThreadNamePrefix("Async-");
 
-      return () -> {
-        try {
-          // Restore context in the async thread
-          if (tenantId != null) {
-            TenantContext.setTenantId(tenantId);
-          }
-          if (mdcContext != null) {
-            MDC.setContextMap(mdcContext);
-          } else {
-            MDC.clear();
-          }
-          runnable.run();
-        } finally {
-          // Clean up to prevent leakage in thread pool
-          TenantContext.clear();
-          MDC.clear();
-        }
-      };
+        // ENTERPRISE FIX: Decorate tasks to propagate Tenant ID to new threads
+        executor.setTaskDecorator(new ContextCopyingDecorator());
+
+        executor.initialize();
+        return executor;
     }
-  }
+
+    /** Copies the TenantContext and MDC (Logs) from the parent thread to the async thread. */
+    static class ContextCopyingDecorator implements TaskDecorator {
+        @Override
+        @NonNull
+        public Runnable decorate(@NonNull Runnable runnable) {
+            // Capture context from the caller thread
+            String tenantId = TenantContext.getTenantId();
+            java.util.Map<String, String> mdcContext = MDC.getCopyOfContextMap();
+
+            return () -> {
+                try {
+                    // Restore context in the async thread
+                    if (tenantId != null) {
+                        TenantContext.setTenantId(tenantId);
+                    }
+                    if (mdcContext != null) {
+                        MDC.setContextMap(mdcContext);
+                    } else {
+                        MDC.clear();
+                    }
+                    runnable.run();
+                } finally {
+                    // Clean up to prevent leakage in thread pool
+                    TenantContext.clear();
+                    MDC.clear();
+                }
+            };
+        }
+    }
 }

@@ -34,41 +34,41 @@ import org.springframework.stereotype.Service;
 @Service
 public class AegisMtdController {
 
-  private static final Logger log = LoggerFactory.getLogger(AegisMtdController.class);
+    private static final Logger log = LoggerFactory.getLogger(AegisMtdController.class);
 
-  private final AegisTemporalPathManager temporalPathManager;
-  private final AegisPqcKeyStore pqcKeyStore;
+    private final AegisTemporalPathManager temporalPathManager;
+    private final AegisPqcKeyStore pqcKeyStore;
 
-  public AegisMtdController(
-      AegisTemporalPathManager temporalPathManager, AegisPqcKeyStore pqcKeyStore) {
-    this.temporalPathManager = temporalPathManager;
-    this.pqcKeyStore = pqcKeyStore;
-  }
+    public AegisMtdController(
+            AegisTemporalPathManager temporalPathManager, AegisPqcKeyStore pqcKeyStore) {
+        this.temporalPathManager = temporalPathManager;
+        this.pqcKeyStore = pqcKeyStore;
+    }
 
-  // Runs every 24 hours at 03:00 AM server time
-  @Scheduled(cron = "0 0 3 * * *")
-  public void rotateDaily() {
-    log.info("AEGIS L6-MTD: Executing Daily moving-target rotation sequence...");
-    temporalPathManager.rotateManifest();
-    // TODO: Push Manifest to Cloudflare Workers KV
-  }
+    // Runs every 24 hours at 03:00 AM server time
+    @Scheduled(cron = "0 0 3 * * *")
+    public void rotateDaily() {
+        log.info("AEGIS L6-MTD: Executing Daily moving-target rotation sequence...");
+        temporalPathManager.rotateManifest();
+        // TODO: Push Manifest to Cloudflare Workers KV
+    }
 
-  // Runs every 7 days at 04:00 AM server time
-  @Scheduled(cron = "0 0 4 * * SUN")
-  public void rotateWeekly() {
-    log.info("AEGIS L6-MTD: Executing Weekly moving-target rotation sequence...");
-    pqcKeyStore.generateNewKeypair();
-    // Force a path rotation immediately after key rotation to re-sign the manifest
-    temporalPathManager.rotateManifest();
-  }
+    // Runs every 7 days at 04:00 AM server time
+    @Scheduled(cron = "0 0 4 * * SUN")
+    public void rotateWeekly() {
+        log.info("AEGIS L6-MTD: Executing Weekly moving-target rotation sequence...");
+        pqcKeyStore.generateNewKeypair();
+        // Force a path rotation immediately after key rotation to re-sign the manifest
+        temporalPathManager.rotateManifest();
+    }
 
-  // Called dynamically by AegisBcsm or RabbitMQ when under severe attack
-  public void triggerEmergencyRotation(String triggerSource) {
-    log.warn(
-        "AEGIS L6-MTD: EMERGENCY ROTATION TRIGGERED by [{}]! Shifting infrastructure targets...",
-        triggerSource);
-    pqcKeyStore.generateNewKeypair();
-    temporalPathManager.rotateManifest();
-    log.info("AEGIS L6-MTD: Emergency target shift complete.");
-  }
+    // Called dynamically by AegisBcsm or RabbitMQ when under severe attack
+    public void triggerEmergencyRotation(String triggerSource) {
+        log.warn(
+                "AEGIS L6-MTD: EMERGENCY ROTATION TRIGGERED by [{}]! Shifting infrastructure targets...",
+                triggerSource);
+        pqcKeyStore.generateNewKeypair();
+        temporalPathManager.rotateManifest();
+        log.info("AEGIS L6-MTD: Emergency target shift complete.");
+    }
 }

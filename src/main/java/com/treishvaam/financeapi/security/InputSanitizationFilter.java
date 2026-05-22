@@ -41,36 +41,37 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Order(Ordered.HIGHEST_PRECEDENCE + 2) // Runs right after CORS filter
 public class InputSanitizationFilter extends OncePerRequestFilter {
 
-  @Autowired private QuerySanitizationService querySanitizationService;
+    @Autowired private QuerySanitizationService querySanitizationService;
 
-  @Override
-  protected void doFilterInternal(
-      HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
-      throws ServletException, IOException {
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
 
-    // Prefer CF-Connecting-IP (Cloudflare real IP), fallback to RemoteAddr
-    String clientIp =
-        Optional.ofNullable(request.getHeader("CF-Connecting-IP"))
-            .filter(ip -> !ip.isBlank())
-            .orElse(request.getRemoteAddr());
+        // Prefer CF-Connecting-IP (Cloudflare real IP), fallback to RemoteAddr
+        String clientIp =
+                Optional.ofNullable(request.getHeader("CF-Connecting-IP"))
+                        .filter(ip -> !ip.isBlank())
+                        .orElse(request.getRemoteAddr());
 
-    Enumeration<String> parameterNames = request.getParameterNames();
-    while (parameterNames.hasMoreElements()) {
-      String paramName = parameterNames.nextElement();
-      String[] paramValues = request.getParameterValues(paramName);
+        Enumeration<String> parameterNames = request.getParameterNames();
+        while (parameterNames.hasMoreElements()) {
+            String paramName = parameterNames.nextElement();
+            String[] paramValues = request.getParameterValues(paramName);
 
-      if (paramValues != null) {
-        for (String value : paramValues) {
-          if (querySanitizationService.isSuspicious(value, clientIp)) {
-            response.setStatus(400);
-            response.setContentType("application/json");
-            response.getWriter().write("{\"error\":\"Invalid input detected. Request blocked.\"}");
-            return; // Halt chain
-          }
+            if (paramValues != null) {
+                for (String value : paramValues) {
+                    if (querySanitizationService.isSuspicious(value, clientIp)) {
+                        response.setStatus(400);
+                        response.setContentType("application/json");
+                        response.getWriter()
+                                .write("{\"error\":\"Invalid input detected. Request blocked.\"}");
+                        return; // Halt chain
+                    }
+                }
+            }
         }
-      }
-    }
 
-    filterChain.doFilter(request, response);
-  }
+        filterChain.doFilter(request, response);
+    }
 }

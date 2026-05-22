@@ -27,71 +27,71 @@ import org.slf4j.LoggerFactory;
 @Converter
 public class ContactEmailConverter implements AttributeConverter<String, String> {
 
-  private static final Logger logger = LoggerFactory.getLogger(ContactEmailConverter.class);
+    private static final Logger logger = LoggerFactory.getLogger(ContactEmailConverter.class);
 
-  private static final String ALGORITHM = "AES/GCM/NoPadding";
-  private static final int GCM_IV_LENGTH = 12;
-  private static final int GCM_TAG_LENGTH = 128;
-  private static final String KEY_VERSION_PREFIX = "v1:";
+    private static final String ALGORITHM = "AES/GCM/NoPadding";
+    private static final int GCM_IV_LENGTH = 12;
+    private static final int GCM_TAG_LENGTH = 128;
+    private static final String KEY_VERSION_PREFIX = "v1:";
 
-  private final SecretKey secretKey;
+    private final SecretKey secretKey;
 
-  public ContactEmailConverter() {
-    String encodedKey = System.getenv("CONTACT_EMAIL_ENCRYPTION_KEY");
-    if (encodedKey == null || encodedKey.trim().isEmpty()) {
-      throw new IllegalStateException(
-          "[ContactEmailConverter] CONTACT_EMAIL_ENCRYPTION_KEY environment variable is missing.");
+    public ContactEmailConverter() {
+        String encodedKey = System.getenv("CONTACT_EMAIL_ENCRYPTION_KEY");
+        if (encodedKey == null || encodedKey.trim().isEmpty()) {
+            throw new IllegalStateException(
+                    "[ContactEmailConverter] CONTACT_EMAIL_ENCRYPTION_KEY environment variable is missing.");
+        }
+        byte[] keyBytes = Base64.getDecoder().decode(encodedKey.trim());
+        if (keyBytes.length != 32) {
+            throw new IllegalStateException("[ContactEmailConverter] Key must be 32 bytes.");
+        }
+        this.secretKey = new SecretKeySpec(keyBytes, "AES");
     }
-    byte[] keyBytes = Base64.getDecoder().decode(encodedKey.trim());
-    if (keyBytes.length != 32) {
-      throw new IllegalStateException("[ContactEmailConverter] Key must be 32 bytes.");
+
+    @Override
+    public String convertToDatabaseColumn(String plaintext) {
+        if (plaintext == null) return null;
+        try {
+            byte[] iv = new byte[GCM_IV_LENGTH];
+            new SecureRandom().nextBytes(iv);
+            Cipher cipher = Cipher.getInstance(ALGORITHM);
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+            byte[] ciphertext = cipher.doFinal(plaintext.getBytes("UTF-8"));
+
+            ByteBuffer combined = ByteBuffer.allocate(iv.length + ciphertext.length);
+            combined.put(iv);
+            combined.put(ciphertext);
+
+            return KEY_VERSION_PREFIX + Base64.getEncoder().encodeToString(combined.array());
+        } catch (Exception e) {
+            throw new RuntimeException("Encryption failed.", e);
+        }
     }
-    this.secretKey = new SecretKeySpec(keyBytes, "AES");
-  }
 
-  @Override
-  public String convertToDatabaseColumn(String plaintext) {
-    if (plaintext == null) return null;
-    try {
-      byte[] iv = new byte[GCM_IV_LENGTH];
-      new SecureRandom().nextBytes(iv);
-      Cipher cipher = Cipher.getInstance(ALGORITHM);
-      cipher.init(Cipher.ENCRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
-      byte[] ciphertext = cipher.doFinal(plaintext.getBytes("UTF-8"));
+    @Override
+    public String convertToEntityAttribute(String dbData) {
+        if (dbData == null) return null;
+        if (!dbData.startsWith(KEY_VERSION_PREFIX)) return dbData;
 
-      ByteBuffer combined = ByteBuffer.allocate(iv.length + ciphertext.length);
-      combined.put(iv);
-      combined.put(ciphertext);
+        try {
+            String base64Payload = dbData.substring(KEY_VERSION_PREFIX.length());
+            byte[] combined = Base64.getDecoder().decode(base64Payload);
 
-      return KEY_VERSION_PREFIX + Base64.getEncoder().encodeToString(combined.array());
-    } catch (Exception e) {
-      throw new RuntimeException("Encryption failed.", e);
+            ByteBuffer buffer = ByteBuffer.wrap(combined);
+            byte[] iv = new byte[GCM_IV_LENGTH];
+            buffer.get(iv);
+            byte[] ciphertext = new byte[buffer.remaining()];
+            buffer.get(ciphertext);
+
+            Cipher cipher = Cipher.getInstance(ALGORITHM);
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+            byte[] plaintext = cipher.doFinal(ciphertext);
+
+            return new String(plaintext, "UTF-8");
+        } catch (Exception e) {
+            logger.error("Decryption failed.", e);
+            return null;
+        }
     }
-  }
-
-  @Override
-  public String convertToEntityAttribute(String dbData) {
-    if (dbData == null) return null;
-    if (!dbData.startsWith(KEY_VERSION_PREFIX)) return dbData;
-
-    try {
-      String base64Payload = dbData.substring(KEY_VERSION_PREFIX.length());
-      byte[] combined = Base64.getDecoder().decode(base64Payload);
-
-      ByteBuffer buffer = ByteBuffer.wrap(combined);
-      byte[] iv = new byte[GCM_IV_LENGTH];
-      buffer.get(iv);
-      byte[] ciphertext = new byte[buffer.remaining()];
-      buffer.get(ciphertext);
-
-      Cipher cipher = Cipher.getInstance(ALGORITHM);
-      cipher.init(Cipher.DECRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
-      byte[] plaintext = cipher.doFinal(ciphertext);
-
-      return new String(plaintext, "UTF-8");
-    } catch (Exception e) {
-      logger.error("Decryption failed.", e);
-      return null;
-    }
-  }
 }

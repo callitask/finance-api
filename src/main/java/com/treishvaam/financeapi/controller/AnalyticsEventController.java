@@ -17,33 +17,34 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/analytics")
 public class AnalyticsEventController {
 
-  @Autowired private AnalyticsEventRepository analyticsEventRepository;
+    @Autowired private AnalyticsEventRepository analyticsEventRepository;
 
-  @PostMapping("/event")
-  public ResponseEntity<Void> recordEvent(
-      @RequestBody AnalyticsEvent event,
-      HttpServletRequest request,
-      @RequestHeader(value = "X-Tenant-ID", defaultValue = "unknown") String tenantId) {
+    @PostMapping("/event")
+    public ResponseEntity<Void> recordEvent(
+            @RequestBody AnalyticsEvent event,
+            HttpServletRequest request,
+            @RequestHeader(value = "X-Tenant-ID", defaultValue = "unknown") String tenantId) {
 
-    // 1. Enforce Zero-Trust Location Data (Edge Truth overrides Client payload)
-    String edgeCountry = request.getHeader("CF-IPCountry");
-    if (edgeCountry == null) edgeCountry = request.getHeader("X-Visitor-Country");
-    String edgeCity = request.getHeader("X-Visitor-City");
+        // 1. Enforce Zero-Trust Location Data (Edge Truth overrides Client payload)
+        String edgeCountry = request.getHeader("CF-IPCountry");
+        if (edgeCountry == null) edgeCountry = request.getHeader("X-Visitor-Country");
+        String edgeCity = request.getHeader("X-Visitor-City");
 
-    event.setCountryCode(edgeCountry != null ? edgeCountry : "Unknown");
-    event.setCity(edgeCity != null ? edgeCity : "Unknown");
+        event.setCountryCode(edgeCountry != null ? edgeCountry : "Unknown");
+        event.setCity(edgeCity != null ? edgeCity : "Unknown");
 
-    // 2. Enforce Tenant Separation
-    event.setTenantId(tenantId);
+        // 2. Enforce Tenant Separation
+        event.setTenantId(tenantId);
 
-    // 3. Prevent overriding of timestamps
-    event.setId(null);
+        // 3. Prevent overriding of timestamps
+        event.setId(null);
 
-    // 4. Asynchronous persist (Non-blocking response)
-    // In a true massive-scale setup, this would publish to RabbitMQ.
-    // For current DB-write optimization, direct save is used as batching is enabled in properties.
-    analyticsEventRepository.save(event);
+        // 4. Asynchronous persist (Non-blocking response)
+        // In a true massive-scale setup, this would publish to RabbitMQ.
+        // For current DB-write optimization, direct save is used as batching is enabled in
+        // properties.
+        analyticsEventRepository.save(event);
 
-    return ResponseEntity.accepted().build();
-  }
+        return ResponseEntity.accepted().build();
+    }
 }

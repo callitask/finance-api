@@ -7,36 +7,36 @@ import org.springframework.stereotype.Component;
 @Component("apiMarketDataFactory")
 public class MarketDataFactory {
 
-  @Autowired
-  @Qualifier("apiFmpProvider")
-  private MarketDataProvider fmpProvider;
+    @Autowired
+    @Qualifier("apiFmpProvider")
+    private MarketDataProvider fmpProvider;
 
-  @Autowired
-  @Qualifier("apiBreezeProvider")
-  private MarketDataProvider breezeProvider;
+    @Autowired
+    @Qualifier("apiBreezeProvider")
+    private MarketDataProvider breezeProvider;
 
-  @Autowired
-  @Qualifier("alphaVantageProvider")
-  private MarketDataProvider alphaVantageProvider;
+    @Autowired
+    @Qualifier("alphaVantageProvider")
+    private MarketDataProvider alphaVantageProvider;
 
-  // --- NEW: Finnhub Provider ---
-  @Autowired
-  @Qualifier("finnhubProvider")
-  private FinnhubProvider finnhubProvider;
+    // --- NEW: Finnhub Provider ---
+    @Autowired
+    @Qualifier("finnhubProvider")
+    private FinnhubProvider finnhubProvider;
 
-  public MarketDataProvider getMoversProvider(String market) {
-    if ("IN".equalsIgnoreCase(market)) {
-      return breezeProvider;
+    public MarketDataProvider getMoversProvider(String market) {
+        if ("IN".equalsIgnoreCase(market)) {
+            return breezeProvider;
+        }
+        return fmpProvider;
     }
-    return fmpProvider;
-  }
 
-  public MarketDataProvider getHistoricalDataProvider() {
-    return alphaVantageProvider;
-  }
+    public MarketDataProvider getHistoricalDataProvider() {
+        return alphaVantageProvider;
+    }
 
-  // --- NEW Getter ---
-  public FinnhubProvider getQuoteProvider() {
-    return finnhubProvider;
-  }
+    // --- NEW Getter ---
+    public FinnhubProvider getQuoteProvider() {
+        return finnhubProvider;
+    }
 }

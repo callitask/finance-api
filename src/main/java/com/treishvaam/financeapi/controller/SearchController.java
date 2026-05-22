@@ -16,29 +16,29 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/search")
 public class SearchController {
 
-  @Autowired private PostSearchRepository postSearchRepository;
+    @Autowired private PostSearchRepository postSearchRepository;
 
-  @GetMapping
-  public ResponseEntity<List<BlogPostSuggestionDto>> searchPosts(@RequestParam String q) {
-    if (q == null || q.trim().isEmpty()) {
-      return ResponseEntity.ok(List.of());
+    @GetMapping
+    public ResponseEntity<List<BlogPostSuggestionDto>> searchPosts(@RequestParam String q) {
+        if (q == null || q.trim().isEmpty()) {
+            return ResponseEntity.ok(List.of());
+        }
+
+        List<PostDocument> results = postSearchRepository.searchByTitle(q);
+
+        List<BlogPostSuggestionDto> suggestions =
+                results.stream()
+                        .map(
+                                doc ->
+                                        new BlogPostSuggestionDto(
+                                                Long.valueOf(doc.getId()),
+                                                doc.getTitle(),
+                                                doc.getSlug(),
+                                                doc.getCategorySlug(),
+                                                doc.getUserFriendlySlug(),
+                                                doc.getUrlArticleId()))
+                        .collect(Collectors.toList());
+
+        return ResponseEntity.ok(suggestions);
     }
-
-    List<PostDocument> results = postSearchRepository.searchByTitle(q);
-
-    List<BlogPostSuggestionDto> suggestions =
-        results.stream()
-            .map(
-                doc ->
-                    new BlogPostSuggestionDto(
-                        Long.valueOf(doc.getId()),
-                        doc.getTitle(),
-                        doc.getSlug(),
-                        doc.getCategorySlug(),
-                        doc.getUserFriendlySlug(),
-                        doc.getUrlArticleId()))
-            .collect(Collectors.toList());
-
-    return ResponseEntity.ok(suggestions);
-  }
 }

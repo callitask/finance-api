@@ -33,244 +33,244 @@ import java.util.Map;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class FaroPayload {
-  private Meta meta;
-  private List<Event> events;
-  private List<Measurement> measurements;
-  // Added: Capture intelligent source tracking from Frontend (root level)
-  private Map<String, String> extra;
+    private Meta meta;
+    private List<Event> events;
+    private List<Measurement> measurements;
+    // Added: Capture intelligent source tracking from Frontend (root level)
+    private Map<String, String> extra;
 
-  public Meta getMeta() {
-    return meta;
-  }
-
-  public void setMeta(Meta meta) {
-    this.meta = meta;
-  }
-
-  public List<Event> getEvents() {
-    return events;
-  }
-
-  public void setEvents(List<Event> events) {
-    this.events = events;
-  }
-
-  public List<Measurement> getMeasurements() {
-    return measurements;
-  }
-
-  public void setMeasurements(List<Measurement> measurements) {
-    this.measurements = measurements;
-  }
-
-  public Map<String, String> getExtra() {
-    return extra;
-  }
-
-  public void setExtra(Map<String, String> extra) {
-    this.extra = extra;
-  }
-
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  public static class Meta {
-    private App app;
-    private Browser browser;
-    private Page page;
-    private Session session;
-    private User user;
-
-    public App getApp() {
-      return app;
+    public Meta getMeta() {
+        return meta;
     }
 
-    public void setApp(App app) {
-      this.app = app;
+    public void setMeta(Meta meta) {
+        this.meta = meta;
     }
 
-    public Browser getBrowser() {
-      return browser;
+    public List<Event> getEvents() {
+        return events;
     }
 
-    public void setBrowser(Browser browser) {
-      this.browser = browser;
+    public void setEvents(List<Event> events) {
+        this.events = events;
     }
 
-    public Page getPage() {
-      return page;
+    public List<Measurement> getMeasurements() {
+        return measurements;
     }
 
-    public void setPage(Page page) {
-      this.page = page;
+    public void setMeasurements(List<Measurement> measurements) {
+        this.measurements = measurements;
     }
 
-    public Session getSession() {
-      return session;
+    public Map<String, String> getExtra() {
+        return extra;
     }
 
-    public void setSession(Session session) {
-      this.session = session;
+    public void setExtra(Map<String, String> extra) {
+        this.extra = extra;
     }
 
-    public User getUser() {
-      return user;
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Meta {
+        private App app;
+        private Browser browser;
+        private Page page;
+        private Session session;
+        private User user;
+
+        public App getApp() {
+            return app;
+        }
+
+        public void setApp(App app) {
+            this.app = app;
+        }
+
+        public Browser getBrowser() {
+            return browser;
+        }
+
+        public void setBrowser(Browser browser) {
+            this.browser = browser;
+        }
+
+        public Page getPage() {
+            return page;
+        }
+
+        public void setPage(Page page) {
+            this.page = page;
+        }
+
+        public Session getSession() {
+            return session;
+        }
+
+        public void setSession(Session session) {
+            this.session = session;
+        }
+
+        public User getUser() {
+            return user;
+        }
+
+        public void setUser(User user) {
+            this.user = user;
+        }
     }
 
-    public void setUser(User user) {
-      this.user = user;
-    }
-  }
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class App {
+        private String name;
+        private String version;
 
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  public static class App {
-    private String name;
-    private String version;
+        public String getName() {
+            return name;
+        }
 
-    public String getName() {
-      return name;
-    }
+        public void setName(String name) {
+            this.name = name;
+        }
 
-    public void setName(String name) {
-      this.name = name;
-    }
+        public String getVersion() {
+            return version;
+        }
 
-    public String getVersion() {
-      return version;
-    }
-
-    public void setVersion(String version) {
-      this.version = version;
-    }
-  }
-
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  public static class Browser {
-    private String name;
-    private String version;
-    private String os;
-
-    public String getName() {
-      return name;
+        public void setVersion(String version) {
+            this.version = version;
+        }
     }
 
-    public void setName(String name) {
-      this.name = name;
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Browser {
+        private String name;
+        private String version;
+        private String os;
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getVersion() {
+            return version;
+        }
+
+        public void setVersion(String version) {
+            this.version = version;
+        }
+
+        public String getOs() {
+            return os;
+        }
+
+        public void setOs(String os) {
+            this.os = os;
+        }
     }
 
-    public String getVersion() {
-      return version;
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Page {
+        private String url;
+
+        public String getUrl() {
+            return url;
+        }
+
+        public void setUrl(String url) {
+            this.url = url;
+        }
     }
 
-    public void setVersion(String version) {
-      this.version = version;
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Session {
+        private String id;
+
+        public String getId() {
+            return id;
+        }
+
+        public void setId(String id) {
+            this.id = id;
+        }
     }
 
-    public String getOs() {
-      return os;
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class User {
+        private String id;
+        private String username;
+        private String email;
+
+        public String getId() {
+            return id;
+        }
+
+        public void setId(String id) {
+            this.id = id;
+        }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public void setUsername(String username) {
+            this.username = username;
+        }
+
+        public String getEmail() {
+            return email;
+        }
+
+        public void setEmail(String email) {
+            this.email = email;
+        }
     }
 
-    public void setOs(String os) {
-      this.os = os;
-    }
-  }
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Event {
+        private String name;
+        private Map<String, String> attributes; // Capture detailed event parameters
 
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  public static class Page {
-    private String url;
+        public String getName() {
+            return name;
+        }
 
-    public String getUrl() {
-      return url;
-    }
+        public void setName(String name) {
+            this.name = name;
+        }
 
-    public void setUrl(String url) {
-      this.url = url;
-    }
-  }
+        public Map<String, String> getAttributes() {
+            return attributes;
+        }
 
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  public static class Session {
-    private String id;
-
-    public String getId() {
-      return id;
+        public void setAttributes(Map<String, String> attributes) {
+            this.attributes = attributes;
+        }
     }
 
-    public void setId(String id) {
-      this.id = id;
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Measurement {
+        private String type;
+        private Map<String, Object> values;
+
+        public String getType() {
+            return type;
+        }
+
+        public void setType(String type) {
+            this.type = type;
+        }
+
+        public Map<String, Object> getValues() {
+            return values;
+        }
+
+        public void setValues(Map<String, Object> values) {
+            this.values = values;
+        }
     }
-  }
-
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  public static class User {
-    private String id;
-    private String username;
-    private String email;
-
-    public String getId() {
-      return id;
-    }
-
-    public void setId(String id) {
-      this.id = id;
-    }
-
-    public String getUsername() {
-      return username;
-    }
-
-    public void setUsername(String username) {
-      this.username = username;
-    }
-
-    public String getEmail() {
-      return email;
-    }
-
-    public void setEmail(String email) {
-      this.email = email;
-    }
-  }
-
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  public static class Event {
-    private String name;
-    private Map<String, String> attributes; // Capture detailed event parameters
-
-    public String getName() {
-      return name;
-    }
-
-    public void setName(String name) {
-      this.name = name;
-    }
-
-    public Map<String, String> getAttributes() {
-      return attributes;
-    }
-
-    public void setAttributes(Map<String, String> attributes) {
-      this.attributes = attributes;
-    }
-  }
-
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  public static class Measurement {
-    private String type;
-    private Map<String, Object> values;
-
-    public String getType() {
-      return type;
-    }
-
-    public void setType(String type) {
-      this.type = type;
-    }
-
-    public Map<String, Object> getValues() {
-      return values;
-    }
-
-    public void setValues(Map<String, Object> values) {
-      this.values = values;
-    }
-  }
 }

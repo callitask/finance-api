@@ -20,15 +20,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class HealthCheckController {
 
-  // Legacy internal check
-  @GetMapping("/health")
-  public ResponseEntity<String> checkHealth() {
-    return ResponseEntity.ok("OK");
-  }
+    // Legacy internal check
+    @GetMapping("/health")
+    public ResponseEntity<String> checkHealth() {
+        return ResponseEntity.ok("OK");
+    }
 
-  // Phase 6 - External monitoring service check
-  @GetMapping("/api/v1/health/ping")
-  public ResponseEntity<Map<String, String>> ping() {
-    return ResponseEntity.ok(Map.of("status", "ok", "service", "treishvaam-finance-api"));
-  }
+    // Phase 6 - External monitoring service check
+    @GetMapping("/api/v1/health/ping")
+    public ResponseEntity<Map<String, String>> ping() {
+        return ResponseEntity.ok(Map.of("status", "ok", "service", "treishvaam-finance-api"));
+    }
 }

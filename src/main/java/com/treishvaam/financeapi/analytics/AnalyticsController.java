@@ -36,99 +36,99 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/analytics")
 public class AnalyticsController {
 
-  private final AnalyticsService analyticsService;
+    private final AnalyticsService analyticsService;
 
-  public AnalyticsController(AnalyticsService analyticsService) {
-    this.analyticsService = analyticsService;
-  }
-
-  @GetMapping
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-  public ResponseEntity<List<AudienceDataDto>> getHistoricalAudienceData(
-      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
-          LocalDate startDate,
-      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
-          LocalDate endDate,
-      @RequestParam(required = false) String country,
-      @RequestParam(required = false) String region,
-      @RequestParam(required = false) String city,
-      @RequestParam(required = false) String operatingSystem,
-      @RequestParam(required = false) String osVersion,
-      @RequestParam(required = false) String sessionSource,
-      @RequestParam(required = false) List<String> targetClientIds,
-      @RequestParam(required = false) List<String> excludeClientIds) {
-
-    LocalDate finalStartDate = startDate != null ? startDate : LocalDate.now().minusDays(7);
-    LocalDate finalEndDate = endDate != null ? endDate : LocalDate.now();
-
-    AudienceFilter filters =
-        AudienceFilter.builder()
-            .country(country)
-            .region(region)
-            .city(city)
-            .operatingSystem(operatingSystem)
-            .osVersion(osVersion)
-            .sessionSource(sessionSource)
-            .targetClientIds(targetClientIds)
-            .excludeClientIds(excludeClientIds)
-            .build();
-
-    List<AudienceDataDto> data =
-        analyticsService.getHistoricalData(finalStartDate, finalEndDate, filters);
-    return ResponseEntity.ok(data);
-  }
-
-  @GetMapping("/filters")
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-  public ResponseEntity<FilterOptionsDto> getFilterOptions(
-      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
-          LocalDate startDate,
-      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
-          LocalDate endDate,
-      @RequestParam(required = false) String country,
-      @RequestParam(required = false) String region,
-      @RequestParam(required = false) String city,
-      @RequestParam(required = false) String operatingSystem,
-      @RequestParam(required = false) String osVersion,
-      @RequestParam(required = false) String sessionSource,
-      @RequestParam(required = false) List<String> targetClientIds,
-      @RequestParam(required = false) List<String> excludeClientIds) {
-
-    LocalDate finalStartDate = startDate != null ? startDate : LocalDate.now().minusDays(7);
-    LocalDate finalEndDate = endDate != null ? endDate : LocalDate.now();
-
-    AudienceFilter filters =
-        AudienceFilter.builder()
-            .country(country)
-            .region(region)
-            .city(city)
-            .operatingSystem(operatingSystem)
-            .osVersion(osVersion)
-            .sessionSource(sessionSource)
-            .targetClientIds(targetClientIds)
-            .excludeClientIds(excludeClientIds)
-            .build();
-
-    FilterOptionsDto options =
-        analyticsService.getFilterOptions(finalStartDate, finalEndDate, filters);
-    return ResponseEntity.ok(options);
-  }
-
-  @PostMapping("/refresh")
-  @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-  public ResponseEntity<?> refreshGA4Data(@RequestBody Map<String, String> payload) {
-    try {
-      LocalDate start = LocalDate.parse(payload.get("startDate"));
-      LocalDate end = LocalDate.parse(payload.get("endDate"));
-
-      analyticsService.refreshGA4Data(start, end);
-      return ResponseEntity.ok()
-          .body(
-              Map.of(
-                  "message",
-                  "GA4 sync completed successfully for the selected dates. Faro native data was preserved."));
-    } catch (Exception e) {
-      return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+    public AnalyticsController(AnalyticsService analyticsService) {
+        this.analyticsService = analyticsService;
     }
-  }
+
+    @GetMapping
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<List<AudienceDataDto>> getHistoricalAudienceData(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                    LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                    LocalDate endDate,
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) String region,
+            @RequestParam(required = false) String city,
+            @RequestParam(required = false) String operatingSystem,
+            @RequestParam(required = false) String osVersion,
+            @RequestParam(required = false) String sessionSource,
+            @RequestParam(required = false) List<String> targetClientIds,
+            @RequestParam(required = false) List<String> excludeClientIds) {
+
+        LocalDate finalStartDate = startDate != null ? startDate : LocalDate.now().minusDays(7);
+        LocalDate finalEndDate = endDate != null ? endDate : LocalDate.now();
+
+        AudienceFilter filters =
+                AudienceFilter.builder()
+                        .country(country)
+                        .region(region)
+                        .city(city)
+                        .operatingSystem(operatingSystem)
+                        .osVersion(osVersion)
+                        .sessionSource(sessionSource)
+                        .targetClientIds(targetClientIds)
+                        .excludeClientIds(excludeClientIds)
+                        .build();
+
+        List<AudienceDataDto> data =
+                analyticsService.getHistoricalData(finalStartDate, finalEndDate, filters);
+        return ResponseEntity.ok(data);
+    }
+
+    @GetMapping("/filters")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<FilterOptionsDto> getFilterOptions(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                    LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                    LocalDate endDate,
+            @RequestParam(required = false) String country,
+            @RequestParam(required = false) String region,
+            @RequestParam(required = false) String city,
+            @RequestParam(required = false) String operatingSystem,
+            @RequestParam(required = false) String osVersion,
+            @RequestParam(required = false) String sessionSource,
+            @RequestParam(required = false) List<String> targetClientIds,
+            @RequestParam(required = false) List<String> excludeClientIds) {
+
+        LocalDate finalStartDate = startDate != null ? startDate : LocalDate.now().minusDays(7);
+        LocalDate finalEndDate = endDate != null ? endDate : LocalDate.now();
+
+        AudienceFilter filters =
+                AudienceFilter.builder()
+                        .country(country)
+                        .region(region)
+                        .city(city)
+                        .operatingSystem(operatingSystem)
+                        .osVersion(osVersion)
+                        .sessionSource(sessionSource)
+                        .targetClientIds(targetClientIds)
+                        .excludeClientIds(excludeClientIds)
+                        .build();
+
+        FilterOptionsDto options =
+                analyticsService.getFilterOptions(finalStartDate, finalEndDate, filters);
+        return ResponseEntity.ok(options);
+    }
+
+    @PostMapping("/refresh")
+    @PreAuthorize("hasAuthority('ROLE_ADMIN')")
+    public ResponseEntity<?> refreshGA4Data(@RequestBody Map<String, String> payload) {
+        try {
+            LocalDate start = LocalDate.parse(payload.get("startDate"));
+            LocalDate end = LocalDate.parse(payload.get("endDate"));
+
+            analyticsService.refreshGA4Data(start, end);
+            return ResponseEntity.ok()
+                    .body(
+                            Map.of(
+                                    "message",
+                                    "GA4 sync completed successfully for the selected dates. Faro native data was preserved."));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
 }

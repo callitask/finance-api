@@ -50,24 +50,24 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class Bucket4jConfig {
 
-  @Bean(destroyMethod = "shutdown")
-  public RedisClient bucket4jRedisClient(RedisProperties properties) {
-    RedisURI.Builder uriBuilder =
-        RedisURI.builder().withHost(properties.getHost()).withPort(properties.getPort());
+    @Bean(destroyMethod = "shutdown")
+    public RedisClient bucket4jRedisClient(RedisProperties properties) {
+        RedisURI.Builder uriBuilder =
+                RedisURI.builder().withHost(properties.getHost()).withPort(properties.getPort());
 
-    if (properties.getPassword() != null && !properties.getPassword().isEmpty()) {
-      uriBuilder.withPassword(properties.getPassword().toCharArray());
+        if (properties.getPassword() != null && !properties.getPassword().isEmpty()) {
+            uriBuilder.withPassword(properties.getPassword().toCharArray());
+        }
+
+        return RedisClient.create(uriBuilder.build());
     }
 
-    return RedisClient.create(uriBuilder.build());
-  }
-
-  @Bean
-  public ProxyManager<byte[]> proxyManager(RedisClient bucket4jRedisClient) {
-    return LettuceBasedProxyManager.builderFor(bucket4jRedisClient)
-        .withExpirationStrategy(
-            io.github.bucket4j.distributed.ExpirationAfterWriteStrategy
-                .basedOnTimeForRefillingBucketUpToMax(Duration.ofMinutes(1)))
-        .build();
-  }
+    @Bean
+    public ProxyManager<byte[]> proxyManager(RedisClient bucket4jRedisClient) {
+        return LettuceBasedProxyManager.builderFor(bucket4jRedisClient)
+                .withExpirationStrategy(
+                        io.github.bucket4j.distributed.ExpirationAfterWriteStrategy
+                                .basedOnTimeForRefillingBucketUpToMax(Duration.ofMinutes(1)))
+                .build();
+    }
 }

@@ -30,131 +30,135 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class FileStorageService {
 
-  private final MinioClient minioClient;
+    private final MinioClient minioClient;
 
-  @Value("${minio.bucket-name}")
-  private String bucketName;
+    @Value("${minio.bucket-name}")
+    private String bucketName;
 
-  // =================================================================================
-  // 1. LEGACY/EXISTING METHODS
-  // =================================================================================
+    // =================================================================================
+    // 1. LEGACY/EXISTING METHODS
+    // =================================================================================
 
-  public String storeFile(MultipartFile file) {
-    String originalFileName = StringUtils.cleanPath(file.getOriginalFilename());
-    String extension = "";
-    if (originalFileName.contains(".")) {
-      extension = originalFileName.substring(originalFileName.lastIndexOf("."));
+    public String storeFile(MultipartFile file) {
+        String originalFileName = StringUtils.cleanPath(file.getOriginalFilename());
+        String extension = "";
+        if (originalFileName.contains(".")) {
+            extension = originalFileName.substring(originalFileName.lastIndexOf("."));
+        }
+        String fileName = UUID.randomUUID().toString() + extension;
+
+        try {
+            uploadFile(file, fileName);
+            return fileName;
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "Could not store file " + fileName + ". Please try again!", e);
+        }
     }
-    String fileName = UUID.randomUUID().toString() + extension;
 
-    try {
-      uploadFile(file, fileName);
-      return fileName;
-    } catch (Exception e) {
-      throw new RuntimeException("Could not store file " + fileName + ". Please try again!", e);
+    public String storeFile(ByteArrayInputStream stream, String fileName, String contentType) {
+        try {
+            long size = stream.available();
+            log.info("Uploading stream: {} to bucket: {}", fileName, bucketName);
+
+            minioClient.putObject(
+                    PutObjectArgs.builder().bucket(bucketName).object(fileName).stream(
+                                    stream, size, -1)
+                            .contentType(contentType)
+                            .build());
+            return fileName;
+        } catch (Exception e) {
+            log.error("Error uploading stream to MinIO: {}", e.getMessage());
+            throw new RuntimeException("Could not store file " + fileName, e);
+        }
     }
-  }
 
-  public String storeFile(ByteArrayInputStream stream, String fileName, String contentType) {
-    try {
-      long size = stream.available();
-      log.info("Uploading stream: {} to bucket: {}", fileName, bucketName);
-
-      minioClient.putObject(
-          PutObjectArgs.builder().bucket(bucketName).object(fileName).stream(stream, size, -1)
-              .contentType(contentType)
-              .build());
-      return fileName;
-    } catch (Exception e) {
-      log.error("Error uploading stream to MinIO: {}", e.getMessage());
-      throw new RuntimeException("Could not store file " + fileName, e);
+    public long getFileSize(String fileName) {
+        try {
+            return minioClient
+                    .statObject(
+                            StatObjectArgs.builder().bucket(bucketName).object(fileName).build())
+                    .size();
+        } catch (Exception e) {
+            log.error("Error getting file size for {}: {}", fileName, e.getMessage());
+            return 0;
+        }
     }
-  }
 
-  public long getFileSize(String fileName) {
-    try {
-      return minioClient
-          .statObject(StatObjectArgs.builder().bucket(bucketName).object(fileName).build())
-          .size();
-    } catch (Exception e) {
-      log.error("Error getting file size for {}: {}", fileName, e.getMessage());
-      return 0;
+    // =================================================================================
+    // 2. CORE METHODS
+    // =================================================================================
+
+    public String uploadFile(MultipartFile file, String fileName) {
+        try {
+            log.info("Uploading file: {} to bucket: {}", fileName, bucketName);
+
+            minioClient.putObject(
+                    PutObjectArgs.builder().bucket(bucketName).object(fileName).stream(
+                                    file.getInputStream(), file.getSize(), -1)
+                            .contentType(file.getContentType())
+                            .build());
+
+            return fileName;
+        } catch (Exception e) {
+            log.error("Error uploading file to MinIO: {}", e.getMessage());
+            throw new RuntimeException("Could not upload file", e);
+        }
     }
-  }
 
-  // =================================================================================
-  // 2. CORE METHODS
-  // =================================================================================
+    public void uploadHtmlFile(String fileName, InputStream stream, long size) {
+        try {
+            log.info("Uploading Materialized HTML: {} to bucket: {}", fileName, bucketName);
 
-  public String uploadFile(MultipartFile file, String fileName) {
-    try {
-      log.info("Uploading file: {} to bucket: {}", fileName, bucketName);
+            minioClient.putObject(
+                    PutObjectArgs.builder().bucket(bucketName).object(fileName).stream(
+                                    stream, size, -1)
+                            .contentType("text/html")
+                            .extraHeaders(java.util.Map.of("Cache-Control", "public, max-age=3600"))
+                            .build());
 
-      minioClient.putObject(
-          PutObjectArgs.builder().bucket(bucketName).object(fileName).stream(
-                  file.getInputStream(), file.getSize(), -1)
-              .contentType(file.getContentType())
-              .build());
-
-      return fileName;
-    } catch (Exception e) {
-      log.error("Error uploading file to MinIO: {}", e.getMessage());
-      throw new RuntimeException("Could not upload file", e);
+        } catch (Exception e) {
+            log.error("Error uploading HTML to MinIO: {}", e.getMessage());
+            throw new RuntimeException("Could not upload HTML file", e);
+        }
     }
-  }
 
-  public void uploadHtmlFile(String fileName, InputStream stream, long size) {
-    try {
-      log.info("Uploading Materialized HTML: {} to bucket: {}", fileName, bucketName);
-
-      minioClient.putObject(
-          PutObjectArgs.builder().bucket(bucketName).object(fileName).stream(stream, size, -1)
-              .contentType("text/html")
-              .extraHeaders(java.util.Map.of("Cache-Control", "public, max-age=3600"))
-              .build());
-
-    } catch (Exception e) {
-      log.error("Error uploading HTML to MinIO: {}", e.getMessage());
-      throw new RuntimeException("Could not upload HTML file", e);
+    /**
+     * NEW: Streams a file directly from MinIO. Used by FileController to serve images that are not
+     * on local disk.
+     */
+    public InputStream loadFileAsStream(String fileName) {
+        try {
+            return minioClient.getObject(
+                    GetObjectArgs.builder().bucket(bucketName).object(fileName).build());
+        } catch (Exception e) {
+            log.error("Error streaming file from MinIO: {}", fileName, e);
+            throw new RuntimeException("Could not retrieve file " + fileName, e);
+        }
     }
-  }
 
-  /**
-   * NEW: Streams a file directly from MinIO. Used by FileController to serve images that are not on
-   * local disk.
-   */
-  public InputStream loadFileAsStream(String fileName) {
-    try {
-      return minioClient.getObject(
-          GetObjectArgs.builder().bucket(bucketName).object(fileName).build());
-    } catch (Exception e) {
-      log.error("Error streaming file from MinIO: {}", fileName, e);
-      throw new RuntimeException("Could not retrieve file " + fileName, e);
+    public String getPresignedUrl(String objectName) {
+        try {
+            return minioClient.getPresignedObjectUrl(
+                    GetPresignedObjectUrlArgs.builder()
+                            .method(Method.GET)
+                            .bucket(bucketName)
+                            .object(objectName)
+                            .expiry(7, TimeUnit.DAYS)
+                            .build());
+        } catch (Exception e) {
+            log.error("Error generating presigned URL: {}", e.getMessage());
+            return "";
+        }
     }
-  }
 
-  public String getPresignedUrl(String objectName) {
-    try {
-      return minioClient.getPresignedObjectUrl(
-          GetPresignedObjectUrlArgs.builder()
-              .method(Method.GET)
-              .bucket(bucketName)
-              .object(objectName)
-              .expiry(7, TimeUnit.DAYS)
-              .build());
-    } catch (Exception e) {
-      log.error("Error generating presigned URL: {}", e.getMessage());
-      return "";
+    public void deleteFile(String objectName) {
+        try {
+            minioClient.removeObject(
+                    RemoveObjectArgs.builder().bucket(bucketName).object(objectName).build());
+            log.info("Deleted file: {}", objectName);
+        } catch (Exception e) {
+            log.warn("Error deleting file {}: {}", objectName, e.getMessage());
+        }
     }
-  }
-
-  public void deleteFile(String objectName) {
-    try {
-      minioClient.removeObject(
-          RemoveObjectArgs.builder().bucket(bucketName).object(objectName).build());
-      log.info("Deleted file: {}", objectName);
-    } catch (Exception e) {
-      log.warn("Error deleting file {}: {}", objectName, e.getMessage());
-    }
-  }
 }

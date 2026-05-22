@@ -19,42 +19,42 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Order(Ordered.HIGHEST_PRECEDENCE - 1)
 public class InternalSecretFilter extends OncePerRequestFilter {
 
-  @Value("${app.security.internal-secret}")
-  private String expectedSecret;
+    @Value("${app.security.internal-secret}")
+    private String expectedSecret;
 
-  @Override
-  protected boolean shouldNotFilter(HttpServletRequest request) {
-    String path = request.getRequestURI();
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getRequestURI();
 
-    // 1. Do NOT filter the public sitemap URL.
-    if ("/api/sitemap.xml".equals(path)) {
-      return true; // Tells the filter to skip this request.
+        // 1. Do NOT filter the public sitemap URL.
+        if ("/api/sitemap.xml".equals(path)) {
+            return true; // Tells the filter to skip this request.
+        }
+
+        // 2. ONLY apply this filter to its intended endpoint (V1)
+        // The filter should ONLY RUN for POST requests to /api/v1/posts.
+        boolean shouldFilter =
+                "POST".equalsIgnoreCase(request.getMethod()) && path.equals("/api/v1/posts");
+
+        return !shouldFilter; // Return true to skip filtering for all other requests.
     }
 
-    // 2. ONLY apply this filter to its intended endpoint (V1)
-    // The filter should ONLY RUN for POST requests to /api/v1/posts.
-    boolean shouldFilter =
-        "POST".equalsIgnoreCase(request.getMethod()) && path.equals("/api/v1/posts");
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
 
-    return !shouldFilter; // Return true to skip filtering for all other requests.
-  }
+        String headerSecret = request.getHeader("X-Internal-Secret");
 
-  @Override
-  protected void doFilterInternal(
-      HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
-      throws ServletException, IOException {
+        if (headerSecret != null && headerSecret.equals(expectedSecret)) {
+            UsernamePasswordAuthenticationToken auth =
+                    new UsernamePasswordAuthenticationToken(
+                            "INTERNAL_SERVICE",
+                            null,
+                            Collections.singletonList(new SimpleGrantedAuthority("ROLE_INTERNAL")));
+            SecurityContextHolder.getContext().setAuthentication(auth);
+        }
 
-    String headerSecret = request.getHeader("X-Internal-Secret");
-
-    if (headerSecret != null && headerSecret.equals(expectedSecret)) {
-      UsernamePasswordAuthenticationToken auth =
-          new UsernamePasswordAuthenticationToken(
-              "INTERNAL_SERVICE",
-              null,
-              Collections.singletonList(new SimpleGrantedAuthority("ROLE_INTERNAL")));
-      SecurityContextHolder.getContext().setAuthentication(auth);
+        filterChain.doFilter(request, response);
     }
-
-    filterChain.doFilter(request, response);
-  }
 }

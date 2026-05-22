@@ -99,188 +99,208 @@ import org.springframework.web.filter.CorsFilter;
 @EnableMethodSecurity // Allows @PreAuthorize to work
 public class SecurityConfig {
 
-  private final RateLimitingFilter rateLimitingFilter;
-  private final InternalSecretFilter internalSecretFilter;
-  private final InputSanitizationFilter inputSanitizationFilter;
-  private final AegisMainFilter aegisMainFilter;
-  private final AegisZkpAdminFilter aegisZkpAdminFilter;
+    private final RateLimitingFilter rateLimitingFilter;
+    private final InternalSecretFilter internalSecretFilter;
+    private final InputSanitizationFilter inputSanitizationFilter;
+    private final AegisMainFilter aegisMainFilter;
+    private final AegisZkpAdminFilter aegisZkpAdminFilter;
 
-  @Value("#{'${cors.allowed-origins}'.split(',')}")
-  private List<String> allowedOrigins;
+    @Value("#{'${cors.allowed-origins}'.split(',')}")
+    private List<String> allowedOrigins;
 
-  public SecurityConfig(
-      RateLimitingFilter rateLimitingFilter,
-      InternalSecretFilter internalSecretFilter,
-      InputSanitizationFilter inputSanitizationFilter,
-      AegisMainFilter aegisMainFilter,
-      AegisZkpAdminFilter aegisZkpAdminFilter) {
-    this.rateLimitingFilter = rateLimitingFilter;
-    this.internalSecretFilter = internalSecretFilter;
-    this.inputSanitizationFilter = inputSanitizationFilter;
-    this.aegisMainFilter = aegisMainFilter;
-    this.aegisZkpAdminFilter = aegisZkpAdminFilter;
-  }
-
-  @Bean
-  public PasswordEncoder passwordEncoder() {
-    return new BCryptPasswordEncoder();
-  }
-
-  @Bean
-  public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-    http.cors(cors -> cors.disable()) // CORS is handled globally by FilterRegistrationBean below
-        .csrf(csrf -> csrf.disable())
-        .sessionManagement(
-            session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-        .headers(headers -> headers.frameOptions(frame -> frame.disable()))
-        .authorizeHttpRequests(
-            auth ->
-                auth
-                    // 0. Pre-flight checks (CORS) - CRITICAL
-                    .requestMatchers(HttpMethod.OPTIONS, "/**")
-                    .permitAll()
-
-                    // 1. System, Health & Monitoring (Public)
-                    .requestMatchers(
-                        "/actuator/health", "/api/v1/health/**", "/api/v1/monitoring/ingest")
-                    .permitAll()
-
-                    // 1.5 Actuator Catch-all (Secure)
-                    .requestMatchers("/actuator/**")
-                    .hasAuthority("ROLE_ADMIN")
-
-                    // 2. Static Assets & SEO (Public)
-                    .requestMatchers(
-                        HttpMethod.GET,
-                        "/api/v1/uploads/**",
-                        "/sitemap.xml",
-                        "/sitemap-news.xml",
-                        "/feed.xml",
-                        "/sitemaps/**",
-                        "/favicon.ico",
-                        // --- FIX: Allow Cloudflare Worker to fetch Sitemap Metadata (Public) ---
-                        "/api/public/**")
-                    .permitAll()
-
-                    // 3. Public API Read Access
-                    .requestMatchers(
-                        HttpMethod.GET,
-                        "/api/v1/posts/**",
-                        "/api/v1/categories/**",
-                        "/api/v1/market/**",
-                        "/api/v1/news/**",
-                        "/api/v1/search/**",
-                        "/api/v1/logo")
-                    .permitAll()
-
-                    // 4. Market Quotes Batch (POST allowed publicly)
-                    .requestMatchers(HttpMethod.POST, "/api/v1/market/quotes/batch")
-                    .permitAll()
-
-                    // 5. Contact Form (Public Write)
-                    .requestMatchers("/api/v1/contact/**")
-                    .permitAll()
-
-                    // PHASE 5: Allow Public First-Party Analytics Beacons (POST ONLY)
-                    .requestMatchers(HttpMethod.POST, "/api/v1/analytics/**")
-                    .permitAll()
-
-                    // --- Draft Operations (Authenticated — any logged-in user) ---
-                    .requestMatchers(HttpMethod.POST, "/api/v1/posts/draft")
-                    .authenticated()
-                    .requestMatchers(HttpMethod.PUT, "/api/v1/posts/draft/**")
-                    .authenticated()
-
-                    // --- Auth Endpoints MUST be Authenticated ---
-                    .requestMatchers("/api/v1/auth/**")
-                    .authenticated()
-
-                    // 6. Secure Admin/Dashboard Routes
-                    .requestMatchers(
-                        "/api/v1/analytics/**") // Applies to GET requests (Dashboard Reads)
-                    .hasAnyAuthority("ROLE_ANALYST", "ROLE_ADMIN")
-                    .requestMatchers("/api/v1/posts/admin/**")
-                    .hasAnyAuthority("ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
-
-                    // --- Post Publish & Edit (requires PUBLISHER or ADMIN) ---
-                    .requestMatchers(HttpMethod.POST, "/api/v1/posts")
-                    .hasAnyAuthority("ROLE_PUBLISHER", "ROLE_ADMIN")
-                    .requestMatchers(HttpMethod.PUT, "/api/v1/posts/**")
-                    .hasAnyAuthority("ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
-                    .requestMatchers(HttpMethod.DELETE, "/api/v1/posts/bulk")
-                    .hasAnyAuthority("ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
-                    .requestMatchers(HttpMethod.DELETE, "/api/v1/posts/**")
-                    .hasAnyAuthority("ROLE_PUBLISHER", "ROLE_ADMIN")
-
-                    // --- File Upload (requires PUBLISHER or ADMIN) ---
-                    .requestMatchers("/api/v1/files/upload")
-                    .hasAnyAuthority("ROLE_PUBLISHER", "ROLE_ADMIN")
-                    .requestMatchers("/api/v1/admin/**", "/api/v1/status/**")
-                    .hasAuthority("ROLE_ADMIN")
-
-                    // 7. Fallback: Require authentication for anything else
-                    .anyRequest()
-                    .authenticated())
-        .oauth2ResourceServer(
-            oauth2 ->
-                oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
-        .addFilterBefore(
-            aegisMainFilter, InternalSecretFilter.class) // INJECTED AEGIS MASTER FILTER
-        .addFilterBefore(aegisZkpAdminFilter, UsernamePasswordAuthenticationFilter.class) // L3-ZKA
-        .addFilterBefore(inputSanitizationFilter, AegisZkpAdminFilter.class)
-        .addFilterBefore(rateLimitingFilter, InputSanitizationFilter.class)
-        .addFilterBefore(internalSecretFilter, RateLimitingFilter.class);
-
-    return http.build();
-  }
-
-  @Bean
-  public FilterRegistrationBean<CorsFilter> globalCorsFilter() {
-    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-    CorsConfiguration configuration = new CorsConfiguration();
-
-    // Use AllowedOriginPatterns for better matching (handles subdomains & protocols)
-    if (allowedOrigins == null
-        || allowedOrigins.isEmpty()
-        || (allowedOrigins.size() == 1 && allowedOrigins.get(0).isEmpty())) {
-      configuration.setAllowedOriginPatterns(Collections.singletonList("*"));
-    } else {
-      configuration.setAllowedOriginPatterns(allowedOrigins);
+    public SecurityConfig(
+            RateLimitingFilter rateLimitingFilter,
+            InternalSecretFilter internalSecretFilter,
+            InputSanitizationFilter inputSanitizationFilter,
+            AegisMainFilter aegisMainFilter,
+            AegisZkpAdminFilter aegisZkpAdminFilter) {
+        this.rateLimitingFilter = rateLimitingFilter;
+        this.internalSecretFilter = internalSecretFilter;
+        this.inputSanitizationFilter = inputSanitizationFilter;
+        this.aegisMainFilter = aegisMainFilter;
+        this.aegisZkpAdminFilter = aegisZkpAdminFilter;
     }
 
-    configuration.setAllowedMethods(
-        Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
 
-    // SEC-07: Explicitly limit headers instead of allowing wildcard
-    configuration.setAllowedHeaders(
-        Arrays.asList(
-            "Authorization",
-            "Content-Type",
-            "X-Requested-With",
-            "Accept",
-            "Origin",
-            "Access-Control-Request-Method",
-            "Access-Control-Request-Headers",
-            "X-CSRF-Token",
-            "X-AEGIS-ZKP-Proof",
-            "X-AEGIS-Challenge-ID")); // Added ZKP Headers to CORS
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http.cors(cors -> cors.disable()) // CORS is handled globally by
+                // FilterRegistrationBean below
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(
+                        session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .headers(headers -> headers.frameOptions(frame -> frame.disable()))
+                .authorizeHttpRequests(
+                        auth ->
+                                auth
+                                        // 0. Pre-flight checks (CORS) - CRITICAL
+                                        .requestMatchers(HttpMethod.OPTIONS, "/**")
+                                        .permitAll()
 
-    configuration.setExposedHeaders(
-        Arrays.asList(
-            "Authorization", "Content-Type", "X-Requested-With", "X-AEGIS-POW-Challenge"));
-    configuration.setAllowCredentials(true);
-    configuration.setMaxAge(3600L);
+                                        // 1. System, Health & Monitoring (Public)
+                                        .requestMatchers(
+                                                "/actuator/health",
+                                                "/api/v1/health/**",
+                                                "/api/v1/monitoring/ingest")
+                                        .permitAll()
 
-    source.registerCorsConfiguration("/**", configuration);
+                                        // 1.5 Actuator Catch-all (Secure)
+                                        .requestMatchers("/actuator/**")
+                                        .hasAuthority("ROLE_ADMIN")
 
-    FilterRegistrationBean<CorsFilter> bean = new FilterRegistrationBean<>(new CorsFilter(source));
-    bean.setOrder(Ordered.HIGHEST_PRECEDENCE);
-    return bean;
-  }
+                                        // 2. Static Assets & SEO (Public)
+                                        .requestMatchers(
+                                                HttpMethod.GET,
+                                                "/api/v1/uploads/**",
+                                                "/sitemap.xml",
+                                                "/sitemap-news.xml",
+                                                "/feed.xml",
+                                                "/sitemaps/**",
+                                                "/favicon.ico",
+                                                // --- FIX: Allow Cloudflare Worker to fetch Sitemap
+                                                // Metadata (Public) ---
+                                                "/api/public/**")
+                                        .permitAll()
 
-  private Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter() {
-    JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();
-    jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(new KeycloakRealmRoleConverter());
-    return jwtAuthenticationConverter;
-  }
+                                        // 3. Public API Read Access
+                                        .requestMatchers(
+                                                HttpMethod.GET,
+                                                "/api/v1/posts/**",
+                                                "/api/v1/categories/**",
+                                                "/api/v1/market/**",
+                                                "/api/v1/news/**",
+                                                "/api/v1/search/**",
+                                                "/api/v1/logo")
+                                        .permitAll()
+
+                                        // 4. Market Quotes Batch (POST allowed publicly)
+                                        .requestMatchers(
+                                                HttpMethod.POST, "/api/v1/market/quotes/batch")
+                                        .permitAll()
+
+                                        // 5. Contact Form (Public Write)
+                                        .requestMatchers("/api/v1/contact/**")
+                                        .permitAll()
+
+                                        // PHASE 5: Allow Public First-Party Analytics Beacons (POST
+                                        // ONLY)
+                                        .requestMatchers(HttpMethod.POST, "/api/v1/analytics/**")
+                                        .permitAll()
+
+                                        // --- Draft Operations (Authenticated — any logged-in user)
+                                        // ---
+                                        .requestMatchers(HttpMethod.POST, "/api/v1/posts/draft")
+                                        .authenticated()
+                                        .requestMatchers(HttpMethod.PUT, "/api/v1/posts/draft/**")
+                                        .authenticated()
+
+                                        // --- Auth Endpoints MUST be Authenticated ---
+                                        .requestMatchers("/api/v1/auth/**")
+                                        .authenticated()
+
+                                        // 6. Secure Admin/Dashboard Routes
+                                        .requestMatchers(
+                                                "/api/v1/analytics/**") // Applies to GET requests
+                                        // (Dashboard Reads)
+                                        .hasAnyAuthority("ROLE_ANALYST", "ROLE_ADMIN")
+                                        .requestMatchers("/api/v1/posts/admin/**")
+                                        .hasAnyAuthority(
+                                                "ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
+
+                                        // --- Post Publish & Edit (requires PUBLISHER or ADMIN) ---
+                                        .requestMatchers(HttpMethod.POST, "/api/v1/posts")
+                                        .hasAnyAuthority("ROLE_PUBLISHER", "ROLE_ADMIN")
+                                        .requestMatchers(HttpMethod.PUT, "/api/v1/posts/**")
+                                        .hasAnyAuthority(
+                                                "ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
+                                        .requestMatchers(HttpMethod.DELETE, "/api/v1/posts/bulk")
+                                        .hasAnyAuthority(
+                                                "ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
+                                        .requestMatchers(HttpMethod.DELETE, "/api/v1/posts/**")
+                                        .hasAnyAuthority("ROLE_PUBLISHER", "ROLE_ADMIN")
+
+                                        // --- File Upload (requires PUBLISHER or ADMIN) ---
+                                        .requestMatchers("/api/v1/files/upload")
+                                        .hasAnyAuthority("ROLE_PUBLISHER", "ROLE_ADMIN")
+                                        .requestMatchers("/api/v1/admin/**", "/api/v1/status/**")
+                                        .hasAuthority("ROLE_ADMIN")
+
+                                        // 7. Fallback: Require authentication for anything else
+                                        .anyRequest()
+                                        .authenticated())
+                .oauth2ResourceServer(
+                        oauth2 ->
+                                oauth2.jwt(
+                                        jwt ->
+                                                jwt.jwtAuthenticationConverter(
+                                                        jwtAuthenticationConverter())))
+                .addFilterBefore(
+                        aegisMainFilter, InternalSecretFilter.class) // INJECTED AEGIS MASTER FILTER
+                .addFilterBefore(
+                        aegisZkpAdminFilter, UsernamePasswordAuthenticationFilter.class) // L3-ZKA
+                .addFilterBefore(inputSanitizationFilter, AegisZkpAdminFilter.class)
+                .addFilterBefore(rateLimitingFilter, InputSanitizationFilter.class)
+                .addFilterBefore(internalSecretFilter, RateLimitingFilter.class);
+
+        return http.build();
+    }
+
+    @Bean
+    public FilterRegistrationBean<CorsFilter> globalCorsFilter() {
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        CorsConfiguration configuration = new CorsConfiguration();
+
+        // Use AllowedOriginPatterns for better matching (handles subdomains & protocols)
+        if (allowedOrigins == null
+                || allowedOrigins.isEmpty()
+                || (allowedOrigins.size() == 1 && allowedOrigins.get(0).isEmpty())) {
+            configuration.setAllowedOriginPatterns(Collections.singletonList("*"));
+        } else {
+            configuration.setAllowedOriginPatterns(allowedOrigins);
+        }
+
+        configuration.setAllowedMethods(
+                Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+
+        // SEC-07: Explicitly limit headers instead of allowing wildcard
+        configuration.setAllowedHeaders(
+                Arrays.asList(
+                        "Authorization",
+                        "Content-Type",
+                        "X-Requested-With",
+                        "Accept",
+                        "Origin",
+                        "Access-Control-Request-Method",
+                        "Access-Control-Request-Headers",
+                        "X-CSRF-Token",
+                        "X-AEGIS-ZKP-Proof",
+                        "X-AEGIS-Challenge-ID")); // Added ZKP Headers to CORS
+
+        configuration.setExposedHeaders(
+                Arrays.asList(
+                        "Authorization",
+                        "Content-Type",
+                        "X-Requested-With",
+                        "X-AEGIS-POW-Challenge"));
+        configuration.setAllowCredentials(true);
+        configuration.setMaxAge(3600L);
+
+        source.registerCorsConfiguration("/**", configuration);
+
+        FilterRegistrationBean<CorsFilter> bean =
+                new FilterRegistrationBean<>(new CorsFilter(source));
+        bean.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return bean;
+    }
+
+    private Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter() {
+        JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();
+        jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(
+                new KeycloakRealmRoleConverter());
+        return jwtAuthenticationConverter;
+    }
 }

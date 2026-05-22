@@ -42,109 +42,109 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class AegisExpressionLanguage extends aegisBaseVisitor<Boolean> {
 
-  // Context object injected per evaluation containing the current request parameters
-  private EvaluationContext currentContext;
+    // Context object injected per evaluation containing the current request parameters
+    private EvaluationContext currentContext;
 
-  public boolean evaluateCondition(
-      aegisParser.ConditionContext ctx, EvaluationContext evaluationContext) {
-    this.currentContext = evaluationContext;
-    return visit(ctx);
-  }
-
-  @Override
-  public Boolean visitCondition(aegisParser.ConditionContext ctx) {
-    if (ctx.expr() != null) {
-      return visit(ctx.expr());
+    public boolean evaluateCondition(
+            aegisParser.ConditionContext ctx, EvaluationContext evaluationContext) {
+        this.currentContext = evaluationContext;
+        return visit(ctx);
     }
 
-    if (ctx.getChildCount() == 3) {
-      if (ctx.getChild(0).getText().equals("(")) {
-        return visit(ctx.condition(0));
-      }
+    @Override
+    public Boolean visitCondition(aegisParser.ConditionContext ctx) {
+        if (ctx.expr() != null) {
+            return visit(ctx.expr());
+        }
 
-      String op = ctx.getChild(1).getText();
-      boolean left = visit(ctx.condition(0));
+        if (ctx.getChildCount() == 3) {
+            if (ctx.getChild(0).getText().equals("(")) {
+                return visit(ctx.condition(0));
+            }
 
-      // Short-circuit evaluation
-      if (op.equals("AND")) {
-        return left && visit(ctx.condition(1));
-      } else if (op.equals("OR")) {
-        return left || visit(ctx.condition(1));
-      }
-    } else if (ctx.getChildCount() == 2 && ctx.getChild(0).getText().equals("NOT")) {
-      return !visit(ctx.condition(0));
-    }
+            String op = ctx.getChild(1).getText();
+            boolean left = visit(ctx.condition(0));
 
-    return false;
-  }
+            // Short-circuit evaluation
+            if (op.equals("AND")) {
+                return left && visit(ctx.condition(1));
+            } else if (op.equals("OR")) {
+                return left || visit(ctx.condition(1));
+            }
+        } else if (ctx.getChildCount() == 2 && ctx.getChild(0).getText().equals("NOT")) {
+            return !visit(ctx.condition(0));
+        }
 
-  @Override
-  public Boolean visitBehavioralExpr(aegisParser.BehavioralExprContext ctx) {
-    // Scaffold evaluation - hooks into L5-BIE real-time metrics
-    String metric = ctx.getChild(1).getText(); // e.g. BOT_SCORE
-    String comparator = ctx.comparator().getText();
-    double value = Double.parseDouble(ctx.NUMBER().getText());
-
-    double contextValue = currentContext.getBehavioralMetric(metric);
-    return applyComparator(contextValue, comparator, value);
-  }
-
-  @Override
-  public Boolean visitCryptoExpr(aegisParser.CryptoExprContext ctx) {
-    String flag = ctx.getChild(1).getText();
-    boolean hasFlag = currentContext.hasCryptoFlag(flag);
-
-    if (ctx.comparator() != null) {
-      double value = Double.parseDouble(ctx.NUMBER().getText());
-      double contextValue = hasFlag ? 1.0 : 0.0;
-      return applyComparator(contextValue, ctx.comparator().getText(), value);
-    }
-    return hasFlag;
-  }
-
-  @Override
-  public Boolean visitNetworkExpr(aegisParser.NetworkExprContext ctx) {
-    String property = ctx.getChild(1).getText();
-    String contextValue = currentContext.getNetworkProperty(property);
-
-    if (ctx.comparator() != null) {
-      String comparator = ctx.comparator().getText();
-      String targetValue = ctx.getChild(3).getText().replace("\"", ""); // Handle String
-
-      if (comparator.equals("==")) {
-        return targetValue.equals(contextValue);
-      } else if (comparator.equals("!=")) {
-        return !targetValue.equals(contextValue);
-      }
-    }
-    return contextValue != null;
-  }
-
-  private boolean applyComparator(double left, String op, double right) {
-    switch (op) {
-      case ">":
-        return left > right;
-      case "<":
-        return left < right;
-      case ">=":
-        return left >= right;
-      case "<=":
-        return left <= right;
-      case "==":
-        return left == right;
-      case "!=":
-        return left != right;
-      default:
         return false;
     }
-  }
 
-  /** Represents the real-time request context loaded with data from Redis/Filters */
-  public interface EvaluationContext {
-    double getBehavioralMetric(String metric);
+    @Override
+    public Boolean visitBehavioralExpr(aegisParser.BehavioralExprContext ctx) {
+        // Scaffold evaluation - hooks into L5-BIE real-time metrics
+        String metric = ctx.getChild(1).getText(); // e.g. BOT_SCORE
+        String comparator = ctx.comparator().getText();
+        double value = Double.parseDouble(ctx.NUMBER().getText());
 
-    boolean hasCryptoFlag(String flag);
+        double contextValue = currentContext.getBehavioralMetric(metric);
+        return applyComparator(contextValue, comparator, value);
+    }
 
-    String getNetworkProperty(String property);
-  }
+    @Override
+    public Boolean visitCryptoExpr(aegisParser.CryptoExprContext ctx) {
+        String flag = ctx.getChild(1).getText();
+        boolean hasFlag = currentContext.hasCryptoFlag(flag);
+
+        if (ctx.comparator() != null) {
+            double value = Double.parseDouble(ctx.NUMBER().getText());
+            double contextValue = hasFlag ? 1.0 : 0.0;
+            return applyComparator(contextValue, ctx.comparator().getText(), value);
+        }
+        return hasFlag;
+    }
+
+    @Override
+    public Boolean visitNetworkExpr(aegisParser.NetworkExprContext ctx) {
+        String property = ctx.getChild(1).getText();
+        String contextValue = currentContext.getNetworkProperty(property);
+
+        if (ctx.comparator() != null) {
+            String comparator = ctx.comparator().getText();
+            String targetValue = ctx.getChild(3).getText().replace("\"", ""); // Handle String
+
+            if (comparator.equals("==")) {
+                return targetValue.equals(contextValue);
+            } else if (comparator.equals("!=")) {
+                return !targetValue.equals(contextValue);
+            }
+        }
+        return contextValue != null;
+    }
+
+    private boolean applyComparator(double left, String op, double right) {
+        switch (op) {
+            case ">":
+                return left > right;
+            case "<":
+                return left < right;
+            case ">=":
+                return left >= right;
+            case "<=":
+                return left <= right;
+            case "==":
+                return left == right;
+            case "!=":
+                return left != right;
+            default:
+                return false;
+        }
+    }
+
+    /** Represents the real-time request context loaded with data from Redis/Filters */
+    public interface EvaluationContext {
+        double getBehavioralMetric(String metric);
+
+        boolean hasCryptoFlag(String flag);
+
+        String getNetworkProperty(String property);
+    }
 }

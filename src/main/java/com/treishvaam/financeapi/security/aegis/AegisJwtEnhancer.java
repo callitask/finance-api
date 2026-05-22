@@ -24,25 +24,26 @@ import org.springframework.stereotype.Component;
 @Component
 public class AegisJwtEnhancer {
 
-  private static final Logger logger = LoggerFactory.getLogger(AegisJwtEnhancer.class);
+    private static final Logger logger = LoggerFactory.getLogger(AegisJwtEnhancer.class);
 
-  private final AegisBehavioralEngine behavioralEngine;
+    private final AegisBehavioralEngine behavioralEngine;
 
-  public AegisJwtEnhancer(AegisBehavioralEngine behavioralEngine) {
-    this.behavioralEngine = behavioralEngine;
-  }
-
-  public boolean isTokenBehaviorallySafe(
-      Jwt jwt, String realIp, String ja3Fingerprint, String biometricHash) {
-    int realtimeRisk = behavioralEngine.calculateRiskScore(realIp, ja3Fingerprint, biometricHash);
-
-    if (realtimeRisk >= 80) {
-      logger.warn(
-          "AEGIS L5-BIE: Identity compromised or utilized by automated system. User: {}",
-          jwt.getSubject());
-      return false; // Triggers 403 Forbidden or Step-Up challenge
+    public AegisJwtEnhancer(AegisBehavioralEngine behavioralEngine) {
+        this.behavioralEngine = behavioralEngine;
     }
 
-    return true;
-  }
+    public boolean isTokenBehaviorallySafe(
+            Jwt jwt, String realIp, String ja3Fingerprint, String biometricHash) {
+        int realtimeRisk =
+                behavioralEngine.calculateRiskScore(realIp, ja3Fingerprint, biometricHash);
+
+        if (realtimeRisk >= 80) {
+            logger.warn(
+                    "AEGIS L5-BIE: Identity compromised or utilized by automated system. User: {}",
+                    jwt.getSubject());
+            return false; // Triggers 403 Forbidden or Step-Up challenge
+        }
+
+        return true;
+    }
 }

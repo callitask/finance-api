@@ -21,30 +21,30 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class DatabaseCredentialProvider {
-  @Value("${spring.datasource.url}")
-  private char[] dbUrl;
+    @Value("${spring.datasource.url}")
+    private char[] dbUrl;
 
-  @Value("${spring.datasource.username}")
-  private char[] dbUsername;
+    @Value("${spring.datasource.username}")
+    private char[] dbUsername;
 
-  @Value("${spring.datasource.password}")
-  private char[] dbPassword;
+    @Value("${spring.datasource.password}")
+    private char[] dbPassword;
 
-  public String getUrl() {
-    return new String(dbUrl);
-  }
+    public String getUrl() {
+        return new String(dbUrl);
+    }
 
-  public String getUsername() {
-    return new String(dbUsername);
-  }
+    public String getUsername() {
+        return new String(dbUsername);
+    }
 
-  public String getPassword() {
-    return new String(dbPassword);
-  }
+    public String getPassword() {
+        return new String(dbPassword);
+    }
 
-  public void clearSensitiveData() {
-    if (dbUrl != null) Arrays.fill(dbUrl, '\0');
-    if (dbUsername != null) Arrays.fill(dbUsername, '\0');
-    if (dbPassword != null) Arrays.fill(dbPassword, '\0');
-  }
+    public void clearSensitiveData() {
+        if (dbUrl != null) Arrays.fill(dbUrl, '\0');
+        if (dbUsername != null) Arrays.fill(dbUsername, '\0');
+        if (dbPassword != null) Arrays.fill(dbPassword, '\0');
+    }
 }

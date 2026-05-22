@@ -6,6 +6,6 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface QuoteDataRepository extends JpaRepository<QuoteData, String> {
-  // --- NEW METHOD ---
-  List<QuoteData> findByTickerIn(List<String> tickers);
+    // --- NEW METHOD ---
+    List<QuoteData> findByTickerIn(List<String> tickers);
 }

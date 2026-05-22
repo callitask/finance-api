@@ -13,15 +13,15 @@ import org.springframework.web.bind.annotation.RestController;
 @PreAuthorize("hasAuthority('ROLE_ADMIN')")
 public class ApiStatusController {
 
-  @Autowired private ApiFetchStatusRepository apiFetchStatusRepository;
+    @Autowired private ApiFetchStatusRepository apiFetchStatusRepository;
 
-  @GetMapping
-  public ResponseEntity<List<ApiFetchStatus>> getLatestApiStatuses() {
-    return ResponseEntity.ok(apiFetchStatusRepository.findLatestStatusForEachApi());
-  }
+    @GetMapping
+    public ResponseEntity<List<ApiFetchStatus>> getLatestApiStatuses() {
+        return ResponseEntity.ok(apiFetchStatusRepository.findLatestStatusForEachApi());
+    }
 
-  @GetMapping("/history")
-  public ResponseEntity<List<ApiFetchStatus>> getFullApiStatusHistory() {
-    return ResponseEntity.ok(apiFetchStatusRepository.findAllByOrderByLastFetchTimeDesc());
-  }
+    @GetMapping("/history")
+    public ResponseEntity<List<ApiFetchStatus>> getFullApiStatusHistory() {
+        return ResponseEntity.ok(apiFetchStatusRepository.findAllByOrderByLastFetchTimeDesc());
+    }
 }

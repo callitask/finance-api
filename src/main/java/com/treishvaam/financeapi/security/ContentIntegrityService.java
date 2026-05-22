@@ -48,122 +48,122 @@ import org.springframework.stereotype.Service;
 @Service
 public class ContentIntegrityService {
 
-  private static final Logger logger = LoggerFactory.getLogger(ContentIntegrityService.class);
-  private static final String ALGORITHM = "HmacSHA256";
+    private static final Logger logger = LoggerFactory.getLogger(ContentIntegrityService.class);
+    private static final String ALGORITHM = "HmacSHA256";
 
-  private final SecretKeySpec signingKey;
-  private final boolean enabled;
+    private final SecretKeySpec signingKey;
+    private final boolean enabled;
 
-  public ContentIntegrityService() {
-    String encodedKey = System.getenv("CONTENT_SIGNING_KEY");
-    if (encodedKey == null || encodedKey.trim().isEmpty()) {
-      logger.warn(
-          "[ContentIntegrityService] CONTENT_SIGNING_KEY is not set. "
-              + "Content integrity signing is DISABLED. Set this env var to enable "
-              + "database tamper detection on published articles.");
-      this.signingKey = null;
-      this.enabled = false;
-      return;
+    public ContentIntegrityService() {
+        String encodedKey = System.getenv("CONTENT_SIGNING_KEY");
+        if (encodedKey == null || encodedKey.trim().isEmpty()) {
+            logger.warn(
+                    "[ContentIntegrityService] CONTENT_SIGNING_KEY is not set. "
+                            + "Content integrity signing is DISABLED. Set this env var to enable "
+                            + "database tamper detection on published articles.");
+            this.signingKey = null;
+            this.enabled = false;
+            return;
+        }
+        byte[] keyBytes;
+        try {
+            keyBytes = Base64.getDecoder().decode(encodedKey.trim());
+        } catch (IllegalArgumentException e) {
+            logger.warn(
+                    "[ContentIntegrityService] CONTENT_SIGNING_KEY is not valid Base64. "
+                            + "Signing disabled.",
+                    e);
+            this.signingKey = null;
+            this.enabled = false;
+            return;
+        }
+        if (keyBytes.length < 32) {
+            logger.warn(
+                    "[ContentIntegrityService] CONTENT_SIGNING_KEY should be at least "
+                            + "32 bytes. Got {} bytes. Signing disabled.",
+                    keyBytes.length);
+            this.signingKey = null;
+            this.enabled = false;
+            return;
+        }
+        this.signingKey = new SecretKeySpec(keyBytes, ALGORITHM);
+        this.enabled = true;
+        logger.info("[ContentIntegrityService] HMAC-SHA256 content signing ENABLED.");
     }
-    byte[] keyBytes;
-    try {
-      keyBytes = Base64.getDecoder().decode(encodedKey.trim());
-    } catch (IllegalArgumentException e) {
-      logger.warn(
-          "[ContentIntegrityService] CONTENT_SIGNING_KEY is not valid Base64. "
-              + "Signing disabled.",
-          e);
-      this.signingKey = null;
-      this.enabled = false;
-      return;
+
+    /**
+     * Compute HMAC-SHA256 signature over critical post fields. Payload:
+     * title|slug|content|author|tenantId (pipe-separated to prevent collision attacks).
+     *
+     * @return lowercase hex HMAC string, or null if signing is disabled/failed
+     */
+    public String computeSignature(
+            String title, String slug, String content, String author, String tenantId) {
+        if (!enabled || signingKey == null) return null;
+        try {
+            String payload =
+                    safe(title)
+                            + "|"
+                            + safe(slug)
+                            + "|"
+                            + safe(content)
+                            + "|"
+                            + safe(author)
+                            + "|"
+                            + safe(tenantId);
+            Mac mac = Mac.getInstance(ALGORITHM);
+            mac.init(signingKey);
+            byte[] rawHmac = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+            return bytesToHex(rawHmac);
+        } catch (Exception e) {
+            logger.error("[ContentIntegrityService] Signature computation failed.", e);
+            return null;
+        }
     }
-    if (keyBytes.length < 32) {
-      logger.warn(
-          "[ContentIntegrityService] CONTENT_SIGNING_KEY should be at least "
-              + "32 bytes. Got {} bytes. Signing disabled.",
-          keyBytes.length);
-      this.signingKey = null;
-      this.enabled = false;
-      return;
+
+    /**
+     * Verify a stored signature against current post content.
+     *
+     * <p>Returns TRUE if: (a) Signing is disabled — transparent pass-through (b) storedSignature is
+     * null — pre-signature era post, backward compat (c) Computed signature matches stored
+     * signature exactly
+     *
+     * <p>Returns FALSE ONLY on confirmed tamper detection.
+     */
+    public boolean verifySignature(
+            String storedSignature,
+            String title,
+            String slug,
+            String content,
+            String author,
+            String tenantId) {
+        if (!enabled || signingKey == null) return true;
+        if (storedSignature == null) return true; // Pre-signing era — backward compat
+
+        String computed = computeSignature(title, slug, content, author, tenantId);
+        if (computed == null) return true; // Computation failure — fail open for reads
+
+        boolean match = computed.equals(storedSignature);
+        if (!match) {
+            logger.error(
+                    "[ContentIntegrityService] ⚠️ CONTENT TAMPER DETECTED! "
+                            + "Post slug='{}' — stored signature does not match current content. "
+                            + "Possible unauthorized database modification. "
+                            + "Investigate immediately via Grafana audit logs.",
+                    slug);
+            // FUTURE: Publish a RabbitMQ alert event here:
+            // messagePublisher.publish("security.alerts", new TamperAlertEvent(slug));
+        }
+        return match;
     }
-    this.signingKey = new SecretKeySpec(keyBytes, ALGORITHM);
-    this.enabled = true;
-    logger.info("[ContentIntegrityService] HMAC-SHA256 content signing ENABLED.");
-  }
 
-  /**
-   * Compute HMAC-SHA256 signature over critical post fields. Payload:
-   * title|slug|content|author|tenantId (pipe-separated to prevent collision attacks).
-   *
-   * @return lowercase hex HMAC string, or null if signing is disabled/failed
-   */
-  public String computeSignature(
-      String title, String slug, String content, String author, String tenantId) {
-    if (!enabled || signingKey == null) return null;
-    try {
-      String payload =
-          safe(title)
-              + "|"
-              + safe(slug)
-              + "|"
-              + safe(content)
-              + "|"
-              + safe(author)
-              + "|"
-              + safe(tenantId);
-      Mac mac = Mac.getInstance(ALGORITHM);
-      mac.init(signingKey);
-      byte[] rawHmac = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
-      return bytesToHex(rawHmac);
-    } catch (Exception e) {
-      logger.error("[ContentIntegrityService] Signature computation failed.", e);
-      return null;
+    private String safe(String s) {
+        return s != null ? s : "";
     }
-  }
 
-  /**
-   * Verify a stored signature against current post content.
-   *
-   * <p>Returns TRUE if: (a) Signing is disabled — transparent pass-through (b) storedSignature is
-   * null — pre-signature era post, backward compat (c) Computed signature matches stored signature
-   * exactly
-   *
-   * <p>Returns FALSE ONLY on confirmed tamper detection.
-   */
-  public boolean verifySignature(
-      String storedSignature,
-      String title,
-      String slug,
-      String content,
-      String author,
-      String tenantId) {
-    if (!enabled || signingKey == null) return true;
-    if (storedSignature == null) return true; // Pre-signing era — backward compat
-
-    String computed = computeSignature(title, slug, content, author, tenantId);
-    if (computed == null) return true; // Computation failure — fail open for reads
-
-    boolean match = computed.equals(storedSignature);
-    if (!match) {
-      logger.error(
-          "[ContentIntegrityService] ⚠️ CONTENT TAMPER DETECTED! "
-              + "Post slug='{}' — stored signature does not match current content. "
-              + "Possible unauthorized database modification. "
-              + "Investigate immediately via Grafana audit logs.",
-          slug);
-      // FUTURE: Publish a RabbitMQ alert event here:
-      // messagePublisher.publish("security.alerts", new TamperAlertEvent(slug));
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) sb.append(String.format("%02x", b));
+        return sb.toString();
     }
-    return match;
-  }
-
-  private String safe(String s) {
-    return s != null ? s : "";
-  }
-
-  private static String bytesToHex(byte[] bytes) {
-    StringBuilder sb = new StringBuilder(bytes.length * 2);
-    for (byte b : bytes) sb.append(String.format("%02x", b));
-    return sb.toString();
-  }
 }

@@ -29,21 +29,21 @@ import org.springframework.stereotype.Component;
 @Component
 public class MarketUpdateConsumer {
 
-  private static final Logger logger = LoggerFactory.getLogger(MarketUpdateConsumer.class);
+    private static final Logger logger = LoggerFactory.getLogger(MarketUpdateConsumer.class);
 
-  @Autowired private MarketDataService marketDataService;
+    @Autowired private MarketDataService marketDataService;
 
-  @RabbitListener(queues = "${rabbitmq.queue.market-update:internal.queue}")
-  public void consumeMarketUpdate(EventMessage message) {
-    if ("MARKET_UPDATE".equals(message.getEventType())) {
-      logger.info("Received market update event from source: {}", message.getSource());
-      try {
-        marketDataService.runPythonHistoryAndQuoteUpdate(message.getSource());
-      } catch (Exception e) {
-        logger.error("Failed to process market update event.", e);
-        // Allow DLX routing if configured
-        throw e;
-      }
+    @RabbitListener(queues = "${rabbitmq.queue.market-update:internal.queue}")
+    public void consumeMarketUpdate(EventMessage message) {
+        if ("MARKET_UPDATE".equals(message.getEventType())) {
+            logger.info("Received market update event from source: {}", message.getSource());
+            try {
+                marketDataService.runPythonHistoryAndQuoteUpdate(message.getSource());
+            } catch (Exception e) {
+                logger.error("Failed to process market update event.", e);
+                // Allow DLX routing if configured
+                throw e;
+            }
+        }
     }
-  }
 }

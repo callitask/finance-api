@@ -10,20 +10,20 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface NewsHighlightRepository extends JpaRepository<NewsHighlight, Long> {
 
-  // Fetch only active news for the Frontend Widget (Paginated)
-  Page<NewsHighlight> findByIsArchivedFalseOrderByPublishedAtDesc(Pageable pageable);
+    // Fetch only active news for the Frontend Widget (Paginated)
+    Page<NewsHighlight> findByIsArchivedFalseOrderByPublishedAtDesc(Pageable pageable);
 
-  // Fetch ALL active news for internal maintenance (List version, no pagination)
-  List<NewsHighlight> findByIsArchivedFalseOrderByPublishedAtDesc();
+    // Fetch ALL active news for internal maintenance (List version, no pagination)
+    List<NewsHighlight> findByIsArchivedFalseOrderByPublishedAtDesc();
 
-  boolean existsByLink(String link);
+    boolean existsByLink(String link);
 
-  boolean existsByTitle(String title);
+    boolean existsByTitle(String title);
 
-  // Count how many articles are currently visible
-  long countByIsArchivedFalse();
+    // Count how many articles are currently visible
+    long countByIsArchivedFalse();
 
-  // Find the oldest *active* articles (to be archived)
-  @Query("SELECT n FROM NewsHighlight n WHERE n.isArchived = false ORDER BY n.publishedAt ASC")
-  List<NewsHighlight> findOldestActive(Pageable pageable);
+    // Find the oldest *active* articles (to be archived)
+    @Query("SELECT n FROM NewsHighlight n WHERE n.isArchived = false ORDER BY n.publishedAt ASC")
+    List<NewsHighlight> findOldestActive(Pageable pageable);
 }

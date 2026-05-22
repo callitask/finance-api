@@ -56,38 +56,38 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling
 @EnableCaching // ADDED: Enables Spring's caching capabilities
 @EnableJpaRepositories(
-    basePackages = {
-      "com.treishvaam.financeapi.repository",
-      "com.treishvaam.financeapi.analytics",
-      "com.treishvaam.financeapi.apistatus",
-      "com.treishvaam.financeapi.common",
-      "com.treishvaam.financeapi.marketdata",
-      "com.treishvaam.financeapi.newshighlight"
-    })
+        basePackages = {
+            "com.treishvaam.financeapi.repository",
+            "com.treishvaam.financeapi.analytics",
+            "com.treishvaam.financeapi.apistatus",
+            "com.treishvaam.financeapi.common",
+            "com.treishvaam.financeapi.marketdata",
+            "com.treishvaam.financeapi.newshighlight"
+        })
 @EnableElasticsearchRepositories(basePackages = "com.treishvaam.financeapi.search")
 @ComponentScan(
-    basePackages = {"com.treishvaam.financeapi", "com.treishvaam.finance"},
-    excludeFilters =
-        @ComponentScan.Filter(
-            type = FilterType.REGEX,
-            pattern = "com\\.treishvaam\\.finance\\.marketdata\\..*"))
+        basePackages = {"com.treishvaam.financeapi", "com.treishvaam.finance"},
+        excludeFilters =
+                @ComponentScan.Filter(
+                        type = FilterType.REGEX,
+                        pattern = "com\\.treishvaam\\.finance\\.marketdata\\..*"))
 public class FinanceApiApplication extends SpringBootServletInitializer {
 
-  @Override
-  protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
-    return application.sources(FinanceApiApplication.class);
-  }
+    @Override
+    protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
+        return application.sources(FinanceApiApplication.class);
+    }
 
-  public static void main(String[] args) {
-    SpringApplication.run(FinanceApiApplication.class, args);
-  }
+    public static void main(String[] args) {
+        SpringApplication.run(FinanceApiApplication.class, args);
+    }
 
-  @Bean
-  public ObjectMapper objectMapper() {
-    ObjectMapper objectMapper = new ObjectMapper();
-    objectMapper.registerModule(new JavaTimeModule());
-    return objectMapper;
-  }
+    @Bean
+    public ObjectMapper objectMapper() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.registerModule(new JavaTimeModule());
+        return objectMapper;
+    }
 }
 
 // Triggering CI/CD Pipeline Build Version v.0.0.0.0.000001

@@ -12,37 +12,38 @@ import org.springframework.transaction.annotation.Transactional;
 
 public interface BlogPostRepository extends JpaRepository<BlogPost, Long> {
 
-  // Keep existing methods
-  List<BlogPost> findAllByStatusOrderByCreatedAtDesc(PostStatus status);
+    // Keep existing methods
+    List<BlogPost> findAllByStatusOrderByCreatedAtDesc(PostStatus status);
 
-  List<BlogPost> findAllByOrderByCreatedAtDesc();
+    List<BlogPost> findAllByOrderByCreatedAtDesc();
 
-  Optional<BlogPost> findBySlug(String slug);
+    Optional<BlogPost> findBySlug(String slug);
 
-  List<BlogPost> findAllByStatusOrderByUpdatedAtDesc(PostStatus status);
+    List<BlogPost> findAllByStatusOrderByUpdatedAtDesc(PostStatus status);
 
-  List<BlogPost> findByStatusAndScheduledTimeBefore(PostStatus status, Instant now);
+    List<BlogPost> findByStatusAndScheduledTimeBefore(PostStatus status, Instant now);
 
-  List<BlogPost> findByTitleContainingIgnoreCaseAndStatus(String title, PostStatus status);
+    List<BlogPost> findByTitleContainingIgnoreCaseAndStatus(String title, PostStatus status);
 
-  // This is the key method for pagination (Used by Archive Sitemaps)
-  Page<BlogPost> findAllByStatus(PostStatus status, Pageable pageable);
+    // This is the key method for pagination (Used by Archive Sitemaps)
+    Page<BlogPost> findAllByStatus(PostStatus status, Pageable pageable);
 
-  long countByLayoutGroupId(String layoutGroupId);
+    long countByLayoutGroupId(String layoutGroupId);
 
-  @Transactional
-  void deleteByIdIn(List<Long> ids);
+    @Transactional
+    void deleteByIdIn(List<Long> ids);
 
-  // New method for URL validation
-  Optional<BlogPost> findByIdAndUserFriendlySlug(Long id, String userFriendlySlug);
+    // New method for URL validation
+    Optional<BlogPost> findByIdAndUserFriendlySlug(Long id, String userFriendlySlug);
 
-  // NEW METHOD to find by the custom URL ID
-  Optional<BlogPost> findByUrlArticleId(String urlArticleId);
+    // NEW METHOD to find by the custom URL ID
+    Optional<BlogPost> findByUrlArticleId(String urlArticleId);
 
-  // Used for Sitemap Index calculation
-  long countByStatus(PostStatus status);
+    // Used for Sitemap Index calculation
+    long countByStatus(PostStatus status);
 
-  // --- PHASE 2 ENTERPRISE ADDITION ---
-  // High-performance query for "News Sitemap" (Last 48 hours only)
-  List<BlogPost> findByStatusAndCreatedAtAfterOrderByCreatedAtDesc(PostStatus status, Instant date);
+    // --- PHASE 2 ENTERPRISE ADDITION ---
+    // High-performance query for "News Sitemap" (Last 48 hours only)
+    List<BlogPost> findByStatusAndCreatedAtAfterOrderByCreatedAtDesc(
+            PostStatus status, Instant date);
 }

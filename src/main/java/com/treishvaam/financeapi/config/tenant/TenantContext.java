@@ -50,33 +50,33 @@ import org.slf4j.LoggerFactory;
  */
 public class TenantContext {
 
-  private static final Logger logger = LoggerFactory.getLogger(TenantContext.class);
+    private static final Logger logger = LoggerFactory.getLogger(TenantContext.class);
 
-  // DEFAULT_TENANT is used as a fallback or for public data access
-  public static final String DEFAULT_TENANT = "public";
+    // DEFAULT_TENANT is used as a fallback or for public data access
+    public static final String DEFAULT_TENANT = "public";
 
-  // InheritableThreadLocal ensures that if a thread spawns a child thread
-  // manually,
-  // the tenant ID is passed down.
-  // NOTE: ScopedValue migration deferred to Java 23+ — see FAILED/REJECTED
-  // history above.
-  private static final ThreadLocal<String> currentTenant = new InheritableThreadLocal<>();
+    // InheritableThreadLocal ensures that if a thread spawns a child thread
+    // manually,
+    // the tenant ID is passed down.
+    // NOTE: ScopedValue migration deferred to Java 23+ — see FAILED/REJECTED
+    // history above.
+    private static final ThreadLocal<String> currentTenant = new InheritableThreadLocal<>();
 
-  public static void setTenantId(String tenantId) {
-    logger.debug("Setting Tenant Context: {}", tenantId);
-    currentTenant.set(tenantId);
-  }
-
-  public static String getTenantId() {
-    String tenantId = currentTenant.get();
-    if (tenantId == null || tenantId.trim().isEmpty()) {
-      return DEFAULT_TENANT;
+    public static void setTenantId(String tenantId) {
+        logger.debug("Setting Tenant Context: {}", tenantId);
+        currentTenant.set(tenantId);
     }
-    return tenantId;
-  }
 
-  public static void clear() {
-    logger.debug("Clearing Tenant Context");
-    currentTenant.remove();
-  }
+    public static String getTenantId() {
+        String tenantId = currentTenant.get();
+        if (tenantId == null || tenantId.trim().isEmpty()) {
+            return DEFAULT_TENANT;
+        }
+        return tenantId;
+    }
+
+    public static void clear() {
+        logger.debug("Clearing Tenant Context");
+        currentTenant.remove();
+    }
 }

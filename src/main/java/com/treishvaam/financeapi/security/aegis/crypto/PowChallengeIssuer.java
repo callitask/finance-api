@@ -46,56 +46,56 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class PowChallengeIssuer {
 
-  private final SecureRandom secureRandom = new SecureRandom();
-  private static final int LEADING_ZEROS_REQUIRED = 24; // 2^24 hashes required
+    private final SecureRandom secureRandom = new SecureRandom();
+    private static final int LEADING_ZEROS_REQUIRED = 24; // 2^24 hashes required
 
-  /**
-   * Issues a PoW challenge to the client. Returns HTTP 202 Accepted to prevent early client-side
-   * connection drops from standard 4xx/5xx responses.
-   */
-  public void issueChallenge(HttpServletRequest request, HttpServletResponse response)
-      throws IOException {
-    byte[] nonceBytes = new byte[32];
-    secureRandom.nextBytes(nonceBytes);
-    String nonce = Base64.getEncoder().encodeToString(nonceBytes);
+    /**
+     * Issues a PoW challenge to the client. Returns HTTP 202 Accepted to prevent early client-side
+     * connection drops from standard 4xx/5xx responses.
+     */
+    public void issueChallenge(HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
+        byte[] nonceBytes = new byte[32];
+        secureRandom.nextBytes(nonceBytes);
+        String nonce = Base64.getEncoder().encodeToString(nonceBytes);
 
-    // Payload format: version:difficulty:timestamp:nonce
-    String challengePayload =
-        String.format("v1:%d:%d:%s", LEADING_ZEROS_REQUIRED, Instant.now().toEpochMilli(), nonce);
+        // Payload format: version:difficulty:timestamp:nonce
+        String challengePayload =
+                String.format(
+                        "v1:%d:%d:%s", LEADING_ZEROS_REQUIRED, Instant.now().toEpochMilli(), nonce);
 
-    response.setStatus(HttpServletResponse.SC_ACCEPTED);
-    response.setHeader("X-AEGIS-POW-Challenge", challengePayload);
-    response.setContentType("application/json");
-    response
-        .getWriter()
-        .write(
-            "{\"status\":\"processing\", \"instruction\":\"Solve X-AEGIS-POW-Challenge to proceed\"}");
-    response.getWriter().flush();
-  }
-
-  /**
-   * Validates a returned Proof-of-Work. proof = client-side counter/string that when appended to
-   * the challenge and hashed, satisfies the condition.
-   */
-  public boolean validateProof(String challenge, String proof) {
-    if (challenge == null || proof == null || challenge.isBlank()) {
-      return false;
+        response.setStatus(HttpServletResponse.SC_ACCEPTED);
+        response.setHeader("X-AEGIS-POW-Challenge", challengePayload);
+        response.setContentType("application/json");
+        response.getWriter()
+                .write(
+                        "{\"status\":\"processing\", \"instruction\":\"Solve X-AEGIS-POW-Challenge to proceed\"}");
+        response.getWriter().flush();
     }
 
-    try {
-      String input = challenge + proof;
-      SHA3.Digest256 digest = new SHA3.Digest256();
-      byte[] hash = digest.digest(input.getBytes());
-      String hexHash = Hex.toHexString(hash);
+    /**
+     * Validates a returned Proof-of-Work. proof = client-side counter/string that when appended to
+     * the challenge and hashed, satisfies the condition.
+     */
+    public boolean validateProof(String challenge, String proof) {
+        if (challenge == null || proof == null || challenge.isBlank()) {
+            return false;
+        }
 
-      // Calculate required zeros in hex (24 bits = 6 hex characters)
-      int requiredHexZeros = LEADING_ZEROS_REQUIRED / 4;
-      String requiredPrefix = "0".repeat(requiredHexZeros);
+        try {
+            String input = challenge + proof;
+            SHA3.Digest256 digest = new SHA3.Digest256();
+            byte[] hash = digest.digest(input.getBytes());
+            String hexHash = Hex.toHexString(hash);
 
-      return hexHash.startsWith(requiredPrefix);
-    } catch (Exception e) {
-      log.warn("AEGIS L7-CMCS: Malformed PoW validation attempt", e);
-      return false;
+            // Calculate required zeros in hex (24 bits = 6 hex characters)
+            int requiredHexZeros = LEADING_ZEROS_REQUIRED / 4;
+            String requiredPrefix = "0".repeat(requiredHexZeros);
+
+            return hexHash.startsWith(requiredPrefix);
+        } catch (Exception e) {
+            log.warn("AEGIS L7-CMCS: Malformed PoW validation attempt", e);
+            return false;
+        }
     }
-  }
 }

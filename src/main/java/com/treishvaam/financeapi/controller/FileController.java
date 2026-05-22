@@ -35,131 +35,132 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/v1")
 public class FileController {
 
-  private static final Logger logger = LoggerFactory.getLogger(FileController.class);
-  private final FileStorageService fileStorageService;
-  private final ImageService imageService;
-  private final Path fileStorageLocation;
+    private static final Logger logger = LoggerFactory.getLogger(FileController.class);
+    private final FileStorageService fileStorageService;
+    private final ImageService imageService;
+    private final Path fileStorageLocation;
 
-  @Autowired
-  public FileController(
-      FileStorageService fileStorageService,
-      ImageService imageService,
-      @Value("${storage.upload-dir:${java.io.tmpdir}/treishvaam-uploads-default}")
-          String uploadDir) {
-    this.fileStorageService = fileStorageService;
-    this.imageService = imageService;
-    this.fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
-  }
-
-  @GetMapping("/logo")
-  public ResponseEntity<Resource> serveLogo() {
-    try {
-      Path filePath = this.fileStorageLocation.resolve("logo.webp").normalize();
-      Resource resource = new UrlResource(filePath.toUri());
-
-      if (resource.exists() && resource.isReadable()) {
-        return ResponseEntity.ok()
-            .contentType(MediaType.parseMediaType("image/webp"))
-            .header(
-                HttpHeaders.CONTENT_DISPOSITION,
-                "inline; filename=\"" + resource.getFilename() + "\"")
-            .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS).cachePublic())
-            .body(resource);
-      } else {
-        logger.error("Cached logo.webp not found or is not readable at path: {}", filePath);
-        return ResponseEntity.notFound().build();
-      }
-    } catch (MalformedURLException ex) {
-      logger.error("Error creating URL for logo.webp", ex);
-      return ResponseEntity.internalServerError().build();
+    @Autowired
+    public FileController(
+            FileStorageService fileStorageService,
+            ImageService imageService,
+            @Value("${storage.upload-dir:${java.io.tmpdir}/treishvaam-uploads-default}")
+                    String uploadDir) {
+        this.fileStorageService = fileStorageService;
+        this.imageService = imageService;
+        this.fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
     }
-  }
 
-  /**
-   * NEW: Streaming Endpoint for MinIO Files Serves files directly from Object Storage, bypassing
-   * local disk. Includes "Smart Extension Matching" for robustness.
-   */
-  @GetMapping("/uploads/{filename:.+}")
-  public ResponseEntity<Resource> serveFile(@PathVariable String filename) {
-    try {
-      InputStream stream;
-      String actualFilename = filename;
-
-      // 1. Try fetching exact filename
-      try {
-        stream = fileStorageService.loadFileAsStream(filename);
-      } catch (Exception e) {
-        // 2. Fallback: Try fetching with .webp extension (common for this architecture)
+    @GetMapping("/logo")
+    public ResponseEntity<Resource> serveLogo() {
         try {
-          actualFilename = filename + ".webp";
-          stream = fileStorageService.loadFileAsStream(actualFilename);
-        } catch (Exception ex) {
-          // If both fail, it's a true 404
-          logger.warn("File not found in MinIO (Exact or WebP fallback): {}", filename);
-          return ResponseEntity.notFound().build();
+            Path filePath = this.fileStorageLocation.resolve("logo.webp").normalize();
+            Resource resource = new UrlResource(filePath.toUri());
+
+            if (resource.exists() && resource.isReadable()) {
+                return ResponseEntity.ok()
+                        .contentType(MediaType.parseMediaType("image/webp"))
+                        .header(
+                                HttpHeaders.CONTENT_DISPOSITION,
+                                "inline; filename=\"" + resource.getFilename() + "\"")
+                        .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS).cachePublic())
+                        .body(resource);
+            } else {
+                logger.error("Cached logo.webp not found or is not readable at path: {}", filePath);
+                return ResponseEntity.notFound().build();
+            }
+        } catch (MalformedURLException ex) {
+            logger.error("Error creating URL for logo.webp", ex);
+            return ResponseEntity.internalServerError().build();
         }
-      }
-
-      InputStreamResource resource = new InputStreamResource(stream);
-
-      // 3. Determine Content Type
-      MediaType mediaType = MediaType.APPLICATION_OCTET_STREAM;
-      if (actualFilename.endsWith(".webp")) mediaType = MediaType.parseMediaType("image/webp");
-      else if (actualFilename.endsWith(".jpg") || actualFilename.endsWith(".jpeg"))
-        mediaType = MediaType.IMAGE_JPEG;
-      else if (actualFilename.endsWith(".png")) mediaType = MediaType.IMAGE_PNG;
-
-      // 4. Return with Caching
-      return ResponseEntity.ok()
-          .contentType(mediaType)
-          .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS).cachePublic())
-          .body(resource);
-
-    } catch (Exception e) {
-      logger.error("Error serving file: {}", filename, e);
-      return ResponseEntity.internalServerError().build();
-    }
-  }
-
-  @PostMapping("/files/upload")
-  public ResponseEntity<Map<String, Object>> handleFileUpload(
-      @RequestParam("file") MultipartFile file) {
-
-    if (file == null || file.isEmpty()) {
-      return ResponseEntity.badRequest().body(Map.of("errorMessage", "File is empty"));
     }
 
-    try {
-      String fileUrl;
+    /**
+     * NEW: Streaming Endpoint for MinIO Files Serves files directly from Object Storage, bypassing
+     * local disk. Includes "Smart Extension Matching" for robustness.
+     */
+    @GetMapping("/uploads/{filename:.+}")
+    public ResponseEntity<Resource> serveFile(@PathVariable String filename) {
+        try {
+            InputStream stream;
+            String actualFilename = filename;
 
-      if (file.getContentType() != null && file.getContentType().startsWith("image/")) {
-        var metadata = imageService.saveImageAndGetMetadata(file);
-        fileUrl = metadata.getBaseFilename() + ".webp";
-      } else {
-        fileUrl = fileStorageService.storeFile(file);
-      }
+            // 1. Try fetching exact filename
+            try {
+                stream = fileStorageService.loadFileAsStream(filename);
+            } catch (Exception e) {
+                // 2. Fallback: Try fetching with .webp extension (common for this architecture)
+                try {
+                    actualFilename = filename + ".webp";
+                    stream = fileStorageService.loadFileAsStream(actualFilename);
+                } catch (Exception ex) {
+                    // If both fail, it's a true 404
+                    logger.warn("File not found in MinIO (Exact or WebP fallback): {}", filename);
+                    return ResponseEntity.notFound().build();
+                }
+            }
 
-      Map<String, String> imageUrls = new HashMap<>();
-      imageUrls.put("large", fileUrl);
+            InputStreamResource resource = new InputStreamResource(stream);
 
-      Map<String, Object> fileInfo = new HashMap<>();
-      fileInfo.put("url", fileUrl);
-      fileInfo.put("name", file.getOriginalFilename());
-      fileInfo.put("size", file.getSize());
-      fileInfo.put("urls", imageUrls);
+            // 3. Determine Content Type
+            MediaType mediaType = MediaType.APPLICATION_OCTET_STREAM;
+            if (actualFilename.endsWith(".webp"))
+                mediaType = MediaType.parseMediaType("image/webp");
+            else if (actualFilename.endsWith(".jpg") || actualFilename.endsWith(".jpeg"))
+                mediaType = MediaType.IMAGE_JPEG;
+            else if (actualFilename.endsWith(".png")) mediaType = MediaType.IMAGE_PNG;
 
-      List<Map<String, Object>> resultList = new ArrayList<>();
-      resultList.add(fileInfo);
+            // 4. Return with Caching
+            return ResponseEntity.ok()
+                    .contentType(mediaType)
+                    .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS).cachePublic())
+                    .body(resource);
 
-      Map<String, Object> response = new HashMap<>();
-      response.put("result", resultList);
-
-      return ResponseEntity.ok(response);
-
-    } catch (Exception e) {
-      logger.error("Upload failed", e);
-      return ResponseEntity.internalServerError()
-          .body(Map.of("errorMessage", "Server upload failed: " + e.getMessage()));
+        } catch (Exception e) {
+            logger.error("Error serving file: {}", filename, e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
-  }
+
+    @PostMapping("/files/upload")
+    public ResponseEntity<Map<String, Object>> handleFileUpload(
+            @RequestParam("file") MultipartFile file) {
+
+        if (file == null || file.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("errorMessage", "File is empty"));
+        }
+
+        try {
+            String fileUrl;
+
+            if (file.getContentType() != null && file.getContentType().startsWith("image/")) {
+                var metadata = imageService.saveImageAndGetMetadata(file);
+                fileUrl = metadata.getBaseFilename() + ".webp";
+            } else {
+                fileUrl = fileStorageService.storeFile(file);
+            }
+
+            Map<String, String> imageUrls = new HashMap<>();
+            imageUrls.put("large", fileUrl);
+
+            Map<String, Object> fileInfo = new HashMap<>();
+            fileInfo.put("url", fileUrl);
+            fileInfo.put("name", file.getOriginalFilename());
+            fileInfo.put("size", file.getSize());
+            fileInfo.put("urls", imageUrls);
+
+            List<Map<String, Object>> resultList = new ArrayList<>();
+            resultList.add(fileInfo);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("result", resultList);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            logger.error("Upload failed", e);
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("errorMessage", "Server upload failed: " + e.getMessage()));
+        }
+    }
 }

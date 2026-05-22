@@ -26,31 +26,31 @@ import org.springframework.stereotype.Service;
 @Service
 public class RabbitMQAttackPublisher {
 
-  private static final Logger logger = LoggerFactory.getLogger(RabbitMQAttackPublisher.class);
+    private static final Logger logger = LoggerFactory.getLogger(RabbitMQAttackPublisher.class);
 
-  private final RabbitTemplate rabbitTemplate;
-  private static final String EXCHANGE_NAME = "aegis.threat.exchange";
-  private static final String ROUTING_KEY = "threat.detected";
+    private final RabbitTemplate rabbitTemplate;
+    private static final String EXCHANGE_NAME = "aegis.threat.exchange";
+    private static final String ROUTING_KEY = "threat.detected";
 
-  public RabbitMQAttackPublisher(RabbitTemplate rabbitTemplate) {
-    this.rabbitTemplate = rabbitTemplate;
-  }
-
-  public void publishAttackEvent(
-      String ip, String ja3Fingerprint, String targetPath, String triggerReason) {
-    try {
-      Map<String, Object> eventData = new HashMap<>();
-      eventData.put("timestamp", Instant.now().toString());
-      eventData.put("ip", ip != null ? ip : "UNKNOWN");
-      eventData.put("ja3", ja3Fingerprint != null ? ja3Fingerprint : "UNKNOWN");
-      eventData.put("target_path", targetPath);
-      eventData.put("trigger", triggerReason);
-
-      // Fire and forget
-      rabbitTemplate.convertAndSend(EXCHANGE_NAME, ROUTING_KEY, eventData);
-      logger.debug("Published threat telemetry to message bus for IP: {}", ip);
-    } catch (Exception e) {
-      logger.error("Failed to publish AEGIS threat event to RabbitMQ", e);
+    public RabbitMQAttackPublisher(RabbitTemplate rabbitTemplate) {
+        this.rabbitTemplate = rabbitTemplate;
     }
-  }
+
+    public void publishAttackEvent(
+            String ip, String ja3Fingerprint, String targetPath, String triggerReason) {
+        try {
+            Map<String, Object> eventData = new HashMap<>();
+            eventData.put("timestamp", Instant.now().toString());
+            eventData.put("ip", ip != null ? ip : "UNKNOWN");
+            eventData.put("ja3", ja3Fingerprint != null ? ja3Fingerprint : "UNKNOWN");
+            eventData.put("target_path", targetPath);
+            eventData.put("trigger", triggerReason);
+
+            // Fire and forget
+            rabbitTemplate.convertAndSend(EXCHANGE_NAME, ROUTING_KEY, eventData);
+            logger.debug("Published threat telemetry to message bus for IP: {}", ip);
+        } catch (Exception e) {
+            logger.error("Failed to publish AEGIS threat event to RabbitMQ", e);
+        }
+    }
 }

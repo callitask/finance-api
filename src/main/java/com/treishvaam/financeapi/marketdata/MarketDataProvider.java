@@ -3,11 +3,11 @@ package com.treishvaam.financeapi.marketdata;
 import java.util.List;
 
 public interface MarketDataProvider {
-  List<MarketData> fetchTopGainers();
+    List<MarketData> fetchTopGainers();
 
-  List<MarketData> fetchTopLosers();
+    List<MarketData> fetchTopLosers();
 
-  List<MarketData> fetchMostActive();
+    List<MarketData> fetchMostActive();
 
-  Object fetchHistoricalData(String ticker);
+    Object fetchHistoricalData(String ticker);
 }

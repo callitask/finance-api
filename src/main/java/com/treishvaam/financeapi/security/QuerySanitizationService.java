@@ -36,43 +36,45 @@ import org.springframework.stereotype.Service;
 @Service
 public class QuerySanitizationService {
 
-  private static final Logger logger = LoggerFactory.getLogger(QuerySanitizationService.class);
+    private static final Logger logger = LoggerFactory.getLogger(QuerySanitizationService.class);
 
-  @Autowired private RedisTemplate<String, String> redisTemplate;
+    @Autowired private RedisTemplate<String, String> redisTemplate;
 
-  // Pre-compiled patterns for known SQLi signatures
-  private static final List<Pattern> SQL_INJECTION_PATTERNS =
-      List.of(
-          Pattern.compile(
-              "(?i)(union|select|insert|update|delete|drop|create|alter|exec|execute|xp_|sp_)",
-              Pattern.CASE_INSENSITIVE),
-          Pattern.compile("(--|;|/\\*|\\*/|xp_|WAITFOR|BENCHMARK|SLEEP)", Pattern.CASE_INSENSITIVE),
-          Pattern.compile("('|(\\')|(\\\\')|(%27)|(%2527))", Pattern.CASE_INSENSITIVE),
-          Pattern.compile(
-              "(\\bOR\\b|\\bAND\\b)\\s+([\\w\\s]+=\\s*[\\w\\s]+|'[^']*'='[^']*')",
-              Pattern.CASE_INSENSITIVE));
+    // Pre-compiled patterns for known SQLi signatures
+    private static final List<Pattern> SQL_INJECTION_PATTERNS =
+            List.of(
+                    Pattern.compile(
+                            "(?i)(union|select|insert|update|delete|drop|create|alter|exec|execute|xp_|sp_)",
+                            Pattern.CASE_INSENSITIVE),
+                    Pattern.compile(
+                            "(--|;|/\\*|\\*/|xp_|WAITFOR|BENCHMARK|SLEEP)",
+                            Pattern.CASE_INSENSITIVE),
+                    Pattern.compile("('|(\\')|(\\\\')|(%27)|(%2527))", Pattern.CASE_INSENSITIVE),
+                    Pattern.compile(
+                            "(\\bOR\\b|\\bAND\\b)\\s+([\\w\\s]+=\\s*[\\w\\s]+|'[^']*'='[^']*')",
+                            Pattern.CASE_INSENSITIVE));
 
-  // Block list with TTL: if an IP sends SQLi, block for 1 hour
-  public boolean isSuspicious(String input, String clientIp) {
-    if (input == null) return false;
+    // Block list with TTL: if an IP sends SQLi, block for 1 hour
+    public boolean isSuspicious(String input, String clientIp) {
+        if (input == null) return false;
 
-    String cacheKey = "sqli:blocked:" + clientIp;
+        String cacheKey = "sqli:blocked:" + clientIp;
 
-    if (Boolean.TRUE.equals(redisTemplate.hasKey(cacheKey))) {
-      return true; // Already flagged and blocked
+        if (Boolean.TRUE.equals(redisTemplate.hasKey(cacheKey))) {
+            return true; // Already flagged and blocked
+        }
+
+        for (Pattern p : SQL_INJECTION_PATTERNS) {
+            if (p.matcher(input).find()) {
+                // Cache the offending IP for 1 hour
+                redisTemplate.opsForValue().set(cacheKey, "1", Duration.ofHours(1));
+                logger.warn(
+                        "SECURITY: Potential SQL injection from IP: {} input: {}",
+                        clientIp,
+                        input.substring(0, Math.min(100, input.length())));
+                return true;
+            }
+        }
+        return false;
     }
-
-    for (Pattern p : SQL_INJECTION_PATTERNS) {
-      if (p.matcher(input).find()) {
-        // Cache the offending IP for 1 hour
-        redisTemplate.opsForValue().set(cacheKey, "1", Duration.ofHours(1));
-        logger.warn(
-            "SECURITY: Potential SQL injection from IP: {} input: {}",
-            clientIp,
-            input.substring(0, Math.min(100, input.length())));
-        return true;
-      }
-    }
-    return false;
-  }
 }

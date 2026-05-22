@@ -42,46 +42,46 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Order(Ordered.HIGHEST_PRECEDENCE + 2)
 public class AegisResponseMutator extends OncePerRequestFilter {
 
-  private final AegisEntropyManager entropyManager;
-  private final String[] fakePoweredBy = {
-    "Treishvaam-Engine/3.4",
-    "TVGX-Runtime/2.1",
-    "Nexus-API/1.8",
-    "Cortex-Serve/4.0",
-    "ASP.NET",
-    "PHP/8.2.1"
-  };
+    private final AegisEntropyManager entropyManager;
+    private final String[] fakePoweredBy = {
+        "Treishvaam-Engine/3.4",
+        "TVGX-Runtime/2.1",
+        "Nexus-API/1.8",
+        "Cortex-Serve/4.0",
+        "ASP.NET",
+        "PHP/8.2.1"
+    };
 
-  public AegisResponseMutator(AegisEntropyManager entropyManager) {
-    this.entropyManager = entropyManager;
-  }
-
-  @Override
-  protected void doFilterInternal(
-      HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
-      throws ServletException, IOException {
-
-    SecureRandom random = entropyManager.getSecureRandom();
-
-    // 1. Timing Normalization (Gaussian Jitter)
-    // Center around 20ms, standard dev of 10ms. Limits: 5ms to 45ms.
-    int jitterMs = (int) (random.nextGaussian() * 10 + 20);
-    jitterMs = Math.max(5, Math.min(jitterMs, 45));
-
-    try {
-      Thread.sleep(jitterMs); // Safe due to Virtual Threads
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
+    public AegisResponseMutator(AegisEntropyManager entropyManager) {
+        this.entropyManager = entropyManager;
     }
 
-    // 2. Header Mutation
-    String fakeHeader = fakePoweredBy[random.nextInt(fakePoweredBy.length)];
-    response.setHeader("X-Powered-By", fakeHeader);
-    response.setHeader("Server", "AEGIS-M");
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
 
-    // Ensure Cache-Control is strict to prevent edge caching of mutated responses
-    response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+        SecureRandom random = entropyManager.getSecureRandom();
 
-    filterChain.doFilter(request, response);
-  }
+        // 1. Timing Normalization (Gaussian Jitter)
+        // Center around 20ms, standard dev of 10ms. Limits: 5ms to 45ms.
+        int jitterMs = (int) (random.nextGaussian() * 10 + 20);
+        jitterMs = Math.max(5, Math.min(jitterMs, 45));
+
+        try {
+            Thread.sleep(jitterMs); // Safe due to Virtual Threads
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        // 2. Header Mutation
+        String fakeHeader = fakePoweredBy[random.nextInt(fakePoweredBy.length)];
+        response.setHeader("X-Powered-By", fakeHeader);
+        response.setHeader("Server", "AEGIS-M");
+
+        // Ensure Cache-Control is strict to prevent edge caching of mutated responses
+        response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+
+        filterChain.doFilter(request, response);
+    }
 }

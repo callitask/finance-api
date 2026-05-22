@@ -11,10 +11,10 @@
 package com.treishvaam.financeapi.security.aegis.bcsm;
 
 public enum SecurityDecision {
-  ALLOW,
-  WARN,
-  BLOCK,
-  DECEPTION,
-  TARPIT,
-  EMERGENCY
+    ALLOW,
+    WARN,
+    BLOCK,
+    DECEPTION,
+    TARPIT,
+    EMERGENCY
 }

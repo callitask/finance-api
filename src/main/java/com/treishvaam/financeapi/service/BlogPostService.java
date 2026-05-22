@@ -12,59 +12,59 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
 
 public interface BlogPostService {
-  String generateUserFriendlySlug(String title);
+    String generateUserFriendlySlug(String title);
 
-  List<BlogPost> findAll();
+    List<BlogPost> findAll();
 
-  Page<BlogPost> findAll(Pageable pageable);
+    Page<BlogPost> findAll(Pageable pageable);
 
-  Page<BlogPost> findAllPublishedPosts(Pageable pageable);
+    Page<BlogPost> findAllPublishedPosts(Pageable pageable);
 
-  List<BlogPost> findAllForAdmin();
+    List<BlogPost> findAllForAdmin();
 
-  Optional<BlogPost> findById(Long id);
+    Optional<BlogPost> findById(Long id);
 
-  Optional<BlogPost> findBySlug(String slug);
+    Optional<BlogPost> findBySlug(String slug);
 
-  Optional<BlogPost> findByUrlArticleId(String urlArticleId);
+    Optional<BlogPost> findByUrlArticleId(String urlArticleId);
 
-  List<BlogPost> findDrafts();
+    List<BlogPost> findDrafts();
 
-  BlogPost createDraft(BlogPostDto blogPostDto);
+    BlogPost createDraft(BlogPostDto blogPostDto);
 
-  BlogPost updateDraft(Long id, BlogPostDto blogPostDto);
+    BlogPost updateDraft(Long id, BlogPostDto blogPostDto);
 
-  /**
-   * Orchestrates the saving of a blog post, handling heavy I/O (Image Uploads) outside of the
-   * database transaction.
-   */
-  BlogPost save(
-      BlogPost blogPost,
-      List<MultipartFile> newThumbnails,
-      List<PostThumbnailDto> thumbnailDtos,
-      MultipartFile coverImage);
+    /**
+     * Orchestrates the saving of a blog post, handling heavy I/O (Image Uploads) outside of the
+     * database transaction.
+     */
+    BlogPost save(
+            BlogPost blogPost,
+            List<MultipartFile> newThumbnails,
+            List<PostThumbnailDto> thumbnailDtos,
+            MultipartFile coverImage);
 
-  // Helper method for persisting the post (Transactional) - Not usually in interface,
-  // but if needed for proxy self-calls it might be.
-  // For now, we only expose the main business methods.
+    // Helper method for persisting the post (Transactional) - Not usually in interface,
+    // but if needed for proxy self-calls it might be.
+    // For now, we only expose the main business methods.
 
-  void deleteById(Long id);
+    void deleteById(Long id);
 
-  void deletePostsInBulk(List<Long> postIds);
+    void deletePostsInBulk(List<Long> postIds);
 
-  void checkAndPublishScheduledPosts();
+    void checkAndPublishScheduledPosts();
 
-  List<BlogPost> findAllByStatus(PostStatus status);
+    List<BlogPost> findAllByStatus(PostStatus status);
 
-  int backfillSlugs();
+    int backfillSlugs();
 
-  int backfillUrlArticleIds();
+    int backfillUrlArticleIds();
 
-  BlogPost duplicatePost(Long id);
+    BlogPost duplicatePost(Long id);
 
-  Optional<BlogPost> findPostForUrl(Long id, String categorySlug, String userFriendlySlug);
+    Optional<BlogPost> findPostForUrl(Long id, String categorySlug, String userFriendlySlug);
 
-  Category findCategoryByName(String name);
+    Category findCategoryByName(String name);
 
-  long countPublishedPosts();
+    long countPublishedPosts();
 }

@@ -15,7 +15,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface AnalyticsEventRepository extends JpaRepository<AnalyticsEvent, Long> {
 
-  @Modifying
-  @Query("DELETE FROM AnalyticsEvent a WHERE a.createdAt < :cutoffDate")
-  void deleteEventsOlderThan(@Param("cutoffDate") Instant cutoffDate);
+    @Modifying
+    @Query("DELETE FROM AnalyticsEvent a WHERE a.createdAt < :cutoffDate")
+    void deleteEventsOlderThan(@Param("cutoffDate") Instant cutoffDate);
 }

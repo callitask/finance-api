@@ -69,115 +69,117 @@ import org.slf4j.LoggerFactory;
 @Converter
 public class EncryptedStringConverter implements AttributeConverter<String, String> {
 
-  private static final Logger logger = LoggerFactory.getLogger(EncryptedStringConverter.class);
+    private static final Logger logger = LoggerFactory.getLogger(EncryptedStringConverter.class);
 
-  private static final String ALGORITHM = "AES/GCM/NoPadding";
-  private static final int GCM_IV_LENGTH = 12; // 96-bit IV — recommended for GCM
-  private static final int GCM_TAG_LENGTH = 128; // 128-bit authentication tag
-  private static final String KEY_VERSION_PREFIX = "v1:"; // Prefix for key rotation support
+    private static final String ALGORITHM = "AES/GCM/NoPadding";
+    private static final int GCM_IV_LENGTH = 12; // 96-bit IV — recommended for GCM
+    private static final int GCM_TAG_LENGTH = 128; // 128-bit authentication tag
+    private static final String KEY_VERSION_PREFIX = "v1:"; // Prefix for key rotation support
 
-  private final SecretKey secretKey;
+    private final SecretKey secretKey;
 
-  public EncryptedStringConverter() {
-    String encodedKey = System.getenv("LINKEDIN_TOKEN_ENCRYPTION_KEY");
-    if (encodedKey == null || encodedKey.trim().isEmpty()) {
-      throw new IllegalStateException(
-          "[EncryptedStringConverter] LINKEDIN_TOKEN_ENCRYPTION_KEY environment variable is"
-              + " missing or empty. Cannot start application with plaintext LinkedIn token"
-              + " storage. Set a Base64-encoded 32-byte AES key in your .env file.");
-    }
-    byte[] keyBytes;
-    try {
-      keyBytes = Base64.getDecoder().decode(encodedKey.trim());
-    } catch (IllegalArgumentException e) {
-      throw new IllegalStateException(
-          "[EncryptedStringConverter] LINKEDIN_TOKEN_ENCRYPTION_KEY is not valid Base64.", e);
-    }
-    if (keyBytes.length != 32) {
-      throw new IllegalStateException(
-          "[EncryptedStringConverter] LINKEDIN_TOKEN_ENCRYPTION_KEY must decode to exactly 32"
-              + " bytes (256-bit AES key). Got: "
-              + keyBytes.length
-              + " bytes.");
-    }
-    this.secretKey = new SecretKeySpec(keyBytes, "AES");
-    logger.info("[EncryptedStringConverter] AES-256-GCM converter initialized successfully.");
-  }
-
-  /**
-   * Encrypts the plaintext token before persisting to the database. Stored format: v1:Base64(IV[12
-   * bytes] || Ciphertext).
-   *
-   * @param plaintext the raw string (may be null)
-   * @return Version-prefixed, Base64-encoded encrypted value, or null if input is null
-   */
-  @Override
-  public String convertToDatabaseColumn(String plaintext) {
-    if (plaintext == null) {
-      return null;
-    }
-    try {
-      byte[] iv = new byte[GCM_IV_LENGTH];
-      new SecureRandom().nextBytes(iv);
-
-      Cipher cipher = Cipher.getInstance(ALGORITHM);
-      cipher.init(Cipher.ENCRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
-      byte[] ciphertext = cipher.doFinal(plaintext.getBytes("UTF-8"));
-
-      // Prepend IV to ciphertext and Base64-encode the combined result
-      ByteBuffer combined = ByteBuffer.allocate(iv.length + ciphertext.length);
-      combined.put(iv);
-      combined.put(ciphertext);
-
-      return KEY_VERSION_PREFIX + Base64.getEncoder().encodeToString(combined.array());
-    } catch (Exception e) {
-      throw new RuntimeException("[EncryptedStringConverter] Encryption failed.", e);
-    }
-  }
-
-  /**
-   * Decrypts the stored Base64-encoded value back to the plaintext token. Stored format:
-   * v1:Base64(IV[12 bytes] || Ciphertext). Supports seamless fallback for unencrypted legacy data.
-   *
-   * @param dbData the string value from the database (may be null)
-   * @return the original plaintext token, or null if input is null
-   */
-  @Override
-  public String convertToEntityAttribute(String dbData) {
-    if (dbData == null) {
-      return null;
+    public EncryptedStringConverter() {
+        String encodedKey = System.getenv("LINKEDIN_TOKEN_ENCRYPTION_KEY");
+        if (encodedKey == null || encodedKey.trim().isEmpty()) {
+            throw new IllegalStateException(
+                    "[EncryptedStringConverter] LINKEDIN_TOKEN_ENCRYPTION_KEY environment variable is"
+                            + " missing or empty. Cannot start application with plaintext LinkedIn token"
+                            + " storage. Set a Base64-encoded 32-byte AES key in your .env file.");
+        }
+        byte[] keyBytes;
+        try {
+            keyBytes = Base64.getDecoder().decode(encodedKey.trim());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(
+                    "[EncryptedStringConverter] LINKEDIN_TOKEN_ENCRYPTION_KEY is not valid Base64.",
+                    e);
+        }
+        if (keyBytes.length != 32) {
+            throw new IllegalStateException(
+                    "[EncryptedStringConverter] LINKEDIN_TOKEN_ENCRYPTION_KEY must decode to exactly 32"
+                            + " bytes (256-bit AES key). Got: "
+                            + keyBytes.length
+                            + " bytes.");
+        }
+        this.secretKey = new SecretKeySpec(keyBytes, "AES");
+        logger.info("[EncryptedStringConverter] AES-256-GCM converter initialized successfully.");
     }
 
-    // Fallback logic: If it doesn't start with our key version prefix,
-    // it is legacy plaintext data. Return as-is so the system doesn't crash.
-    if (!dbData.startsWith(KEY_VERSION_PREFIX)) {
-      return dbData;
+    /**
+     * Encrypts the plaintext token before persisting to the database. Stored format:
+     * v1:Base64(IV[12 bytes] || Ciphertext).
+     *
+     * @param plaintext the raw string (may be null)
+     * @return Version-prefixed, Base64-encoded encrypted value, or null if input is null
+     */
+    @Override
+    public String convertToDatabaseColumn(String plaintext) {
+        if (plaintext == null) {
+            return null;
+        }
+        try {
+            byte[] iv = new byte[GCM_IV_LENGTH];
+            new SecureRandom().nextBytes(iv);
+
+            Cipher cipher = Cipher.getInstance(ALGORITHM);
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+            byte[] ciphertext = cipher.doFinal(plaintext.getBytes("UTF-8"));
+
+            // Prepend IV to ciphertext and Base64-encode the combined result
+            ByteBuffer combined = ByteBuffer.allocate(iv.length + ciphertext.length);
+            combined.put(iv);
+            combined.put(ciphertext);
+
+            return KEY_VERSION_PREFIX + Base64.getEncoder().encodeToString(combined.array());
+        } catch (Exception e) {
+            throw new RuntimeException("[EncryptedStringConverter] Encryption failed.", e);
+        }
     }
 
-    try {
-      // Strip the prefix before decoding
-      String base64Payload = dbData.substring(KEY_VERSION_PREFIX.length());
-      byte[] combined = Base64.getDecoder().decode(base64Payload);
+    /**
+     * Decrypts the stored Base64-encoded value back to the plaintext token. Stored format:
+     * v1:Base64(IV[12 bytes] || Ciphertext). Supports seamless fallback for unencrypted legacy
+     * data.
+     *
+     * @param dbData the string value from the database (may be null)
+     * @return the original plaintext token, or null if input is null
+     */
+    @Override
+    public String convertToEntityAttribute(String dbData) {
+        if (dbData == null) {
+            return null;
+        }
 
-      // Extract IV (first 12 bytes) and ciphertext (remainder)
-      ByteBuffer buffer = ByteBuffer.wrap(combined);
-      byte[] iv = new byte[GCM_IV_LENGTH];
-      buffer.get(iv);
-      byte[] ciphertext = new byte[buffer.remaining()];
-      buffer.get(ciphertext);
+        // Fallback logic: If it doesn't start with our key version prefix,
+        // it is legacy plaintext data. Return as-is so the system doesn't crash.
+        if (!dbData.startsWith(KEY_VERSION_PREFIX)) {
+            return dbData;
+        }
 
-      Cipher cipher = Cipher.getInstance(ALGORITHM);
-      cipher.init(Cipher.DECRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
-      byte[] plaintext = cipher.doFinal(ciphertext);
+        try {
+            // Strip the prefix before decoding
+            String base64Payload = dbData.substring(KEY_VERSION_PREFIX.length());
+            byte[] combined = Base64.getDecoder().decode(base64Payload);
 
-      return new String(plaintext, "UTF-8");
-    } catch (Exception e) {
-      logger.error(
-          "[EncryptedStringConverter] Decryption failed. Data may be corrupted or key mismatch.",
-          e);
-      // Return null rather than throwing — prevents a single corrupted record from
-      // crashing the entire API load.
-      return null;
+            // Extract IV (first 12 bytes) and ciphertext (remainder)
+            ByteBuffer buffer = ByteBuffer.wrap(combined);
+            byte[] iv = new byte[GCM_IV_LENGTH];
+            buffer.get(iv);
+            byte[] ciphertext = new byte[buffer.remaining()];
+            buffer.get(ciphertext);
+
+            Cipher cipher = Cipher.getInstance(ALGORITHM);
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+            byte[] plaintext = cipher.doFinal(ciphertext);
+
+            return new String(plaintext, "UTF-8");
+        } catch (Exception e) {
+            logger.error(
+                    "[EncryptedStringConverter] Decryption failed. Data may be corrupted or key mismatch.",
+                    e);
+            // Return null rather than throwing — prevents a single corrupted record from
+            // crashing the entire API load.
+            return null;
+        }
     }
-  }
 }

@@ -8,12 +8,12 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface HistoricalPriceRepository extends JpaRepository<HistoricalPrice, Long> {
-  List<HistoricalPrice> findByTickerOrderByPriceDateAsc(String ticker);
+    List<HistoricalPrice> findByTickerOrderByPriceDateAsc(String ticker);
 
-  boolean existsByTickerAndPriceDate(String ticker, LocalDate priceDate);
+    boolean existsByTickerAndPriceDate(String ticker, LocalDate priceDate);
 
-  boolean existsByTicker(String ticker);
+    boolean existsByTicker(String ticker);
 
-  // NEW: Find the very last record we have for a ticker
-  Optional<HistoricalPrice> findTopByTickerOrderByPriceDateDesc(String ticker);
+    // NEW: Find the very last record we have for a ticker
+    Optional<HistoricalPrice> findTopByTickerOrderByPriceDateDesc(String ticker);
 }

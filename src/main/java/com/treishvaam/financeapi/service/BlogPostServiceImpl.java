@@ -78,486 +78,496 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class BlogPostServiceImpl implements BlogPostService {
 
-  private static final Logger logger = LoggerFactory.getLogger(BlogPostServiceImpl.class);
+    private static final Logger logger = LoggerFactory.getLogger(BlogPostServiceImpl.class);
 
-  @Autowired private BlogPostRepository blogPostRepository;
+    @Autowired private BlogPostRepository blogPostRepository;
 
-  @Autowired private MessagePublisher messagePublisher;
+    @Autowired private MessagePublisher messagePublisher;
 
-  @Autowired private CategoryRepository categoryRepository;
+    @Autowired private CategoryRepository categoryRepository;
 
-  @Autowired private ImageService imageService;
+    @Autowired private ImageService imageService;
 
-  @Autowired private UserRepository userRepository;
+    @Autowired private UserRepository userRepository;
 
-  @Autowired private HtmlMaterializerService htmlMaterializerService;
+    @Autowired private HtmlMaterializerService htmlMaterializerService;
 
-  @Autowired private ContentIntegrityService contentIntegrityService;
+    @Autowired private ContentIntegrityService contentIntegrityService;
 
-  @PersistenceContext private EntityManager entityManager;
+    @PersistenceContext private EntityManager entityManager;
 
-  private String generateUniqueId() {
-    SecureRandom random = new SecureRandom();
-    byte[] bytes = new byte[8];
-    random.nextBytes(bytes);
-    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-  }
-
-  private String generateUrlArticleId(BlogPost post) {
-    if (post == null || post.getCreatedAt() == null || post.getId() == null) return null;
-    DateTimeFormatter formatter =
-        DateTimeFormatter.ofPattern("EEEddMMyyyyHHmm", Locale.ENGLISH).withZone(ZoneId.of("UTC"));
-    return (formatter.format(post.getCreatedAt()) + post.getId()).toLowerCase();
-  }
-
-  @Override
-  public String generateUserFriendlySlug(String title) {
-    if (title == null) return "";
-    return title
-        .toLowerCase()
-        .replaceAll("\\s+", "-")
-        .replaceAll("[^a-z0-9-]", "")
-        .replaceAll("-+", "-")
-        .replaceAll("^-|-$", "");
-  }
-
-  @Override
-  public List<BlogPost> findAll() {
-    return blogPostRepository.findAllByStatusOrderByCreatedAtDesc(PostStatus.PUBLISHED);
-  }
-
-  @Override
-  public Page<BlogPost> findAll(Pageable pageable) {
-    return blogPostRepository.findAll(pageable);
-  }
-
-  @Override
-  public Page<BlogPost> findAllPublishedPosts(Pageable pageable) {
-    return blogPostRepository.findAllByStatus(PostStatus.PUBLISHED, pageable);
-  }
-
-  @Override
-  public List<BlogPost> findAllForAdmin() {
-    return blogPostRepository.findAllByOrderByCreatedAtDesc();
-  }
-
-  @Override
-  public Optional<BlogPost> findById(Long id) {
-    return blogPostRepository.findById(id);
-  }
-
-  @Override
-  public Optional<BlogPost> findBySlug(String slug) {
-    return blogPostRepository.findBySlug(slug);
-  }
-
-  @Override
-  public Optional<BlogPost> findByUrlArticleId(String urlArticleId) {
-    Optional<BlogPost> postOpt = blogPostRepository.findByUrlArticleId(urlArticleId);
-    postOpt.ifPresent(
-        p -> {
-          boolean intact =
-              contentIntegrityService.verifySignature(
-                  p.getContentSignature(),
-                  p.getTitle(),
-                  p.getSlug(),
-                  p.getContent(),
-                  p.getAuthor(),
-                  p.getTenantId());
-        });
-    return postOpt;
-  }
-
-  @Override
-  public List<BlogPost> findDrafts() {
-    return blogPostRepository.findAllByStatusOrderByUpdatedAtDesc(PostStatus.DRAFT);
-  }
-
-  @Override
-  @Transactional
-  public BlogPost createDraft(BlogPostDto blogPostDto) {
-    BlogPost newPost = new BlogPost();
-    newPost.setTitle(
-        blogPostDto.getTitle() != null && !blogPostDto.getTitle().isEmpty()
-            ? blogPostDto.getTitle()
-            : "Untitled Draft");
-    newPost.setContent(blogPostDto.getContent() != null ? blogPostDto.getContent() : "");
-    newPost.setCustomSnippet(blogPostDto.getCustomSnippet());
-    newPost.setMetaDescription(blogPostDto.getMetaDescription());
-    newPost.setKeywords(blogPostDto.getKeywords());
-    newPost.setStatus(PostStatus.DRAFT);
-
-    String username = SecurityContextHolder.getContext().getAuthentication().getName();
-    Optional<User> userOpt = userRepository.findByUsername(username);
-    if (userOpt.isPresent()
-        && userOpt.get().getDisplayName() != null
-        && !userOpt.get().getDisplayName().isEmpty()) {
-      newPost.setAuthor(userOpt.get().getDisplayName());
-    } else {
-      newPost.setAuthor(username);
+    private String generateUniqueId() {
+        SecureRandom random = new SecureRandom();
+        byte[] bytes = new byte[8];
+        random.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    String currentTenant = TenantContext.getTenantId();
-    newPost.setTenantId(
-        currentTenant != null && !currentTenant.isEmpty() ? currentTenant : "treishfin");
-
-    newPost.setSlug(generateUniqueId());
-    newPost.setLayoutStyle("DEFAULT");
-    newPost.setUserFriendlySlug(generateUserFriendlySlug(newPost.getTitle()));
-    return blogPostRepository.save(newPost);
-  }
-
-  @Override
-  @Transactional
-  public BlogPost updateDraft(Long id, BlogPostDto blogPostDto) {
-    BlogPost existingPost =
-        blogPostRepository
-            .findById(id)
-            .orElseThrow(() -> new RuntimeException("Post not found with id: " + id));
-
-    if (blogPostDto.getVersion() != null
-        && existingPost.getVersion() != null
-        && !blogPostDto.getVersion().equals(existingPost.getVersion())) {
-      throw new ObjectOptimisticLockingFailureException(BlogPost.class, id);
+    private String generateUrlArticleId(BlogPost post) {
+        if (post == null || post.getCreatedAt() == null || post.getId() == null) return null;
+        DateTimeFormatter formatter =
+                DateTimeFormatter.ofPattern("EEEddMMyyyyHHmm", Locale.ENGLISH)
+                        .withZone(ZoneId.of("UTC"));
+        return (formatter.format(post.getCreatedAt()) + post.getId()).toLowerCase();
     }
 
-    existingPost.setTitle(blogPostDto.getTitle());
-    existingPost.setContent(blogPostDto.getContent());
-    existingPost.setCustomSnippet(blogPostDto.getCustomSnippet());
-    existingPost.setMetaDescription(blogPostDto.getMetaDescription());
-    existingPost.setKeywords(blogPostDto.getKeywords());
-    if (existingPost.getSlug() == null || existingPost.getSlug().isEmpty())
-      existingPost.setSlug(generateUniqueId());
-    existingPost.setUserFriendlySlug(generateUserFriendlySlug(existingPost.getTitle()));
-    return blogPostRepository.save(existingPost);
-  }
-
-  @Override
-  public BlogPost save(
-      BlogPost blogPost,
-      List<MultipartFile> newThumbnails,
-      List<PostThumbnailDto> thumbnailDtos,
-      MultipartFile coverImage) {
-
-    if (coverImage != null && !coverImage.isEmpty()) {
-      ImageMetadataDto coverMetadata = imageService.saveImageAndGetMetadata(coverImage);
-      if (coverMetadata != null) blogPost.setCoverImageUrl(coverMetadata.getBaseFilename());
+    @Override
+    public String generateUserFriendlySlug(String title) {
+        if (title == null) return "";
+        return title.toLowerCase()
+                .replaceAll("\\s+", "-")
+                .replaceAll("[^a-z0-9-]", "")
+                .replaceAll("-+", "-")
+                .replaceAll("^-|-$", "");
     }
 
-    Map<String, MultipartFile> newFilesMap =
-        newThumbnails != null
-            ? newThumbnails.stream()
-                .collect(Collectors.toMap(MultipartFile::getOriginalFilename, Function.identity()))
-            : Map.of();
+    @Override
+    public List<BlogPost> findAll() {
+        return blogPostRepository.findAllByStatusOrderByCreatedAtDesc(PostStatus.PUBLISHED);
+    }
 
-    List<PostThumbnail> finalThumbnails = new ArrayList<>();
+    @Override
+    public Page<BlogPost> findAll(Pageable pageable) {
+        return blogPostRepository.findAll(pageable);
+    }
 
-    for (PostThumbnailDto dto : thumbnailDtos) {
-      PostThumbnail thumbnail;
-      if ("new".equals(dto.getSource())) {
-        MultipartFile file = newFilesMap.get(dto.getFileName());
-        if (file != null && !file.isEmpty()) {
-          ImageMetadataDto metadata = imageService.saveImageAndGetMetadata(file);
-          if (metadata == null) continue;
-          thumbnail = new PostThumbnail();
-          thumbnail.setImageUrl(metadata.getBaseFilename());
-          thumbnail.setWidth(metadata.getWidth());
-          thumbnail.setHeight(metadata.getHeight());
-          thumbnail.setMimeType(metadata.getMimeType());
-          thumbnail.setBlurHash(metadata.getBlurHash());
+    @Override
+    public Page<BlogPost> findAllPublishedPosts(Pageable pageable) {
+        return blogPostRepository.findAllByStatus(PostStatus.PUBLISHED, pageable);
+    }
+
+    @Override
+    public List<BlogPost> findAllForAdmin() {
+        return blogPostRepository.findAllByOrderByCreatedAtDesc();
+    }
+
+    @Override
+    public Optional<BlogPost> findById(Long id) {
+        return blogPostRepository.findById(id);
+    }
+
+    @Override
+    public Optional<BlogPost> findBySlug(String slug) {
+        return blogPostRepository.findBySlug(slug);
+    }
+
+    @Override
+    public Optional<BlogPost> findByUrlArticleId(String urlArticleId) {
+        Optional<BlogPost> postOpt = blogPostRepository.findByUrlArticleId(urlArticleId);
+        postOpt.ifPresent(
+                p -> {
+                    boolean intact =
+                            contentIntegrityService.verifySignature(
+                                    p.getContentSignature(),
+                                    p.getTitle(),
+                                    p.getSlug(),
+                                    p.getContent(),
+                                    p.getAuthor(),
+                                    p.getTenantId());
+                });
+        return postOpt;
+    }
+
+    @Override
+    public List<BlogPost> findDrafts() {
+        return blogPostRepository.findAllByStatusOrderByUpdatedAtDesc(PostStatus.DRAFT);
+    }
+
+    @Override
+    @Transactional
+    public BlogPost createDraft(BlogPostDto blogPostDto) {
+        BlogPost newPost = new BlogPost();
+        newPost.setTitle(
+                blogPostDto.getTitle() != null && !blogPostDto.getTitle().isEmpty()
+                        ? blogPostDto.getTitle()
+                        : "Untitled Draft");
+        newPost.setContent(blogPostDto.getContent() != null ? blogPostDto.getContent() : "");
+        newPost.setCustomSnippet(blogPostDto.getCustomSnippet());
+        newPost.setMetaDescription(blogPostDto.getMetaDescription());
+        newPost.setKeywords(blogPostDto.getKeywords());
+        newPost.setStatus(PostStatus.DRAFT);
+
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+        Optional<User> userOpt = userRepository.findByUsername(username);
+        if (userOpt.isPresent()
+                && userOpt.get().getDisplayName() != null
+                && !userOpt.get().getDisplayName().isEmpty()) {
+            newPost.setAuthor(userOpt.get().getDisplayName());
         } else {
-          continue;
+            newPost.setAuthor(username);
         }
-      } else {
-        thumbnail =
-            blogPost.getThumbnails().stream()
-                .filter(t -> t.getImageUrl().equals(dto.getUrl()))
-                .findFirst()
-                .orElse(new PostThumbnail());
-        if (thumbnail.getId() == null) thumbnail.setImageUrl(dto.getUrl());
-      }
-      thumbnail.setBlogPost(blogPost);
-      thumbnail.setAltText(dto.getAltText());
-      thumbnail.setDisplayOrder(dto.getDisplayOrder());
-      finalThumbnails.add(thumbnail);
+
+        String currentTenant = TenantContext.getTenantId();
+        newPost.setTenantId(
+                currentTenant != null && !currentTenant.isEmpty() ? currentTenant : "treishfin");
+
+        newPost.setSlug(generateUniqueId());
+        newPost.setLayoutStyle("DEFAULT");
+        newPost.setUserFriendlySlug(generateUserFriendlySlug(newPost.getTitle()));
+        return blogPostRepository.save(newPost);
     }
 
-    BlogPost savedPost = persistPost(blogPost, finalThumbnails);
+    @Override
+    @Transactional
+    public BlogPost updateDraft(Long id, BlogPostDto blogPostDto) {
+        BlogPost existingPost =
+                blogPostRepository
+                        .findById(id)
+                        .orElseThrow(() -> new RuntimeException("Post not found with id: " + id));
 
-    if (savedPost.getStatus() == PostStatus.PUBLISHED) {
-      try {
-        messagePublisher.publishSearchIndexEvent(savedPost.getId(), "INDEX");
-        messagePublisher.publishSitemapRegenerateEvent();
-      } catch (Exception e) {
-        logger.error(
-            "Failed to publish async events for post ID: {}. Post was saved successfully.",
-            savedPost.getId(),
-            e);
-      }
-    }
-
-    return savedPost;
-  }
-
-  @Transactional(propagation = Propagation.REQUIRED)
-  @CacheEvict(
-      value = CachingConfig.BLOG_POST_CACHE,
-      key = "#result.urlArticleId",
-      condition = "#result.urlArticleId != null")
-  public BlogPost persistPost(BlogPost blogPost, List<PostThumbnail> processedThumbnails) {
-    blogPost.getThumbnails().clear();
-    blogPost.getThumbnails().addAll(processedThumbnails);
-
-    if (blogPost.getSlug() == null || blogPost.getSlug().isEmpty())
-      blogPost.setSlug(generateUniqueId());
-    if (blogPost.getUserFriendlySlug() == null || blogPost.getUserFriendlySlug().isEmpty())
-      blogPost.setUserFriendlySlug(generateUserFriendlySlug(blogPost.getTitle()));
-
-    if (blogPost.getScheduledTime() != null && blogPost.getScheduledTime().isAfter(Instant.now())) {
-      blogPost.setStatus(PostStatus.SCHEDULED);
-    } else {
-      blogPost.setStatus(PostStatus.PUBLISHED);
-      blogPost.setScheduledTime(null);
-    }
-
-    // Phase 2: Compute and attach digital signature right before publish transitions
-    if (PostStatus.PUBLISHED.equals(blogPost.getStatus())) {
-      String signature =
-          contentIntegrityService.computeSignature(
-              blogPost.getTitle(),
-              blogPost.getSlug(),
-              blogPost.getContent(),
-              blogPost.getAuthor(),
-              blogPost.getTenantId());
-      blogPost.setContentSignature(signature);
-      if (signature != null) {
-        logger.info("[ContentIntegrity] Post slug='{}' signed successfully.", blogPost.getSlug());
-      }
-    }
-
-    BlogPost savedPost = blogPostRepository.save(blogPost);
-
-    if ((savedPost.getStatus() == PostStatus.PUBLISHED
-            || savedPost.getStatus() == PostStatus.SCHEDULED)
-        && savedPost.getUrlArticleId() == null) {
-      savedPost.setUrlArticleId(generateUrlArticleId(savedPost));
-      savedPost = blogPostRepository.save(savedPost);
-    }
-
-    if (savedPost.getStatus() == PostStatus.PUBLISHED) {
-      try {
-        htmlMaterializerService.materializePost(savedPost);
-      } catch (Exception e) {
-        logger.warn(
-            "Failed to trigger HTML materialization for post {}: {}",
-            savedPost.getId(),
-            e.getMessage());
-      }
-    }
-
-    return savedPost;
-  }
-
-  @Override
-  @Transactional
-  @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, allEntries = true)
-  public void deleteById(Long id) {
-    blogPostRepository.deleteById(id);
-    try {
-      messagePublisher.publishSearchIndexEvent(id, "DELETE");
-      messagePublisher.publishSitemapRegenerateEvent();
-    } catch (Exception e) {
-      logger.error("Failed to publish delete events for post ID: {}", id, e);
-    }
-  }
-
-  @Override
-  @Transactional
-  @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, allEntries = true)
-  public void deletePostsInBulk(List<Long> postIds) {
-    if (postIds != null && !postIds.isEmpty()) {
-      blogPostRepository.deleteByIdIn(postIds);
-      try {
-        for (Long id : postIds) {
-          messagePublisher.publishSearchIndexEvent(id, "DELETE");
+        if (blogPostDto.getVersion() != null
+                && existingPost.getVersion() != null
+                && !blogPostDto.getVersion().equals(existingPost.getVersion())) {
+            throw new ObjectOptimisticLockingFailureException(BlogPost.class, id);
         }
-        messagePublisher.publishSitemapRegenerateEvent();
-      } catch (Exception e) {
-        logger.error("Failed to publish bulk delete events", e);
-      }
+
+        existingPost.setTitle(blogPostDto.getTitle());
+        existingPost.setContent(blogPostDto.getContent());
+        existingPost.setCustomSnippet(blogPostDto.getCustomSnippet());
+        existingPost.setMetaDescription(blogPostDto.getMetaDescription());
+        existingPost.setKeywords(blogPostDto.getKeywords());
+        if (existingPost.getSlug() == null || existingPost.getSlug().isEmpty())
+            existingPost.setSlug(generateUniqueId());
+        existingPost.setUserFriendlySlug(generateUserFriendlySlug(existingPost.getTitle()));
+        return blogPostRepository.save(existingPost);
     }
-  }
 
-  @Override
-  @Scheduled(fixedRate = 60000)
-  @Transactional
-  public void checkAndPublishScheduledPosts() {
-    List<BlogPost> postsToPublish =
-        blogPostRepository.findByStatusAndScheduledTimeBefore(PostStatus.SCHEDULED, Instant.now());
-    for (BlogPost post : postsToPublish) {
-      post.setStatus(PostStatus.PUBLISHED);
-      post.setScheduledTime(null);
-      if (post.getUrlArticleId() == null) {
-        post.setUrlArticleId(generateUrlArticleId(post));
-      }
+    @Override
+    public BlogPost save(
+            BlogPost blogPost,
+            List<MultipartFile> newThumbnails,
+            List<PostThumbnailDto> thumbnailDtos,
+            MultipartFile coverImage) {
 
-      // Phase 2: Compute and attach digital signature for scheduled automated publishes
-      String signature =
-          contentIntegrityService.computeSignature(
-              post.getTitle(),
-              post.getSlug(),
-              post.getContent(),
-              post.getAuthor(),
-              post.getTenantId());
-      post.setContentSignature(signature);
-
-      blogPostRepository.save(post);
-
-      try {
-        messagePublisher.publishSearchIndexEvent(post.getId(), "INDEX");
-        htmlMaterializerService.materializePost(post);
-        logger.info("Published scheduled post with ID: {}", post.getId());
-      } catch (Exception e) {
-        logger.error("Failed to publish index event for scheduled post: {}", post.getId(), e);
-      }
-    }
-    if (!postsToPublish.isEmpty()) {
-      try {
-        messagePublisher.publishSitemapRegenerateEvent();
-      } catch (Exception e) {
-        logger.error("Failed to publish sitemap regeneration event", e);
-      }
-    }
-  }
-
-  @Override
-  public List<BlogPost> findAllByStatus(PostStatus status) {
-    return blogPostRepository.findAllByStatusOrderByCreatedAtDesc(status);
-  }
-
-  @Override
-  @Transactional
-  public int backfillSlugs() {
-    int count = 0;
-    int batchSize = 100;
-    int page = 0;
-    Page<BlogPost> slice;
-
-    do {
-      slice = blogPostRepository.findAll(PageRequest.of(page, batchSize));
-      boolean hasChanges = false;
-      for (BlogPost post : slice) {
-        if (post.getUserFriendlySlug() == null || post.getUserFriendlySlug().isEmpty()) {
-          post.setUserFriendlySlug(generateUserFriendlySlug(post.getTitle()));
-          blogPostRepository.save(post);
-          count++;
-          hasChanges = true;
+        if (coverImage != null && !coverImage.isEmpty()) {
+            ImageMetadataDto coverMetadata = imageService.saveImageAndGetMetadata(coverImage);
+            if (coverMetadata != null) blogPost.setCoverImageUrl(coverMetadata.getBaseFilename());
         }
-      }
-      if (hasChanges) {
-        entityManager.flush();
-        entityManager.clear();
-      }
-      page++;
-    } while (slice.hasNext());
 
-    return count;
-  }
+        Map<String, MultipartFile> newFilesMap =
+                newThumbnails != null
+                        ? newThumbnails.stream()
+                                .collect(
+                                        Collectors.toMap(
+                                                MultipartFile::getOriginalFilename,
+                                                Function.identity()))
+                        : Map.of();
 
-  @Override
-  @Transactional
-  public int backfillUrlArticleIds() {
-    int count = 0;
-    int batchSize = 100;
-    int page = 0;
-    Page<BlogPost> slice;
+        List<PostThumbnail> finalThumbnails = new ArrayList<>();
 
-    do {
-      slice = blogPostRepository.findAll(PageRequest.of(page, batchSize));
-      boolean hasChanges = false;
-      for (BlogPost post : slice) {
-        if ((post.getStatus() == PostStatus.PUBLISHED || post.getStatus() == PostStatus.SCHEDULED)
-            && post.getUrlArticleId() == null) {
-          post.setUrlArticleId(generateUrlArticleId(post));
-          blogPostRepository.save(post);
-          count++;
-          hasChanges = true;
+        for (PostThumbnailDto dto : thumbnailDtos) {
+            PostThumbnail thumbnail;
+            if ("new".equals(dto.getSource())) {
+                MultipartFile file = newFilesMap.get(dto.getFileName());
+                if (file != null && !file.isEmpty()) {
+                    ImageMetadataDto metadata = imageService.saveImageAndGetMetadata(file);
+                    if (metadata == null) continue;
+                    thumbnail = new PostThumbnail();
+                    thumbnail.setImageUrl(metadata.getBaseFilename());
+                    thumbnail.setWidth(metadata.getWidth());
+                    thumbnail.setHeight(metadata.getHeight());
+                    thumbnail.setMimeType(metadata.getMimeType());
+                    thumbnail.setBlurHash(metadata.getBlurHash());
+                } else {
+                    continue;
+                }
+            } else {
+                thumbnail =
+                        blogPost.getThumbnails().stream()
+                                .filter(t -> t.getImageUrl().equals(dto.getUrl()))
+                                .findFirst()
+                                .orElse(new PostThumbnail());
+                if (thumbnail.getId() == null) thumbnail.setImageUrl(dto.getUrl());
+            }
+            thumbnail.setBlogPost(blogPost);
+            thumbnail.setAltText(dto.getAltText());
+            thumbnail.setDisplayOrder(dto.getDisplayOrder());
+            finalThumbnails.add(thumbnail);
         }
-      }
-      if (hasChanges) {
-        entityManager.flush();
-        entityManager.clear();
-      }
-      page++;
-    } while (slice.hasNext());
 
-    return count;
-  }
+        BlogPost savedPost = persistPost(blogPost, finalThumbnails);
 
-  @Override
-  @Transactional
-  public BlogPost duplicatePost(Long id) {
-    BlogPost originalPost =
-        blogPostRepository
-            .findById(id)
-            .orElseThrow(() -> new RuntimeException("Post not found with id: " + id));
-    BlogPost newPost = new BlogPost();
-    newPost.setAuthor(SecurityContextHolder.getContext().getAuthentication().getName());
+        if (savedPost.getStatus() == PostStatus.PUBLISHED) {
+            try {
+                messagePublisher.publishSearchIndexEvent(savedPost.getId(), "INDEX");
+                messagePublisher.publishSitemapRegenerateEvent();
+            } catch (Exception e) {
+                logger.error(
+                        "Failed to publish async events for post ID: {}. Post was saved successfully.",
+                        savedPost.getId(),
+                        e);
+            }
+        }
 
-    String currentTenant = TenantContext.getTenantId();
-    newPost.setTenantId(
-        currentTenant != null && !currentTenant.isEmpty() ? currentTenant : "treishfin");
-
-    newPost.setTitle("Copy of " + originalPost.getTitle());
-    newPost.setContent("");
-    newPost.setCustomSnippet("");
-    newPost.setMetaDescription("");
-    newPost.setKeywords("");
-    newPost.setCategory(originalPost.getCategory());
-    newPost.setTags(new ArrayList<>());
-    newPost.setStatus(PostStatus.DRAFT);
-    newPost.setSlug(generateUniqueId());
-    newPost.setUserFriendlySlug(generateUserFriendlySlug(newPost.getTitle()));
-    newPost.setLayoutStyle(originalPost.getLayoutStyle());
-    newPost.setLayoutGroupId(null);
-    return blogPostRepository.save(newPost);
-  }
-
-  @Override
-  @Transactional(readOnly = true)
-  public Optional<BlogPost> findPostForUrl(Long id, String categorySlug, String userFriendlySlug) {
-    Optional<BlogPost> postOpt =
-        blogPostRepository.findByIdAndUserFriendlySlug(id, userFriendlySlug);
-    if (postOpt.isEmpty() || postOpt.get().getCategory() == null) return Optional.empty();
-    if (postOpt.get().getCategory().getSlug() != null
-        && postOpt.get().getCategory().getSlug().equals(categorySlug)) {
-
-      postOpt.ifPresent(
-          p -> {
-            boolean intact =
-                contentIntegrityService.verifySignature(
-                    p.getContentSignature(),
-                    p.getTitle(),
-                    p.getSlug(),
-                    p.getContent(),
-                    p.getAuthor(),
-                    p.getTenantId());
-          });
-
-      return postOpt;
+        return savedPost;
     }
-    return Optional.empty();
-  }
 
-  @Override
-  public Category findCategoryByName(String name) {
-    return categoryRepository
-        .findByName(name)
-        .orElseThrow(() -> new RuntimeException("Category not found with name: " + name));
-  }
+    @Transactional(propagation = Propagation.REQUIRED)
+    @CacheEvict(
+            value = CachingConfig.BLOG_POST_CACHE,
+            key = "#result.urlArticleId",
+            condition = "#result.urlArticleId != null")
+    public BlogPost persistPost(BlogPost blogPost, List<PostThumbnail> processedThumbnails) {
+        blogPost.getThumbnails().clear();
+        blogPost.getThumbnails().addAll(processedThumbnails);
 
-  @Override
-  public long countPublishedPosts() {
-    return blogPostRepository.countByStatus(PostStatus.PUBLISHED);
-  }
+        if (blogPost.getSlug() == null || blogPost.getSlug().isEmpty())
+            blogPost.setSlug(generateUniqueId());
+        if (blogPost.getUserFriendlySlug() == null || blogPost.getUserFriendlySlug().isEmpty())
+            blogPost.setUserFriendlySlug(generateUserFriendlySlug(blogPost.getTitle()));
+
+        if (blogPost.getScheduledTime() != null
+                && blogPost.getScheduledTime().isAfter(Instant.now())) {
+            blogPost.setStatus(PostStatus.SCHEDULED);
+        } else {
+            blogPost.setStatus(PostStatus.PUBLISHED);
+            blogPost.setScheduledTime(null);
+        }
+
+        // Phase 2: Compute and attach digital signature right before publish transitions
+        if (PostStatus.PUBLISHED.equals(blogPost.getStatus())) {
+            String signature =
+                    contentIntegrityService.computeSignature(
+                            blogPost.getTitle(),
+                            blogPost.getSlug(),
+                            blogPost.getContent(),
+                            blogPost.getAuthor(),
+                            blogPost.getTenantId());
+            blogPost.setContentSignature(signature);
+            if (signature != null) {
+                logger.info(
+                        "[ContentIntegrity] Post slug='{}' signed successfully.",
+                        blogPost.getSlug());
+            }
+        }
+
+        BlogPost savedPost = blogPostRepository.save(blogPost);
+
+        if ((savedPost.getStatus() == PostStatus.PUBLISHED
+                        || savedPost.getStatus() == PostStatus.SCHEDULED)
+                && savedPost.getUrlArticleId() == null) {
+            savedPost.setUrlArticleId(generateUrlArticleId(savedPost));
+            savedPost = blogPostRepository.save(savedPost);
+        }
+
+        if (savedPost.getStatus() == PostStatus.PUBLISHED) {
+            try {
+                htmlMaterializerService.materializePost(savedPost);
+            } catch (Exception e) {
+                logger.warn(
+                        "Failed to trigger HTML materialization for post {}: {}",
+                        savedPost.getId(),
+                        e.getMessage());
+            }
+        }
+
+        return savedPost;
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, allEntries = true)
+    public void deleteById(Long id) {
+        blogPostRepository.deleteById(id);
+        try {
+            messagePublisher.publishSearchIndexEvent(id, "DELETE");
+            messagePublisher.publishSitemapRegenerateEvent();
+        } catch (Exception e) {
+            logger.error("Failed to publish delete events for post ID: {}", id, e);
+        }
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, allEntries = true)
+    public void deletePostsInBulk(List<Long> postIds) {
+        if (postIds != null && !postIds.isEmpty()) {
+            blogPostRepository.deleteByIdIn(postIds);
+            try {
+                for (Long id : postIds) {
+                    messagePublisher.publishSearchIndexEvent(id, "DELETE");
+                }
+                messagePublisher.publishSitemapRegenerateEvent();
+            } catch (Exception e) {
+                logger.error("Failed to publish bulk delete events", e);
+            }
+        }
+    }
+
+    @Override
+    @Scheduled(fixedRate = 60000)
+    @Transactional
+    public void checkAndPublishScheduledPosts() {
+        List<BlogPost> postsToPublish =
+                blogPostRepository.findByStatusAndScheduledTimeBefore(
+                        PostStatus.SCHEDULED, Instant.now());
+        for (BlogPost post : postsToPublish) {
+            post.setStatus(PostStatus.PUBLISHED);
+            post.setScheduledTime(null);
+            if (post.getUrlArticleId() == null) {
+                post.setUrlArticleId(generateUrlArticleId(post));
+            }
+
+            // Phase 2: Compute and attach digital signature for scheduled automated publishes
+            String signature =
+                    contentIntegrityService.computeSignature(
+                            post.getTitle(),
+                            post.getSlug(),
+                            post.getContent(),
+                            post.getAuthor(),
+                            post.getTenantId());
+            post.setContentSignature(signature);
+
+            blogPostRepository.save(post);
+
+            try {
+                messagePublisher.publishSearchIndexEvent(post.getId(), "INDEX");
+                htmlMaterializerService.materializePost(post);
+                logger.info("Published scheduled post with ID: {}", post.getId());
+            } catch (Exception e) {
+                logger.error(
+                        "Failed to publish index event for scheduled post: {}", post.getId(), e);
+            }
+        }
+        if (!postsToPublish.isEmpty()) {
+            try {
+                messagePublisher.publishSitemapRegenerateEvent();
+            } catch (Exception e) {
+                logger.error("Failed to publish sitemap regeneration event", e);
+            }
+        }
+    }
+
+    @Override
+    public List<BlogPost> findAllByStatus(PostStatus status) {
+        return blogPostRepository.findAllByStatusOrderByCreatedAtDesc(status);
+    }
+
+    @Override
+    @Transactional
+    public int backfillSlugs() {
+        int count = 0;
+        int batchSize = 100;
+        int page = 0;
+        Page<BlogPost> slice;
+
+        do {
+            slice = blogPostRepository.findAll(PageRequest.of(page, batchSize));
+            boolean hasChanges = false;
+            for (BlogPost post : slice) {
+                if (post.getUserFriendlySlug() == null || post.getUserFriendlySlug().isEmpty()) {
+                    post.setUserFriendlySlug(generateUserFriendlySlug(post.getTitle()));
+                    blogPostRepository.save(post);
+                    count++;
+                    hasChanges = true;
+                }
+            }
+            if (hasChanges) {
+                entityManager.flush();
+                entityManager.clear();
+            }
+            page++;
+        } while (slice.hasNext());
+
+        return count;
+    }
+
+    @Override
+    @Transactional
+    public int backfillUrlArticleIds() {
+        int count = 0;
+        int batchSize = 100;
+        int page = 0;
+        Page<BlogPost> slice;
+
+        do {
+            slice = blogPostRepository.findAll(PageRequest.of(page, batchSize));
+            boolean hasChanges = false;
+            for (BlogPost post : slice) {
+                if ((post.getStatus() == PostStatus.PUBLISHED
+                                || post.getStatus() == PostStatus.SCHEDULED)
+                        && post.getUrlArticleId() == null) {
+                    post.setUrlArticleId(generateUrlArticleId(post));
+                    blogPostRepository.save(post);
+                    count++;
+                    hasChanges = true;
+                }
+            }
+            if (hasChanges) {
+                entityManager.flush();
+                entityManager.clear();
+            }
+            page++;
+        } while (slice.hasNext());
+
+        return count;
+    }
+
+    @Override
+    @Transactional
+    public BlogPost duplicatePost(Long id) {
+        BlogPost originalPost =
+                blogPostRepository
+                        .findById(id)
+                        .orElseThrow(() -> new RuntimeException("Post not found with id: " + id));
+        BlogPost newPost = new BlogPost();
+        newPost.setAuthor(SecurityContextHolder.getContext().getAuthentication().getName());
+
+        String currentTenant = TenantContext.getTenantId();
+        newPost.setTenantId(
+                currentTenant != null && !currentTenant.isEmpty() ? currentTenant : "treishfin");
+
+        newPost.setTitle("Copy of " + originalPost.getTitle());
+        newPost.setContent("");
+        newPost.setCustomSnippet("");
+        newPost.setMetaDescription("");
+        newPost.setKeywords("");
+        newPost.setCategory(originalPost.getCategory());
+        newPost.setTags(new ArrayList<>());
+        newPost.setStatus(PostStatus.DRAFT);
+        newPost.setSlug(generateUniqueId());
+        newPost.setUserFriendlySlug(generateUserFriendlySlug(newPost.getTitle()));
+        newPost.setLayoutStyle(originalPost.getLayoutStyle());
+        newPost.setLayoutGroupId(null);
+        return blogPostRepository.save(newPost);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<BlogPost> findPostForUrl(
+            Long id, String categorySlug, String userFriendlySlug) {
+        Optional<BlogPost> postOpt =
+                blogPostRepository.findByIdAndUserFriendlySlug(id, userFriendlySlug);
+        if (postOpt.isEmpty() || postOpt.get().getCategory() == null) return Optional.empty();
+        if (postOpt.get().getCategory().getSlug() != null
+                && postOpt.get().getCategory().getSlug().equals(categorySlug)) {
+
+            postOpt.ifPresent(
+                    p -> {
+                        boolean intact =
+                                contentIntegrityService.verifySignature(
+                                        p.getContentSignature(),
+                                        p.getTitle(),
+                                        p.getSlug(),
+                                        p.getContent(),
+                                        p.getAuthor(),
+                                        p.getTenantId());
+                    });
+
+            return postOpt;
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public Category findCategoryByName(String name) {
+        return categoryRepository
+                .findByName(name)
+                .orElseThrow(() -> new RuntimeException("Category not found with name: " + name));
+    }
+
+    @Override
+    public long countPublishedPosts() {
+        return blogPostRepository.countByStatus(PostStatus.PUBLISHED);
+    }
 }

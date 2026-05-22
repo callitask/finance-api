@@ -17,190 +17,190 @@ import java.time.Instant;
  */
 @Entity
 @Table(
-    name = "analytics_events",
-    indexes = {
-      @Index(name = "idx_analytics_session_jpa", columnList = "sessionId"),
-      @Index(name = "idx_analytics_type_jpa", columnList = "eventType"),
-      @Index(name = "idx_analytics_timestamp_jpa", columnList = "createdAt")
-    })
+        name = "analytics_events",
+        indexes = {
+            @Index(name = "idx_analytics_session_jpa", columnList = "sessionId"),
+            @Index(name = "idx_analytics_type_jpa", columnList = "eventType"),
+            @Index(name = "idx_analytics_timestamp_jpa", columnList = "createdAt")
+        })
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class AnalyticsEvent {
 
-  @Id
-  @GeneratedValue(strategy = GenerationType.IDENTITY)
-  @JsonProperty(access = JsonProperty.Access.READ_ONLY)
-  private Long id;
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    private Long id;
 
-  @Column(nullable = false)
-  private String sessionId;
+    @Column(nullable = false)
+    private String sessionId;
 
-  @Column(nullable = false, length = 100)
-  private String eventType;
+    @Column(nullable = false, length = 100)
+    private String eventType;
 
-  @Column(length = 1000)
-  private String url;
+    @Column(length = 1000)
+    private String url;
 
-  @Column(length = 500)
-  private String path;
+    @Column(length = 500)
+    private String path;
 
-  @Column(length = 1000)
-  private String referrer;
+    @Column(length = 1000)
+    private String referrer;
 
-  @Column(length = 10)
-  private String countryCode;
+    @Column(length = 10)
+    private String countryCode;
 
-  @Column(length = 255)
-  private String city;
+    @Column(length = 255)
+    private String city;
 
-  @Column(length = 50)
-  private String deviceType;
+    @Column(length = 50)
+    private String deviceType;
 
-  @Column(length = 100)
-  private String browser;
+    @Column(length = 100)
+    private String browser;
 
-  @Column(length = 100)
-  private String os;
+    @Column(length = 100)
+    private String os;
 
-  @Column(length = 1000)
-  private String userAgent;
+    @Column(length = 1000)
+    private String userAgent;
 
-  private Integer scrollDepth;
+    private Integer scrollDepth;
 
-  private Long timeOnPageMs;
+    private Long timeOnPageMs;
 
-  @Column(length = 50)
-  private String tenantId;
+    @Column(length = 50)
+    private String tenantId;
 
-  @Column(nullable = false, updatable = false)
-  private Instant createdAt;
+    @Column(nullable = false, updatable = false)
+    private Instant createdAt;
 
-  @PrePersist
-  protected void onCreate() {
-    this.createdAt = Instant.now();
-  }
+    @PrePersist
+    protected void onCreate() {
+        this.createdAt = Instant.now();
+    }
 
-  // Getters and Setters
-  public Long getId() {
-    return id;
-  }
+    // Getters and Setters
+    public Long getId() {
+        return id;
+    }
 
-  public void setId(Long id) {
-    this.id = id;
-  }
+    public void setId(Long id) {
+        this.id = id;
+    }
 
-  public String getSessionId() {
-    return sessionId;
-  }
+    public String getSessionId() {
+        return sessionId;
+    }
 
-  public void setSessionId(String sessionId) {
-    this.sessionId = sessionId;
-  }
+    public void setSessionId(String sessionId) {
+        this.sessionId = sessionId;
+    }
 
-  public String getEventType() {
-    return eventType;
-  }
+    public String getEventType() {
+        return eventType;
+    }
 
-  public void setEventType(String eventType) {
-    this.eventType = eventType;
-  }
+    public void setEventType(String eventType) {
+        this.eventType = eventType;
+    }
 
-  public String getUrl() {
-    return url;
-  }
+    public String getUrl() {
+        return url;
+    }
 
-  public void setUrl(String url) {
-    this.url = url;
-  }
+    public void setUrl(String url) {
+        this.url = url;
+    }
 
-  public String getPath() {
-    return path;
-  }
+    public String getPath() {
+        return path;
+    }
 
-  public void setPath(String path) {
-    this.path = path;
-  }
+    public void setPath(String path) {
+        this.path = path;
+    }
 
-  public String getReferrer() {
-    return referrer;
-  }
+    public String getReferrer() {
+        return referrer;
+    }
 
-  public void setReferrer(String referrer) {
-    this.referrer = referrer;
-  }
+    public void setReferrer(String referrer) {
+        this.referrer = referrer;
+    }
 
-  public String getCountryCode() {
-    return countryCode;
-  }
+    public String getCountryCode() {
+        return countryCode;
+    }
 
-  public void setCountryCode(String countryCode) {
-    this.countryCode = countryCode;
-  }
+    public void setCountryCode(String countryCode) {
+        this.countryCode = countryCode;
+    }
 
-  public String getCity() {
-    return city;
-  }
+    public String getCity() {
+        return city;
+    }
 
-  public void setCity(String city) {
-    this.city = city;
-  }
+    public void setCity(String city) {
+        this.city = city;
+    }
 
-  public String getDeviceType() {
-    return deviceType;
-  }
+    public String getDeviceType() {
+        return deviceType;
+    }
 
-  public void setDeviceType(String deviceType) {
-    this.deviceType = deviceType;
-  }
+    public void setDeviceType(String deviceType) {
+        this.deviceType = deviceType;
+    }
 
-  public String getBrowser() {
-    return browser;
-  }
+    public String getBrowser() {
+        return browser;
+    }
 
-  public void setBrowser(String browser) {
-    this.browser = browser;
-  }
+    public void setBrowser(String browser) {
+        this.browser = browser;
+    }
 
-  public String getOs() {
-    return os;
-  }
+    public String getOs() {
+        return os;
+    }
 
-  public void setOs(String os) {
-    this.os = os;
-  }
+    public void setOs(String os) {
+        this.os = os;
+    }
 
-  public String getUserAgent() {
-    return userAgent;
-  }
+    public String getUserAgent() {
+        return userAgent;
+    }
 
-  public void setUserAgent(String userAgent) {
-    this.userAgent = userAgent;
-  }
+    public void setUserAgent(String userAgent) {
+        this.userAgent = userAgent;
+    }
 
-  public Integer getScrollDepth() {
-    return scrollDepth;
-  }
+    public Integer getScrollDepth() {
+        return scrollDepth;
+    }
 
-  public void setScrollDepth(Integer scrollDepth) {
-    this.scrollDepth = scrollDepth;
-  }
+    public void setScrollDepth(Integer scrollDepth) {
+        this.scrollDepth = scrollDepth;
+    }
 
-  public Long getTimeOnPageMs() {
-    return timeOnPageMs;
-  }
+    public Long getTimeOnPageMs() {
+        return timeOnPageMs;
+    }
 
-  public void setTimeOnPageMs(Long timeOnPageMs) {
-    this.timeOnPageMs = timeOnPageMs;
-  }
+    public void setTimeOnPageMs(Long timeOnPageMs) {
+        this.timeOnPageMs = timeOnPageMs;
+    }
 
-  public String getTenantId() {
-    return tenantId;
-  }
+    public String getTenantId() {
+        return tenantId;
+    }
 
-  public void setTenantId(String tenantId) {
-    this.tenantId = tenantId;
-  }
+    public void setTenantId(String tenantId) {
+        this.tenantId = tenantId;
+    }
 
-  public Instant getCreatedAt() {
-    return createdAt;
-  }
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
 }

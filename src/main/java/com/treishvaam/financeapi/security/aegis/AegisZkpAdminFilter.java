@@ -46,80 +46,81 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Slf4j
 public class AegisZkpAdminFilter extends OncePerRequestFilter {
 
-  @Override
-  protected void doFilterInternal(
-      HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
-      throws ServletException, IOException {
-    String path = request.getRequestURI();
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
+        String path = request.getRequestURI();
 
-    // 1. Only intercept /api/v1/admin/ endpoints
-    if (path == null || !path.startsWith("/api/v1/admin/")) {
-      filterChain.doFilter(request, response);
-      return;
+        // 1. Only intercept /api/v1/admin/ endpoints
+        if (path == null || !path.startsWith("/api/v1/admin/")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        // 2. Extract Proof and Challenge Context
+        String zkpProof = request.getHeader("X-AEGIS-ZKP-Proof");
+        String challengeId = request.getHeader("X-AEGIS-Challenge-ID");
+
+        // Retrieve tenant/admin ID from context or initial JWT (simplified for edge extraction)
+        String adminId = extractAdminIdFallback(request);
+
+        // 3. Validation Gate
+        if (zkpProof == null || challengeId == null || zkpProof.isBlank()) {
+            log.warn(
+                    "AEGIS L3-ZKA: Admin access attempted without ZKP Headers from IP: {}",
+                    request.getRemoteAddr());
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.getWriter()
+                    .write(
+                            "{\"error\":\"Zero-Knowledge Proof required for administrative escalation.\"}");
+            return;
+        }
+
+        boolean isVerified = verifyZkpWithMicroservice(adminId, challengeId, zkpProof);
+
+        if (!isVerified) {
+            log.warn("AEGIS L3-ZKA: ZKP Verification FAILED for Challenge: {}", challengeId);
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.getWriter()
+                    .write("{\"error\":\"Cryptographic identity proof invalid or expired.\"}");
+            // Here we would typically trigger an event to L8-BCSM to increase bot score
+            return;
+        }
+
+        // 4. Mark Context as Verified
+        request.setAttribute("AEGIS_ZKP_VERIFIED", true);
+        log.info(
+                "AEGIS L3-ZKA: Admin identity mathematically verified via ZKP. Granting access to {}",
+                path);
+
+        filterChain.doFilter(request, response);
     }
 
-    // 2. Extract Proof and Challenge Context
-    String zkpProof = request.getHeader("X-AEGIS-ZKP-Proof");
-    String challengeId = request.getHeader("X-AEGIS-Challenge-ID");
-
-    // Retrieve tenant/admin ID from context or initial JWT (simplified for edge extraction)
-    String adminId = extractAdminIdFallback(request);
-
-    // 3. Validation Gate
-    if (zkpProof == null || challengeId == null || zkpProof.isBlank()) {
-      log.warn(
-          "AEGIS L3-ZKA: Admin access attempted without ZKP Headers from IP: {}",
-          request.getRemoteAddr());
-      response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-      response.setContentType("application/json");
-      response
-          .getWriter()
-          .write("{\"error\":\"Zero-Knowledge Proof required for administrative escalation.\"}");
-      return;
+    /** Fallback to extract a rough Admin Identifier for the ZKP circuit verification. */
+    private String extractAdminIdFallback(HttpServletRequest request) {
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            // Normally we decode the JWT subject here. Returning placeholder for architecture
+            // setup.
+            return "subject_id_extracted_from_jwt";
+        }
+        return "anonymous";
     }
 
-    boolean isVerified = verifyZkpWithMicroservice(adminId, challengeId, zkpProof);
+    /** Stubs the actual gRPC call to the gnark Go Microservice. */
+    private boolean verifyZkpWithMicroservice(
+            String adminId, String challengeId, String proofData) {
+        // Circuit Breaker / gRPC stub logic
+        // Calls: AegisZkpService.verifyProof(context, VerifyRequest)
+        // For Phase 4/5 implementation scaffolding, we return true if structured, otherwise false.
 
-    if (!isVerified) {
-      log.warn("AEGIS L3-ZKA: ZKP Verification FAILED for Challenge: {}", challengeId);
-      response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-      response.setContentType("application/json");
-      response
-          .getWriter()
-          .write("{\"error\":\"Cryptographic identity proof invalid or expired.\"}");
-      // Here we would typically trigger an event to L8-BCSM to increase bot score
-      return;
+        // TODO: Replace with Resilience4j decorated gRPC call
+        if (proofData.length() > 20 && challengeId.startsWith("v1:")) {
+            return true; // Scaffold pass
+        }
+        return false;
     }
-
-    // 4. Mark Context as Verified
-    request.setAttribute("AEGIS_ZKP_VERIFIED", true);
-    log.info(
-        "AEGIS L3-ZKA: Admin identity mathematically verified via ZKP. Granting access to {}",
-        path);
-
-    filterChain.doFilter(request, response);
-  }
-
-  /** Fallback to extract a rough Admin Identifier for the ZKP circuit verification. */
-  private String extractAdminIdFallback(HttpServletRequest request) {
-    String authHeader = request.getHeader("Authorization");
-    if (authHeader != null && authHeader.startsWith("Bearer ")) {
-      // Normally we decode the JWT subject here. Returning placeholder for architecture setup.
-      return "subject_id_extracted_from_jwt";
-    }
-    return "anonymous";
-  }
-
-  /** Stubs the actual gRPC call to the gnark Go Microservice. */
-  private boolean verifyZkpWithMicroservice(String adminId, String challengeId, String proofData) {
-    // Circuit Breaker / gRPC stub logic
-    // Calls: AegisZkpService.verifyProof(context, VerifyRequest)
-    // For Phase 4/5 implementation scaffolding, we return true if structured, otherwise false.
-
-    // TODO: Replace with Resilience4j decorated gRPC call
-    if (proofData.length() > 20 && challengeId.startsWith("v1:")) {
-      return true; // Scaffold pass
-    }
-    return false;
-  }
 }

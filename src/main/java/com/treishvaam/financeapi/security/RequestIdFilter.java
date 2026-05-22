@@ -31,20 +31,21 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class RequestIdFilter extends OncePerRequestFilter {
 
-  @Override
-  protected void doFilterInternal(
-      HttpServletRequest req, HttpServletResponse res, FilterChain chain)
-      throws ServletException, IOException {
-    String requestId =
-        Optional.ofNullable(req.getHeader("X-Request-ID")).orElse(UUID.randomUUID().toString());
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest req, HttpServletResponse res, FilterChain chain)
+            throws ServletException, IOException {
+        String requestId =
+                Optional.ofNullable(req.getHeader("X-Request-ID"))
+                        .orElse(UUID.randomUUID().toString());
 
-    MDC.put("requestId", requestId);
-    res.setHeader("X-Request-ID", requestId);
+        MDC.put("requestId", requestId);
+        res.setHeader("X-Request-ID", requestId);
 
-    try {
-      chain.doFilter(req, res);
-    } finally {
-      MDC.remove("requestId");
+        try {
+            chain.doFilter(req, res);
+        } finally {
+            MDC.remove("requestId");
+        }
     }
-  }
 }

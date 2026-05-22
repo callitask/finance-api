@@ -46,28 +46,30 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class AegisChaosMirror {
 
-  private final TarpitManager tarpitManager;
-  private final PowChallengeIssuer powChallengeIssuer;
+    private final TarpitManager tarpitManager;
+    private final PowChallengeIssuer powChallengeIssuer;
 
-  /** Tarpits the connection by responding very slowly. */
-  public void activateTarpit(
-      HttpServletRequest request, HttpServletResponse response, int delayMs) {
-    log.warn(
-        "AEGIS L7-CMCS: Activating TARPIT for {} delay {}ms", request.getRemoteAddr(), delayMs);
-    try {
-      tarpitManager.tarpitConnection(request, response, delayMs);
-    } catch (Exception e) {
-      log.error("Failed to tarpit connection", e);
+    /** Tarpits the connection by responding very slowly. */
+    public void activateTarpit(
+            HttpServletRequest request, HttpServletResponse response, int delayMs) {
+        log.warn(
+                "AEGIS L7-CMCS: Activating TARPIT for {} delay {}ms",
+                request.getRemoteAddr(),
+                delayMs);
+        try {
+            tarpitManager.tarpitConnection(request, response, delayMs);
+        } catch (Exception e) {
+            log.error("Failed to tarpit connection", e);
+        }
     }
-  }
 
-  /** Issues a CPU-exhausting Proof-of-Work challenge to the attacker. */
-  public void issuePoWChallenge(HttpServletRequest request, HttpServletResponse response) {
-    log.warn("AEGIS L7-CMCS: Issuing PoW Hash Burn to {}", request.getRemoteAddr());
-    try {
-      powChallengeIssuer.issueChallenge(request, response);
-    } catch (IOException e) {
-      log.error("Failed to issue PoW challenge", e);
+    /** Issues a CPU-exhausting Proof-of-Work challenge to the attacker. */
+    public void issuePoWChallenge(HttpServletRequest request, HttpServletResponse response) {
+        log.warn("AEGIS L7-CMCS: Issuing PoW Hash Burn to {}", request.getRemoteAddr());
+        try {
+            powChallengeIssuer.issueChallenge(request, response);
+        } catch (IOException e) {
+            log.error("Failed to issue PoW challenge", e);
+        }
     }
-  }
 }

@@ -28,65 +28,65 @@ import jakarta.persistence.Id;
 @Entity
 public class ContactMessage {
 
-  @Id
-  @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Long id;
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-  private String name;
+    private String name;
 
-  // Phase 6: PII Encryption at Rest (Domain-Specific)
-  @Column(columnDefinition = "TEXT")
-  @Convert(converter = ContactEmailConverter.class)
-  private String email;
+    // Phase 6: PII Encryption at Rest (Domain-Specific)
+    @Column(columnDefinition = "TEXT")
+    @Convert(converter = ContactEmailConverter.class)
+    private String email;
 
-  // Phase 6: PII Encryption at Rest (Domain-Specific)
-  @Column(columnDefinition = "TEXT")
-  @Convert(converter = ContactMessageConverter.class)
-  private String message;
+    // Phase 6: PII Encryption at Rest (Domain-Specific)
+    @Column(columnDefinition = "TEXT")
+    @Convert(converter = ContactMessageConverter.class)
+    private String message;
 
-  // Phase 3: Honeypot field for bot detection
-  // AI-CONTEXT: This field is hidden from humans via CSS. Bots fill all fields.
-  @jakarta.persistence.Transient private String honeypot;
+    // Phase 3: Honeypot field for bot detection
+    // AI-CONTEXT: This field is hidden from humans via CSS. Bots fill all fields.
+    @jakarta.persistence.Transient private String honeypot;
 
-  public ContactMessage() {}
+    public ContactMessage() {}
 
-  public Long getId() {
-    return id;
-  }
+    public Long getId() {
+        return id;
+    }
 
-  public void setId(Long id) {
-    this.id = id;
-  }
+    public void setId(Long id) {
+        this.id = id;
+    }
 
-  public String getName() {
-    return name;
-  }
+    public String getName() {
+        return name;
+    }
 
-  public void setName(String name) {
-    this.name = name;
-  }
+    public void setName(String name) {
+        this.name = name;
+    }
 
-  public String getEmail() {
-    return email;
-  }
+    public String getEmail() {
+        return email;
+    }
 
-  public void setEmail(String email) {
-    this.email = email;
-  }
+    public void setEmail(String email) {
+        this.email = email;
+    }
 
-  public String getMessage() {
-    return message;
-  }
+    public String getMessage() {
+        return message;
+    }
 
-  public void setMessage(String message) {
-    this.message = message;
-  }
+    public void setMessage(String message) {
+        this.message = message;
+    }
 
-  public String getHoneypot() {
-    return honeypot;
-  }
+    public String getHoneypot() {
+        return honeypot;
+    }
 
-  public void setHoneypot(String honeypot) {
-    this.honeypot = honeypot;
-  }
+    public void setHoneypot(String honeypot) {
+        this.honeypot = honeypot;
+    }
 }

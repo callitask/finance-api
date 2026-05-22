@@ -37,30 +37,32 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class AelRuleLoader {
 
-  /**
-   * Parses a raw AEL string into a verified PolicyFile context. Throws an exception if syntax is
-   * malformed.
-   */
-  public aegisParser.PolicyFileContext loadRules(String aelContent) {
-    try {
-      aegisLexer lexer = new aegisLexer(CharStreams.fromString(aelContent));
-      CommonTokenStream tokens = new CommonTokenStream(lexer);
-      aegisParser parser = new aegisParser(tokens);
+    /**
+     * Parses a raw AEL string into a verified PolicyFile context. Throws an exception if syntax is
+     * malformed.
+     */
+    public aegisParser.PolicyFileContext loadRules(String aelContent) {
+        try {
+            aegisLexer lexer = new aegisLexer(CharStreams.fromString(aelContent));
+            CommonTokenStream tokens = new CommonTokenStream(lexer);
+            aegisParser parser = new aegisParser(tokens);
 
-      // Set error strategy to fail hard on syntax errors
-      parser.setErrorHandler(new org.antlr.v4.runtime.BailErrorStrategy());
+            // Set error strategy to fail hard on syntax errors
+            parser.setErrorHandler(new org.antlr.v4.runtime.BailErrorStrategy());
 
-      log.info("AEGIS AEL: Successfully parsed AEL policy ruleset.");
-      return parser.policyFile();
+            log.info("AEGIS AEL: Successfully parsed AEL policy ruleset.");
+            return parser.policyFile();
 
-    } catch (Exception e) {
-      log.error("AEGIS AEL: CRITICAL FAILURE parsing security policies. Syntax error detected.", e);
-      throw new IllegalArgumentException("Invalid AEL syntax in policy definition", e);
+        } catch (Exception e) {
+            log.error(
+                    "AEGIS AEL: CRITICAL FAILURE parsing security policies. Syntax error detected.",
+                    e);
+            throw new IllegalArgumentException("Invalid AEL syntax in policy definition", e);
+        }
     }
-  }
 
-  /** Extracts individual policies from the loaded file context. */
-  public List<aegisParser.PolicyContext> extractPolicies(aegisParser.PolicyFileContext context) {
-    return context.policy().stream().collect(Collectors.toList());
-  }
+    /** Extracts individual policies from the loaded file context. */
+    public List<aegisParser.PolicyContext> extractPolicies(aegisParser.PolicyFileContext context) {
+        return context.policy().stream().collect(Collectors.toList());
+    }
 }

@@ -38,70 +38,72 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Order(-105) // Runs immediately after InputSanitizationFilter but before Auth
 public class AegisDeceptionFilter extends OncePerRequestFilter {
 
-  private static final Logger logger = LoggerFactory.getLogger(AegisDeceptionFilter.class);
+    private static final Logger logger = LoggerFactory.getLogger(AegisDeceptionFilter.class);
 
-  // Common automated scanner and exploitation paths
-  private static final Pattern HONEYPOT_PATHS =
-      Pattern.compile("(?i)^/(\\.env|wp-admin|phpmyadmin|config\\.php|\\.git|vendor/phpunit).*");
+    // Common automated scanner and exploitation paths
+    private static final Pattern HONEYPOT_PATHS =
+            Pattern.compile(
+                    "(?i)^/(\\.env|wp-admin|phpmyadmin|config\\.php|\\.git|vendor/phpunit).*");
 
-  // Basic SQLi/XSS signatures that bypass ModSecurity (as a fallback layer)
-  private static final Pattern MALICIOUS_PAYLOADS =
-      Pattern.compile("(?i)(UNION\\s+SELECT|script>|\\.\\./\\.\\./|base64_decode\\()");
+    // Basic SQLi/XSS signatures that bypass ModSecurity (as a fallback layer)
+    private static final Pattern MALICIOUS_PAYLOADS =
+            Pattern.compile("(?i)(UNION\\s+SELECT|script>|\\.\\./\\.\\./|base64_decode\\()");
 
-  private final TarpitManager tarpitManager;
-  private final RabbitMQAttackPublisher attackPublisher;
+    private final TarpitManager tarpitManager;
+    private final RabbitMQAttackPublisher attackPublisher;
 
-  public AegisDeceptionFilter(
-      TarpitManager tarpitManager, RabbitMQAttackPublisher attackPublisher) {
-    this.tarpitManager = tarpitManager;
-    this.attackPublisher = attackPublisher;
-  }
-
-  @Override
-  protected void doFilterInternal(
-      HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
-      throws ServletException, IOException {
-
-    String path = request.getRequestURI();
-    String query = request.getQueryString() != null ? request.getQueryString() : "";
-
-    if (HONEYPOT_PATHS.matcher(path).matches() || MALICIOUS_PAYLOADS.matcher(query).find()) {
-      logger.warn(
-          "AEGIS L4-ADA: Malicious probe detected on path [{}]. Initiating Chaos Mirror.", path);
-
-      // Extract edge telemetry injected by OpenResty Lua (Phase 1)
-      String realIp = request.getHeader("X-Real-IP");
-      String ja3 = request.getHeader("X-JA3-Fingerprint");
-
-      // Broadcast the attack to the central event bus
-      attackPublisher.publishAttackEvent(realIp, ja3, path, "Deception Filter Intercept");
-
-      // Detach and route to the tarpit
-      tarpitManager.ensnare(response);
-      return; // Terminate normal filter chain execution
+    public AegisDeceptionFilter(
+            TarpitManager tarpitManager, RabbitMQAttackPublisher attackPublisher) {
+        this.tarpitManager = tarpitManager;
+        this.attackPublisher = attackPublisher;
     }
 
-    filterChain.doFilter(request, response);
-  }
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
 
-  /**
-   * Called by the L8-BCSM Master Filter when an attack is detected via consensus. Serves a highly
-   * deceptive, fake response to waste attacker analysis time.
-   */
-  public void servePoisonedResponse(HttpServletResponse response) throws IOException {
-    logger.info("AEGIS L4-ADA: Serving poisoned response to deceive scanner.");
-    response.setStatus(HttpServletResponse.SC_OK);
-    response.setContentType("application/json");
+        String path = request.getRequestURI();
+        String query = request.getQueryString() != null ? request.getQueryString() : "";
 
-    // Inject a fake, cryptographically invalid JWT to waste attacker cracking compute
-    String fakePayload =
-        "{"
-            + "\"status\":\"success\","
-            + "\"config_version\":\"1.0.4\","
-            + "\"debug_token\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiZGV2X2FkbWluIiwiZXhwIjoxNzk5OTk5OTk5fQ.fake_signature_to_waste_cracking_time\""
-            + "}";
+        if (HONEYPOT_PATHS.matcher(path).matches() || MALICIOUS_PAYLOADS.matcher(query).find()) {
+            logger.warn(
+                    "AEGIS L4-ADA: Malicious probe detected on path [{}]. Initiating Chaos Mirror.",
+                    path);
 
-    response.getWriter().write(fakePayload);
-    response.getWriter().flush();
-  }
+            // Extract edge telemetry injected by OpenResty Lua (Phase 1)
+            String realIp = request.getHeader("X-Real-IP");
+            String ja3 = request.getHeader("X-JA3-Fingerprint");
+
+            // Broadcast the attack to the central event bus
+            attackPublisher.publishAttackEvent(realIp, ja3, path, "Deception Filter Intercept");
+
+            // Detach and route to the tarpit
+            tarpitManager.ensnare(response);
+            return; // Terminate normal filter chain execution
+        }
+
+        filterChain.doFilter(request, response);
+    }
+
+    /**
+     * Called by the L8-BCSM Master Filter when an attack is detected via consensus. Serves a highly
+     * deceptive, fake response to waste attacker analysis time.
+     */
+    public void servePoisonedResponse(HttpServletResponse response) throws IOException {
+        logger.info("AEGIS L4-ADA: Serving poisoned response to deceive scanner.");
+        response.setStatus(HttpServletResponse.SC_OK);
+        response.setContentType("application/json");
+
+        // Inject a fake, cryptographically invalid JWT to waste attacker cracking compute
+        String fakePayload =
+                "{"
+                        + "\"status\":\"success\","
+                        + "\"config_version\":\"1.0.4\","
+                        + "\"debug_token\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiZGV2X2FkbWluIiwiZXhwIjoxNzk5OTk5OTk5fQ.fake_signature_to_waste_cracking_time\""
+                        + "}";
+
+        response.getWriter().write(fakePayload);
+        response.getWriter().flush();
+    }
 }

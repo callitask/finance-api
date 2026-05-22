@@ -6,5 +6,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface MarketHolidayRepository extends JpaRepository<MarketHoliday, LocalDate> {
-  boolean existsByHolidayDateAndMarket(LocalDate date, String market);
+    boolean existsByHolidayDateAndMarket(LocalDate date, String market);
 }
