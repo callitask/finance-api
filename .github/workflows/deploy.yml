@@ -49,9 +49,9 @@
 #  * • Extracted OWASP Dependency Check into a standalone parallel job (`dependency-security-scan`).
 #  * • Why: The NVD scan takes 10-15 minutes and requires massive memory. Running it on every single commit blocks rapid deployments. It now runs on schedule or manual dispatch.
 #  *
-#  * - EDITED (Hotfix - Self-Hosted Runner Gitleaks Cache):
-#  * • Injected `sudo rm -f /tmp/gitleaks.tmp || true` before the Gitleaks action.
-#  * • Why: Self-hosted runners retain filesystem state. A previously aborted run left a locked temp file, causing the gitleaks-action downloader to crash. This step provides idempotent self-healing.
+#  * - EDITED (Hotfix - Gitleaks Licensing & Network Bypass):
+#  * • Replaced `gitleaks/gitleaks-action@v2` with the raw open-source Docker container `zricethezav/gitleaks:latest`.
+#  * • Why: The action wrapper introduced a breaking change demanding a paid license for private repos and crashed during GitHub API network timeouts. Running the OSS docker container directly ensures 100% free, offline, and reliable secret scanning.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -131,16 +131,10 @@ jobs:
           exit 1
         fi
 
-    - name: Pre-Flight Cleanup (Self-Healing Runner State)
-      run: sudo rm -f /tmp/gitleaks.tmp || true
-
-    - name: Secret Scanning (Gitleaks — Prevent Credential Exposure)
-      uses: gitleaks/gitleaks-action@v2
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-      with:
-        args: --redact --verbose
+    - name: Secret Scanning (Gitleaks OSS via Docker)
+      run: |
+        echo "🔍 Running Open-Source Gitleaks via Docker to bypass action licensing..."
+        docker run --rm -v ${{ github.workspace }}:/workdir zricethezav/gitleaks:latest detect --source="/workdir" -v --redact
 
     - name: Set up JDK 21
       uses: actions/setup-java@v4
