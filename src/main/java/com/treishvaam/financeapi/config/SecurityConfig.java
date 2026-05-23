@@ -56,7 +56,15 @@
  * <p>- EDITED (Phase 5 - ZKP Admin Enforcement): • Injected `AegisZkpAdminFilter` into the Spring
  * Security chain. • Why: Enforces Zero-Knowledge Proof (L3-ZKA) authentication on all
  * `/api/v1/admin/**` endpoints, intercepting traffic immediately before the
- * UsernamePasswordAuthenticationFilter.
+ * UsernamePasswordAuthenticationFilter. * - EDITED (Phase 5.2 - AEGIS Filter Wiring Finalization):
+ * • Injected `AegisDeceptionFilter` directly into the Spring Security chain before
+ * `AegisMainFilter`. • Added `/api/v1/aegis/telemetry` to public POST endpoints to accept anonymous
+ * frontend biometric hashes. • Why: Completes the AEGIS runtime execution hierarchy and enables the
+ * L5-BIE telemetry pipeline.
+ *
+ * <p>- EDITED (Phase 6 - Dynamic Privacy Compliance Sync): • Whitelisted `X-Aegis-Biometric-Raw` in
+ * the global CorsFilter configuration. • Why: Ensures preflight checks pass when the frontend
+ * transmits complete biometric telemetry (jurisdiction allowing).
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
@@ -67,6 +75,7 @@ import com.treishvaam.financeapi.security.InputSanitizationFilter;
 import com.treishvaam.financeapi.security.InternalSecretFilter;
 import com.treishvaam.financeapi.security.KeycloakRealmRoleConverter;
 import com.treishvaam.financeapi.security.RateLimitingFilter;
+import com.treishvaam.financeapi.security.aegis.AegisDeceptionFilter;
 import com.treishvaam.financeapi.security.aegis.AegisMainFilter;
 import com.treishvaam.financeapi.security.aegis.AegisZkpAdminFilter;
 import java.util.Arrays;
@@ -104,6 +113,7 @@ public class SecurityConfig {
     private final InputSanitizationFilter inputSanitizationFilter;
     private final AegisMainFilter aegisMainFilter;
     private final AegisZkpAdminFilter aegisZkpAdminFilter;
+    private final AegisDeceptionFilter aegisDeceptionFilter;
 
     @Value("#{'${cors.allowed-origins}'.split(',')}")
     private List<String> allowedOrigins;
@@ -113,12 +123,14 @@ public class SecurityConfig {
             InternalSecretFilter internalSecretFilter,
             InputSanitizationFilter inputSanitizationFilter,
             AegisMainFilter aegisMainFilter,
-            AegisZkpAdminFilter aegisZkpAdminFilter) {
+            AegisZkpAdminFilter aegisZkpAdminFilter,
+            AegisDeceptionFilter aegisDeceptionFilter) {
         this.rateLimitingFilter = rateLimitingFilter;
         this.internalSecretFilter = internalSecretFilter;
         this.inputSanitizationFilter = inputSanitizationFilter;
         this.aegisMainFilter = aegisMainFilter;
         this.aegisZkpAdminFilter = aegisZkpAdminFilter;
+        this.aegisDeceptionFilter = aegisDeceptionFilter;
     }
 
     @Bean
@@ -186,9 +198,12 @@ public class SecurityConfig {
                                         .requestMatchers("/api/v1/contact/**")
                                         .permitAll()
 
-                                        // PHASE 5: Allow Public First-Party Analytics Beacons (POST
-                                        // ONLY)
-                                        .requestMatchers(HttpMethod.POST, "/api/v1/analytics/**")
+                                        // PHASE 5: Allow Public Analytics & AEGIS Telemetry Beacons
+                                        // (POST ONLY)
+                                        .requestMatchers(
+                                                HttpMethod.POST,
+                                                "/api/v1/analytics/**",
+                                                "/api/v1/aegis/telemetry")
                                         .permitAll()
 
                                         // --- Draft Operations (Authenticated — any logged-in user)
@@ -239,6 +254,8 @@ public class SecurityConfig {
                                                 jwt.jwtAuthenticationConverter(
                                                         jwtAuthenticationConverter())))
                 .addFilterBefore(
+                        aegisDeceptionFilter, AegisMainFilter.class) // L4-ADA DECEPTION INTERCEPTOR
+                .addFilterBefore(
                         aegisMainFilter, InternalSecretFilter.class) // INJECTED AEGIS MASTER FILTER
                 .addFilterBefore(
                         aegisZkpAdminFilter, UsernamePasswordAuthenticationFilter.class) // L3-ZKA
@@ -266,7 +283,7 @@ public class SecurityConfig {
         configuration.setAllowedMethods(
                 Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
 
-        // SEC-07: Explicitly limit headers instead of allowing wildcard
+        // SEC-07 & Phase 6: Explicitly limit headers and allow raw telemetry header
         configuration.setAllowedHeaders(
                 Arrays.asList(
                         "Authorization",
@@ -278,7 +295,9 @@ public class SecurityConfig {
                         "Access-Control-Request-Headers",
                         "X-CSRF-Token",
                         "X-AEGIS-ZKP-Proof",
-                        "X-AEGIS-Challenge-ID")); // Added ZKP Headers to CORS
+                        "X-AEGIS-Challenge-ID",
+                        "X-Aegis-Biometric-Hash",
+                        "X-Aegis-Biometric-Raw")); // Added Raw Telemetry for full data fidelity
 
         configuration.setExposedHeaders(
                 Arrays.asList(
