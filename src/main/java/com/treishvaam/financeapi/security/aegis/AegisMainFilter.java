@@ -11,7 +11,10 @@
  * <p>Security Constraints: - Must catch all exceptions to prevent fail-open scenarios.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Initial creation for Phase 5 integration.
- * • Connected Temporal Path manager to catch obfuscation bypass attempts.
+ * • Connected Temporal Path manager to catch obfuscation bypass attempts. - EDITED: • Phase 3.2 ADA
+ * Update: Updated deceptionFilter.servePoisonedResponse() calls to pass the HttpServletRequest
+ * object, ensuring the Deception Engine has full context for strategy selection. • What behavior
+ * must remain unchanged: L2-PPO and L8-BCSM routing logic.
  */
 package com.treishvaam.financeapi.security.aegis;
 
@@ -63,7 +66,7 @@ public class AegisMainFilter extends OncePerRequestFilter {
             String resolvedPath = temporalPathManager.resolveCanonicalPath(request.getRequestURI());
             if ("DECEPTION".equals(resolvedPath)) {
                 // Attacker tried to access a hidden canonical path directly
-                deceptionFilter.servePoisonedResponse(response);
+                deceptionFilter.servePoisonedResponse(request, response);
                 return;
             }
 
@@ -84,7 +87,7 @@ public class AegisMainFilter extends OncePerRequestFilter {
                     return;
 
                 case DECEPTION:
-                    deceptionFilter.servePoisonedResponse(response);
+                    deceptionFilter.servePoisonedResponse(request, response);
                     return;
 
                 case TARPIT:

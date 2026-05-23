@@ -7,7 +7,7 @@
  * Detects overt vulnerability scanning (e.g., /.env, /wp-admin, simple SQLi). - Routes attackers
  * into the TarpitManager to exhaust their resources.
  *
- * <p>Critical Dependencies: - TarpitManager: Holds the TCP connection open indefinitely. -
+ * <p>Critical Dependencies: - AegisDeceptionEngine: Routes to appropriate deception strategy. -
  * RabbitMQAttackPublisher: Sends telemetry to Wazuh/Grafana.
  *
  * <p>Security Constraints: - Must operate efficiently to avoid bottlenecking legitimate traffic. -
@@ -18,7 +18,11 @@
  * reaching actual controllers. - EDITED (AEGIS Phase 5 Fix): • Added
  * `servePoisonedResponse(HttpServletResponse)` method required by AegisMainFilter and L8-BCSM. •
  * Implements an active honeypot response generating a fake 200 OK with a dummy JWT token to trick
- * automated scanner logic and waste attacker cracking time.
+ * automated scanner logic and waste attacker cracking time. - EDITED: • Phase 3.2 ADA Update:
+ * Refactored to delegate payload generation and strategy to AegisDeceptionEngine. • Changed
+ * servePoisonedResponse signature to require HttpServletRequest for context-aware deception. • What
+ * behavior must remain unchanged: Interception patterns and RabbitMQ event publishing must still
+ * execute identically.
  */
 package com.treishvaam.financeapi.security.aegis;
 
@@ -49,12 +53,12 @@ public class AegisDeceptionFilter extends OncePerRequestFilter {
     private static final Pattern MALICIOUS_PAYLOADS =
             Pattern.compile("(?i)(UNION\\s+SELECT|script>|\\.\\./\\.\\./|base64_decode\\()");
 
-    private final TarpitManager tarpitManager;
+    private final AegisDeceptionEngine deceptionEngine;
     private final RabbitMQAttackPublisher attackPublisher;
 
     public AegisDeceptionFilter(
-            TarpitManager tarpitManager, RabbitMQAttackPublisher attackPublisher) {
-        this.tarpitManager = tarpitManager;
+            AegisDeceptionEngine deceptionEngine, RabbitMQAttackPublisher attackPublisher) {
+        this.deceptionEngine = deceptionEngine;
         this.attackPublisher = attackPublisher;
     }
 
@@ -68,7 +72,7 @@ public class AegisDeceptionFilter extends OncePerRequestFilter {
 
         if (HONEYPOT_PATHS.matcher(path).matches() || MALICIOUS_PAYLOADS.matcher(query).find()) {
             logger.warn(
-                    "AEGIS L4-ADA: Malicious probe detected on path [{}]. Initiating Chaos Mirror.",
+                    "AEGIS L4-ADA: Malicious probe detected on path [{}]. Initiating Chaos Mirror via Engine.",
                     path);
 
             // Extract edge telemetry injected by OpenResty Lua (Phase 1)
@@ -78,8 +82,8 @@ public class AegisDeceptionFilter extends OncePerRequestFilter {
             // Broadcast the attack to the central event bus
             attackPublisher.publishAttackEvent(realIp, ja3, path, "Deception Filter Intercept");
 
-            // Detach and route to the tarpit
-            tarpitManager.ensnare(response);
+            // Detach and route to the intelligent engine
+            deceptionEngine.executeDeception(request, response);
             return; // Terminate normal filter chain execution
         }
 
@@ -90,20 +94,10 @@ public class AegisDeceptionFilter extends OncePerRequestFilter {
      * Called by the L8-BCSM Master Filter when an attack is detected via consensus. Serves a highly
      * deceptive, fake response to waste attacker analysis time.
      */
-    public void servePoisonedResponse(HttpServletResponse response) throws IOException {
-        logger.info("AEGIS L4-ADA: Serving poisoned response to deceive scanner.");
-        response.setStatus(HttpServletResponse.SC_OK);
-        response.setContentType("application/json");
-
-        // Inject a fake, cryptographically invalid JWT to waste attacker cracking compute
-        String fakePayload =
-                "{"
-                        + "\"status\":\"success\","
-                        + "\"config_version\":\"1.0.4\","
-                        + "\"debug_token\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiZGV2X2FkbWluIiwiZXhwIjoxNzk5OTk5OTk5fQ.fake_signature_to_waste_cracking_time\""
-                        + "}";
-
-        response.getWriter().write(fakePayload);
-        response.getWriter().flush();
+    public void servePoisonedResponse(HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
+        logger.info(
+                "AEGIS L4-ADA: Serving poisoned response to deceive scanner via Master Filter Command.");
+        deceptionEngine.executeDeception(request, response);
     }
 }
