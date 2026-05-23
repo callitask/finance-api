@@ -49,13 +49,14 @@
 #  * • Extracted OWASP Dependency Check into a standalone parallel job (`dependency-security-scan`).
 #  * • Why: The NVD scan takes 10-15 minutes and requires massive memory. Running it on every single commit blocks rapid deployments. It now runs on schedule or manual dispatch.
 #  *
-#  * - EDITED (Hotfix - Gitleaks Licensing & Network Bypass):
-#  * • Replaced `gitleaks/gitleaks-action@v2` with the raw open-source Docker container `zricethezav/gitleaks:latest`.
-#  * • Why: The action wrapper introduced a breaking change demanding a paid license for private repos and crashed during GitHub API network timeouts. Running the OSS docker container directly ensures 100% free, offline, and reliable secret scanning.
+#  * - EDITED (Hotfix - Self-Hosted Runner Gitleaks Cache):
+#  * • Injected `sudo rm -f /tmp/gitleaks.tmp || true` before the Gitleaks action.
+#  * • Why: Self-hosted runners retain filesystem state. A previously aborted run left a locked temp file, causing the gitleaks-action downloader to crash. This step provides idempotent self-healing.
 #  *
-#  * - EDITED (Fix-Forward GHCR & Env Variables):
-#  * • Injected local `docker build -t ghcr.io/callitask/finance-api:latest .` step to bypass external registry pull denials after server cache pruning.
-#  * • Injected explicit `.env` sourcing and `scripts/` file sync to fix Docker Compose interpolation warnings and database connection crashes.
+#  * - EDITED (Fix-Forward: Registry Denial & Zero-Trust Flash/Wipe):
+#  * • Injected `bash scripts/load_secrets.sh` before container boot, and `cp .env.template .env` after.
+#  * • Added `--build` flag to `docker compose up`.
+#  * • Why: Resolves the "error from registry: denied" and missing variable warnings by ensuring the CI runner dynamically fetches production secrets via Infisical and reconstructs the Docker image locally without relying on external GitHub Container Registries.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -135,10 +136,16 @@ jobs:
           exit 1
         fi
 
-    - name: Secret Scanning (Gitleaks OSS via Docker)
-      run: |
-        echo "🔍 Running Open-Source Gitleaks via Docker to bypass action licensing..."
-        docker run --rm -v ${{ github.workspace }}:/workdir zricethezav/gitleaks:latest detect --source="/workdir" -v --redact
+    - name: Pre-Flight Cleanup (Self-Healing Runner State)
+      run: sudo rm -f /tmp/gitleaks.tmp || true
+
+    - name: Secret Scanning (Gitleaks — Prevent Credential Exposure)
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+      with:
+        args: --redact --verbose
 
     - name: Set up JDK 21
       uses: actions/setup-java@v4
@@ -160,42 +167,24 @@ jobs:
     - name: Deploy to Application Folder
       run: |
         echo "--> Stopping Background Services to free RAM..."
-        echo "--> Copying updated deployment files to server root..."
+        echo "--> Copying new WAR file..."
         cp target/finance-api.war /opt/treishvaam/backend-app.war
-        cp Dockerfile /opt/treishvaam/Dockerfile
-        cp docker-compose.yml /opt/treishvaam/docker-compose.yml
-        cp -r scripts /opt/treishvaam/ || true
-
-        cd /opt/treishvaam
-
-        echo "--> Rebuilding Base Image locally to bypass GHCR auth..."
-        # Build natively so Docker Compose doesn't try to pull from GitHub and fail
-        docker build -t ghcr.io/callitask/finance-api:latest .
-        
-        echo "--> Hydrating and Sourcing Environment Variables..."
-        # Force secret hydration to prevent missing password warnings
-        if [ -f "scripts/load_secrets.sh" ]; then
-          chmod +x scripts/load_secrets.sh
-          bash scripts/load_secrets.sh
-        elif command -v infisical &> /dev/null; then
-          infisical export --env=prod --format=dotenv > .env || true
-        fi
-        
-        # Source the .env file so docker compose can interpolate the values natively
-        if [ -f ".env" ]; then
-          set -a
-          source .env
-          set +a
-        else
-          echo "❌ CRITICAL: .env file is missing! Containers will fail to start."
-          exit 1
-        fi
 
         echo "--> Restarting Backend..."
+        cd /opt/treishvaam
+        
         # Robust Container Restart
         docker compose stop backend || true
         docker compose rm -f -s -v backend || true
-        docker compose up -d --force-recreate --no-deps backend
+        
+        echo "--> [SECURITY] Hydrating Secrets via Infisical..."
+        bash scripts/load_secrets.sh
+        
+        echo "--> [DOCKER] Building Local Base Image & Recreating Container..."
+        docker compose up -d --build --force-recreate --no-deps backend
+        
+        echo "--> [SECURITY] Executing Flash & Wipe (Securing .env)..."
+        cp .env.template .env
         
         echo "--> Pruning unused Docker images..."
         docker image prune -f
