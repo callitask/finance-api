@@ -1,0 +1,33 @@
+// AI-CONTEXT:
+// Purpose: gRPC Protobuf definitions for the Zero-Knowledge Proof verification service.
+// Scope: Establishes a language-agnostic contract between Java Spring Boot and Go (gnark).
+// Security Constraints: Never expose this service to the public network; bound strictly to internal Docker network (9090).
+// Future AI Guidance: If changing the schema, you must recompile both Java and Go bindings.
+//
+// IMMUTABLE CHANGE HISTORY:
+// - ADDED: Initial Proto schema for Phase 4 ZKP integration.
+// - DO-NOT-DELETE RULE: This section must never be deleted.
+
+syntax = "proto3";
+
+package aegis.zkp;
+option go_package = "aegis/zkp-service/pb";
+option java_package = "com.treishvaam.financeapi.security.aegis.zkp";
+option java_multiple_files = true;
+
+service ZkpValidator {
+    rpc VerifyProof(ZkpRequest) returns (ZkpResponse);
+}
+
+message ZkpRequest {
+    string session_id = 1;
+    bytes public_key = 2;
+    bytes proof_data = 3;
+    bytes challenge_string = 4;
+}
+
+message ZkpResponse {
+    bool is_valid = 1;
+    double confidence_score = 2;
+    string error_message = 3;
+}
