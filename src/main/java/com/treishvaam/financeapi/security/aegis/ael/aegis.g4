@@ -19,10 +19,11 @@
  *
  * Change Intent:
  * - Phase 5: Created formal grammar to support verifiable dynamic defense-in-depth rules.
- * - FIX: Re-added `@header` block to fix missing package declarations in generated Java files.
+ * - FIX: Remove explicit `@header` and stray `}` to prevent generated class corruption.
  *
  * Future AI Guidance:
  * - If new metrics or defensive actions are created (e.g. Rate Limiting variables), add them to the parser tokens here.
+ * - DO NOT add an `@header` block for the package name. It is handled natively by `pom.xml`.
  *
  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
  * - ADDED:
@@ -38,6 +39,10 @@
  * • Restored the `@header { package com.treishvaam.financeapi.security.aegis.ael; }` declaration.
  * • Why: Without this explicit instruction, ANTLR dumps the generated classes into the default package, which `javac` inherently rejects when they are output into a nested directory structure, causing the compilation failure.
  *
+ * - EDITED (CI/CD Pipeline Fix-Forward):
+ * • Removed the `@header` block and the trailing `}` syntax error.
+ * • Why: The manual `@header` was causing double package declarations and injecting corrupted syntax at the top of the file. We are now delegating the package declaration entirely to the `antlr4-maven-plugin` via the `<package>` tag in `pom.xml`. This ensures exactly one correct package statement per generated file, guaranteeing a deterministic compile.
+ *
  * - DO-NOT-DELETE RULE:
  * This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated, rewritten, or regenerated.
  * Future AI must append only.
@@ -45,12 +50,9 @@
 
 grammar aegis;
 
-@header {
-    package com.treishvaam.financeapi.security.aegis.ael;
-}
-
 policyFile : policy* EOF;
 policy : 'POLICY' ID '{' condition 'THEN' action ('ELSE' action)? '}' ;
+
 condition
     : expr
     | condition 'AND' condition
@@ -58,6 +60,7 @@ condition
     | 'NOT' condition
     | '(' condition ')'
     ;
+
 expr
     : behavioralExpr
     | cryptoExpr  
@@ -65,15 +68,19 @@ expr
     | timeExpr
     | scoreExpr
     ;
+
 behavioralExpr
     : 'BEHAVIOR.' ('BOT_SCORE' | 'ENTROPY' | 'REQUEST_RATE' | 'ENDPOINT_COVERAGE') comparator NUMBER
     ;
+
 cryptoExpr
     : 'CRYPTO.' ('JWT_VALID' | 'ZKP_VERIFIED' | 'PQC_SIGNED' | 'TOKEN_AGE') (comparator NUMBER)?
     ;
+
 networkExpr
     : 'NETWORK.' ('JA3_HASH' | 'IP_REPUTATION' | 'GEO_COUNTRY' | 'ASN_TYPE') (comparator (STRING | NUMBER))?
     ;
+
 timeExpr: 'TIME' comparator NUMBER ;
 scoreExpr: 'SCORE' comparator NUMBER ;
 

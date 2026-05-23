@@ -365,6 +365,7 @@
                             </includes>
                             <visitor>true</visitor>
                             <listener>true</listener>
+                            <package>com.treishvaam.financeapi.security.aegis.ael</package>
                         </configuration>
                     </execution>
                 </executions>
