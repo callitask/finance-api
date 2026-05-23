@@ -52,6 +52,10 @@
 #  * - EDITED (Hotfix - Gitleaks Licensing & Network Bypass):
 #  * • Replaced `gitleaks/gitleaks-action@v2` with the raw open-source Docker container `zricethezav/gitleaks:latest`.
 #  * • Why: The action wrapper introduced a breaking change demanding a paid license for private repos and crashed during GitHub API network timeouts. Running the OSS docker container directly ensures 100% free, offline, and reliable secret scanning.
+#  *
+#  * - EDITED (Fix-Forward GHCR & Env Variables):
+#  * • Injected local `docker build -t ghcr.io/callitask/finance-api:latest .` step to bypass external registry pull denials after server cache pruning.
+#  * • Injected explicit `.env` sourcing and `scripts/` file sync to fix Docker Compose interpolation warnings and database connection crashes.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -156,12 +160,38 @@ jobs:
     - name: Deploy to Application Folder
       run: |
         echo "--> Stopping Background Services to free RAM..."
-        echo "--> Copying new WAR file..."
+        echo "--> Copying updated deployment files to server root..."
         cp target/finance-api.war /opt/treishvaam/backend-app.war
+        cp Dockerfile /opt/treishvaam/Dockerfile
+        cp docker-compose.yml /opt/treishvaam/docker-compose.yml
+        cp -r scripts /opt/treishvaam/ || true
+
+        cd /opt/treishvaam
+
+        echo "--> Rebuilding Base Image locally to bypass GHCR auth..."
+        # Build natively so Docker Compose doesn't try to pull from GitHub and fail
+        docker build -t ghcr.io/callitask/finance-api:latest .
+        
+        echo "--> Hydrating and Sourcing Environment Variables..."
+        # Force secret hydration to prevent missing password warnings
+        if [ -f "scripts/load_secrets.sh" ]; then
+          chmod +x scripts/load_secrets.sh
+          bash scripts/load_secrets.sh
+        elif command -v infisical &> /dev/null; then
+          infisical export --env=prod --format=dotenv > .env || true
+        fi
+        
+        # Source the .env file so docker compose can interpolate the values natively
+        if [ -f ".env" ]; then
+          set -a
+          source .env
+          set +a
+        else
+          echo "❌ CRITICAL: .env file is missing! Containers will fail to start."
+          exit 1
+        fi
 
         echo "--> Restarting Backend..."
-        cd /opt/treishvaam
-        
         # Robust Container Restart
         docker compose stop backend || true
         docker compose rm -f -s -v backend || true
