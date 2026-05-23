@@ -1,3 +1,36 @@
+# /**
+#  * AI-CONTEXT:
+#  *
+#  * Purpose:
+#  * - Multi-stage Docker build for the Treishvaam Finance Backend API.
+#  *
+#  * Scope:
+#  * - Stage 1: Builds the WAR file natively using Maven/Java 21 to bypass GHCR network denials.
+#  * - Stage 2: Executes the application using a minimal, secure JRE environment.
+#  *
+#  * Critical Dependencies:
+#  * - Backend: `pom.xml`, `src/`, `checkstyle.xml`, `dependency-check-suppressions.xml`.
+#  *
+#  * Security Constraints:
+#  * - The final container must run as the non-root `spring` user.
+#  * - Secrets must be injected at runtime, NEVER baked into the image.
+#  *
+#  * Non-Negotiables:
+#  * - Do not revert to root execution.
+#  * - Maintain the multi-stage build to keep the final image size minimal and secure.
+#  *
+#  * Change Intent:
+#  * - Resolving the Maven validate phase crash (`exit code: 1`) caused by missing Checkstyle and OWASP suppression configuration files in the build context.
+#  *
+#  * Future AI Guidance:
+#  * - If new root-level configuration files are added (e.g., for Spotless or JaCoCo), they MUST be explicitly copied into the `builder` stage.
+#  *
+#  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+#  * - EDITED:
+#  * • Added `COPY checkstyle.xml .` and `COPY dependency-check-suppressions.xml .` to the builder stage.
+#  * • Why: The `maven-checkstyle-plugin` and `dependency-check-maven` plugins require these files to run natively inside the isolated Docker build context. Fixed "Unable to find configuration file at location" error.
+#  */
+
 # ------------------------------------------------------------------------------
 # STAGE 1: Build the Application
 # ------------------------------------------------------------------------------
@@ -12,7 +45,9 @@ COPY pom.xml .
 # 2. Download dependencies (Cached if pom.xml doesn't change)
 RUN mvn dependency:go-offline
 
-# 3. Copy source code and build
+# 3. Copy validation configurations and source code, then build
+COPY checkstyle.xml .
+COPY dependency-check-suppressions.xml .
 COPY src ./src
 RUN mvn clean package -DskipTests
 
