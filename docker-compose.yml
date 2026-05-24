@@ -54,6 +54,10 @@
 #  * • Added `build: .` context to the `backend` service.
 #  * • Why: Allows `docker compose up --build` to compile the image locally using the resident `Dockerfile`, permanently bypassing `ghcr.io` registry authentication denials after a system cache prune.
 #  *
+#  * - EDITED (AEGIS Phase 4 - Edge MTD Sync):
+#  * • Injected `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_THREAT_KV_NAMESPACE_ID`, and `CLOUDFLARE_API_TOKEN` into the backend.
+#  * • Why: Enables the backend RabbitMQ consumer to dynamically push malicious IP/JA3 signatures to the Edge KV store for real-time global botnet dropping.
+#  *
 #  * - DO-NOT-DELETE RULE:
 #  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
 #  * truncated, rewritten, or regenerated.
@@ -296,6 +300,9 @@ services:
       - GA4_BIGQUERY_DATASET_ID=${GA4_BIGQUERY_DATASET_ID}
       - MINIO_ACCESS_KEY=admin
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
+      - CLOUDFLARE_THREAT_KV_NAMESPACE_ID=${CLOUDFLARE_THREAT_KV_NAMESPACE_ID}
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
       - SPRING_PROFILES_ACTIVE=prod
       - SPRING_DATA_REDIS_HOST=treishvaam-redis
       - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
