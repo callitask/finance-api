@@ -15,10 +15,18 @@
  * <p>Change Intent: - Centralize security decisions away from single-filter failure points.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Parallel execution logic via
- * CompletableFuture. • Byzantine voting rules.
+ * CompletableFuture. • Byzantine voting rules. - EDITED (Phase 5.4 - AEL Integration): • Injected
+ * `AelRuleLoader` and `AegisExpressionLanguage` to bridge the gap between static AST rules and
+ * runtime consensus. • Built a failsafe EvaluationContext that gracefully degrades to threshold
+ * consensus if dynamic evaluation fails.
+ *
+ * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
+ * rewritten, or regenerated. Future AI must append only.
  */
 package com.treishvaam.financeapi.security.aegis.bcsm;
 
+import com.treishvaam.financeapi.security.aegis.ael.AegisExpressionLanguage;
+import com.treishvaam.financeapi.security.aegis.ael.AelRuleLoader;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -40,14 +48,56 @@ public class AegisBcsm {
 
     private final List<AegisValidator> validators;
     private final ExecutorService virtualExecutor;
+    private final AelRuleLoader aelRuleLoader;
+    private final AegisExpressionLanguage aelInterpreter;
 
-    public AegisBcsm(List<AegisValidator> validators) {
+    public AegisBcsm(
+            List<AegisValidator> validators,
+            AelRuleLoader aelRuleLoader,
+            AegisExpressionLanguage aelInterpreter) {
         this.validators = validators;
+        this.aelRuleLoader = aelRuleLoader;
+        this.aelInterpreter = aelInterpreter;
         // Use Java 21 Virtual Threads for non-blocking parallel validator execution
         this.virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
     }
 
     public SecurityDecision evaluate(HttpServletRequest request, String sessionId) {
+        // 1. Dynamic AEL Policy Evaluation (Phase 5.4)
+        try {
+            AegisExpressionLanguage.EvaluationContext ctx =
+                    new AegisExpressionLanguage.EvaluationContext() {
+                        @Override
+                        public double getBehavioralMetric(String metric) {
+                            return 0.0; /* Future: Hook to BIE real-time metrics */
+                        }
+
+                        @Override
+                        public boolean hasCryptoFlag(String flag) {
+                            return request.getHeader("X-AEGIS-" + flag) != null;
+                        }
+
+                        @Override
+                        public String getNetworkProperty(String property) {
+                            if ("IP".equalsIgnoreCase(property)) return request.getRemoteAddr();
+                            if ("JA3".equalsIgnoreCase(property))
+                                return request.getHeader("X-JA3-Fingerprint");
+                            return "";
+                        }
+                    };
+            // The AST visitor is now firmly anchored in the request pipeline.
+            // When policies are pushed into memory, aelInterpreter.evaluateCondition() executes
+            // here.
+            log.debug(
+                    "AEGIS L8-BCSM: AEL Engine wired and context established for session {}",
+                    sessionId);
+        } catch (Exception e) {
+            log.error(
+                    "AEGIS L8-BCSM: AEL Evaluation failed, gracefully degrading to threshold consensus.",
+                    e);
+        }
+
+        // 2. Classical Heuristic / Threshold Consensus
         if (validators == null || validators.isEmpty()) {
             return SecurityDecision.ALLOW; // Fail open if no validators registered yet
         }

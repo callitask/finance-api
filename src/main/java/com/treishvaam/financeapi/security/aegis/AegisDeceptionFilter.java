@@ -22,7 +22,14 @@
  * Refactored to delegate payload generation and strategy to AegisDeceptionEngine. • Changed
  * servePoisonedResponse signature to require HttpServletRequest for context-aware deception. • What
  * behavior must remain unchanged: Interception patterns and RabbitMQ event publishing must still
- * execute identically.
+ * execute identically. - EDITED (Phase 5.4 - Cloudflare Anti-Cache Hardening): • Injected
+ * aggressive `Cache-Control: no-store` and `Pragma: no-cache` headers into both entry points. •
+ * Why: Neutralizes Gap G11. Guarantees that Cloudflare Edge KV and browser caches will NEVER
+ * memorize a poisoned trap payload and inadvertently serve it to an organic user on a subsequent
+ * request.
+ *
+ * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
+ * rewritten, or regenerated. Future AI must append only.
  */
 package com.treishvaam.financeapi.security.aegis;
 
@@ -82,6 +89,11 @@ public class AegisDeceptionFilter extends OncePerRequestFilter {
             // Broadcast the attack to the central event bus
             attackPublisher.publishAttackEvent(realIp, ja3, path, "Deception Filter Intercept");
 
+            // Phase 5.4 - Neutralize Cloudflare Edge Caching (G11)
+            response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+            response.setHeader("Pragma", "no-cache");
+            response.setDateHeader("Expires", 0);
+
             // Detach and route to the intelligent engine
             deceptionEngine.executeDeception(request, response);
             return; // Terminate normal filter chain execution
@@ -98,6 +110,12 @@ public class AegisDeceptionFilter extends OncePerRequestFilter {
             throws IOException {
         logger.info(
                 "AEGIS L4-ADA: Serving poisoned response to deceive scanner via Master Filter Command.");
+
+        // Phase 5.4 - Neutralize Cloudflare Edge Caching (G11)
+        response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+        response.setHeader("Pragma", "no-cache");
+        response.setDateHeader("Expires", 0);
+
         deceptionEngine.executeDeception(request, response);
     }
 }

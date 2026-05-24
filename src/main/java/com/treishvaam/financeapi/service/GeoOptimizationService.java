@@ -1,6 +1,7 @@
 package com.treishvaam.financeapi.service;
 
 import com.treishvaam.financeapi.model.BlogPost;
+import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -27,6 +28,10 @@ import org.springframework.stereotype.Service;
  * live editorial data. • Utilized safe stream API fallback extraction (`findAll().stream()`) to
  * prevent `NoSuchMethodError` crashes during Spring boot execution if specific JPA derived
  * signatures shift during schema updates.
+ *
+ * <p>- EDITED (Hotfix - Build Failure): • Replaced invalid method reference `BlogPost::isPublished`
+ * with strict Enum comparison `post.getStatus() == PostStatus.PUBLISHED`. • Why: Restored build
+ * integrity while preserving the Fix-Forward momentum.
  */
 @Service
 public class GeoOptimizationService {
@@ -69,11 +74,9 @@ public class GeoOptimizationService {
         sb.append("### Latest Strategic Editorial Intelligence\n");
 
         try {
-            // Enterprise Fix-Forward: Utilizing safe stream filter instead of highly specific
-            // method signatures to guarantee startup stability.
             List<BlogPost> recentPosts =
                     blogPostRepository.findAll().stream()
-                            .filter(BlogPost::isPublished)
+                            .filter(post -> post.getStatus() == PostStatus.PUBLISHED)
                             .sorted((p1, p2) -> p2.getCreatedAt().compareTo(p1.getCreatedAt()))
                             .limit(10)
                             .collect(Collectors.toList());
