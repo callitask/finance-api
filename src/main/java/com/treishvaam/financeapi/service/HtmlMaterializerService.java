@@ -16,6 +16,25 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Edge-Side HTML Materialization engine for SEO and fallback caching.
+ *
+ * <p>Scope: - Scrapes the dynamic internal shell, hydrates it with DB state, and pushes a complete
+ * static HTML to the bucket.
+ *
+ * <p>Critical Dependencies: - FileStorageService (MinIO) - Cloudflare Edge (Worker fetches these
+ * materialized files as a last resort)
+ *
+ * <p>Security Constraints: - Must never materialize PII or administrative views.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • HTML materialization engine for Next.js
+ * SEO rendering bypass. - EDITED (Phase 8 GEO Full Execution): • Injected explicitly typed `<link
+ * rel="alternate">` tags pointing to the semantic JSON-LD Ontology and LLM Markdown Feeds into the
+ * `<head>` of all materialized HTML content. • Why: To ensure AI Crawlers (Google-Extended, OpenAI)
+ * landing on materialized HTML instantly trace the entity graph and structured RAG endpoints.
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
@@ -28,7 +47,7 @@ public class HtmlMaterializerService {
     @Value("${app.frontend.internal-url:http://treishvaam-nginx}")
     private String frontendInternalUrl;
 
-    @Value("${app.frontend.public-url:https://treishfin.treishvaamgroup.com}")
+    @Value("${app.frontend.public-url:https://treishvaamfinance.com}")
     private String publicUrl;
 
     @Async
@@ -58,7 +77,7 @@ public class HtmlMaterializerService {
             Document doc = Jsoup.parse(htmlShell);
 
             // 3. Inject Metadata
-            doc.title(post.getTitle() + " | Treishfin");
+            doc.title(post.getTitle() + " | Treishvaam Finance");
             doc.select("meta[name=description]").remove();
             doc.head()
                     .appendElement("meta")
@@ -83,9 +102,21 @@ public class HtmlMaterializerService {
                 updateMeta(doc, "name", "twitter:image", imgUrl);
             }
 
-            // 4. Inject JSON-LD
+            // 4. Inject JSON-LD & GEO Semantic Links
             String jsonLd = buildJsonLd(post);
             doc.head().appendElement("script").attr("type", "application/ld+json").html(jsonLd);
+
+            // Explicitly broadcast GEO endpoints to any crawler hitting the raw HTML
+            doc.head()
+                    .appendElement("link")
+                    .attr("rel", "alternate")
+                    .attr("type", "application/json+ld")
+                    .attr("href", publicUrl + "/api/public/geo/ontology.json");
+            doc.head()
+                    .appendElement("link")
+                    .attr("rel", "alternate")
+                    .attr("type", "text/markdown")
+                    .attr("href", publicUrl + "/api/public/geo/ai-feed.md");
 
             // 5. Inject Content (Server-Side Rendering)
             Element serverContentDiv = doc.getElementById("server-content");

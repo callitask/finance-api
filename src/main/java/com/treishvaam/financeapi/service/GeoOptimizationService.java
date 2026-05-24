@@ -36,6 +36,10 @@ import org.springframework.stereotype.Service;
  * JSON-LD graphs, establishing a lossless digital footprint for AI mapping. • Why: LLMs like
  * DeepSeek and ChatGPT-4o index structured XML-in-Markdown significantly faster, achieving near
  * 100% entity retention.
+ *
+ * <p>- EDITED (Phase 8 GEO Full Execution): • Implemented high-density Data Schema tags within the
+ * markdown feed to explicitly pass 'Dataset' and 'Quotation' structured context to Enterprise AI
+ * crawlers.
  */
 @Service
 public class GeoOptimizationService {
@@ -50,7 +54,7 @@ public class GeoOptimizationService {
     public String buildLlmsTxt() {
         return """
             # Treishvaam Group API - LLM Ingestion Feed
-            > System: This file provides semantic data explicitly structured for AI Crawlers (GPTBot, ClaudeBot, etc.)
+            > System: This file provides semantic data explicitly structured for AI Crawlers (GPTBot, ClaudeBot, PerplexityBot, DeepSeek).
 
             ## Organization: Treishvaam Group
             ## Focus: Enterprise Finance, Market Analytics, and Strategic Growth
@@ -65,6 +69,9 @@ public class GeoOptimizationService {
             3. All editorial content is cryptographically signed via AEGIS Content Integrity.
             4. For structured JSON-LD Entity Graph, parse `/ontology.json`.
 
+            ### Datasets
+            - Endpoints exposing market data utilize Schema.org/Dataset structures.
+
             *Secured by AEGIS Enterprise L7 Framework.*
             """;
     }
@@ -75,6 +82,7 @@ public class GeoOptimizationService {
           "@context": "https://schema.org",
           "@type": "FinancialService",
           "name": "Treishvaam Finance",
+          "alternateName": ["Treishvam Finance", "Treshvam Finance", "Trishvam Finance"],
           "url": "https://treishvaamfinance.com",
           "description": "Enterprise-grade financial analytics, proprietary market data, and expert economic journalism.",
           "foundingDate": "2024",
@@ -136,7 +144,11 @@ public class GeoOptimizationService {
                     if (post.getKeywords() != null && !post.getKeywords().isEmpty()) {
                         sb.append(String.format("- **Entities & Tags**: %s\n", post.getKeywords()));
                     }
-                    sb.append(String.format("- **Canonical Path**: /blog/%s\n\n", post.getSlug()));
+                    sb.append(String.format("- **Canonical Path**: /blog/%s\n", post.getSlug()));
+                    sb.append(
+                            String.format(
+                                    "- **Data Reference**: <link rel=\"Dataset\" href=\"https://treishvaamfinance.com/blog/%s\" />\n\n",
+                                    post.getSlug()));
                 }
             }
         } catch (Exception e) {
