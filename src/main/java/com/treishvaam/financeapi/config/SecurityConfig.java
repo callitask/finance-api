@@ -66,6 +66,12 @@
  * the global CorsFilter configuration. • Why: Ensures preflight checks pass when the frontend
  * transmits complete biometric telemetry (jurisdiction allowing).
  *
+ * <p>- EDITED (Phase 6.3 - Cryptographic Origin Enforcement & GEO): • Registered
+ * `AegisEdgeValidationFilter` as a `FilterRegistrationBean` with precedence HIGHER than CORS. •
+ * Added `/api/public/geo/**`, `/llms.txt`, `/ai-feed.md` to public endpoints for Generative Engine
+ * Optimization. • Why: Strictly prevents direct-IP scanner bypasses; drops traffic without a
+ * Cloudflare Edge signature.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -76,6 +82,7 @@ import com.treishvaam.financeapi.security.InternalSecretFilter;
 import com.treishvaam.financeapi.security.KeycloakRealmRoleConverter;
 import com.treishvaam.financeapi.security.RateLimitingFilter;
 import com.treishvaam.financeapi.security.aegis.AegisDeceptionFilter;
+import com.treishvaam.financeapi.security.aegis.AegisEdgeValidationFilter;
 import com.treishvaam.financeapi.security.aegis.AegisMainFilter;
 import com.treishvaam.financeapi.security.aegis.AegisZkpAdminFilter;
 import java.util.Arrays;
@@ -114,6 +121,7 @@ public class SecurityConfig {
     private final AegisMainFilter aegisMainFilter;
     private final AegisZkpAdminFilter aegisZkpAdminFilter;
     private final AegisDeceptionFilter aegisDeceptionFilter;
+    private final AegisEdgeValidationFilter aegisEdgeValidationFilter;
 
     @Value("#{'${cors.allowed-origins}'.split(',')}")
     private List<String> allowedOrigins;
@@ -124,18 +132,30 @@ public class SecurityConfig {
             InputSanitizationFilter inputSanitizationFilter,
             AegisMainFilter aegisMainFilter,
             AegisZkpAdminFilter aegisZkpAdminFilter,
-            AegisDeceptionFilter aegisDeceptionFilter) {
+            AegisDeceptionFilter aegisDeceptionFilter,
+            AegisEdgeValidationFilter aegisEdgeValidationFilter) {
         this.rateLimitingFilter = rateLimitingFilter;
         this.internalSecretFilter = internalSecretFilter;
         this.inputSanitizationFilter = inputSanitizationFilter;
         this.aegisMainFilter = aegisMainFilter;
         this.aegisZkpAdminFilter = aegisZkpAdminFilter;
         this.aegisDeceptionFilter = aegisDeceptionFilter;
+        this.aegisEdgeValidationFilter = aegisEdgeValidationFilter;
     }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    // REGISTERS EDGE VALIDATION AT ABSOLUTE HIGHEST PRECEDENCE (BEFORE CORS)
+    @Bean
+    public FilterRegistrationBean<AegisEdgeValidationFilter>
+            aegisEdgeValidationFilterRegistration() {
+        FilterRegistrationBean<AegisEdgeValidationFilter> bean =
+                new FilterRegistrationBean<>(aegisEdgeValidationFilter);
+        bean.setOrder(Ordered.HIGHEST_PRECEDENCE - 10); // Ensures it runs before globalCorsFilter
+        return bean;
     }
 
     @Bean
@@ -164,7 +184,7 @@ public class SecurityConfig {
                                         .requestMatchers("/actuator/**")
                                         .hasAuthority("ROLE_ADMIN")
 
-                                        // 2. Static Assets & SEO (Public)
+                                        // 2. Static Assets, SEO & GEO (Public)
                                         .requestMatchers(
                                                 HttpMethod.GET,
                                                 "/api/v1/uploads/**",
@@ -173,9 +193,9 @@ public class SecurityConfig {
                                                 "/feed.xml",
                                                 "/sitemaps/**",
                                                 "/favicon.ico",
-                                                // --- FIX: Allow Cloudflare Worker to fetch Sitemap
-                                                // Metadata (Public) ---
-                                                "/api/public/**")
+                                                "/llms.txt",
+                                                "/ai-feed.md",
+                                                "/api/public/**") // Includes GEO endpoints
                                         .permitAll()
 
                                         // 3. Public API Read Access
@@ -218,9 +238,7 @@ public class SecurityConfig {
                                         .authenticated()
 
                                         // 6. Secure Admin/Dashboard Routes
-                                        .requestMatchers(
-                                                "/api/v1/analytics/**") // Applies to GET requests
-                                        // (Dashboard Reads)
+                                        .requestMatchers("/api/v1/analytics/**") // Dashboard Reads
                                         .hasAnyAuthority("ROLE_ANALYST", "ROLE_ADMIN")
                                         .requestMatchers("/api/v1/posts/admin/**")
                                         .hasAnyAuthority(
@@ -283,7 +301,8 @@ public class SecurityConfig {
         configuration.setAllowedMethods(
                 Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
 
-        // SEC-07 & Phase 6: Explicitly limit headers and allow raw telemetry header
+        // SEC-07 & Phase 6: Explicitly limit headers and allow raw telemetry header + signature
+        // headers
         configuration.setAllowedHeaders(
                 Arrays.asList(
                         "Authorization",
@@ -297,7 +316,9 @@ public class SecurityConfig {
                         "X-AEGIS-ZKP-Proof",
                         "X-AEGIS-Challenge-ID",
                         "X-Aegis-Biometric-Hash",
-                        "X-Aegis-Biometric-Raw")); // Added Raw Telemetry for full data fidelity
+                        "X-Aegis-Biometric-Raw",
+                        "X-Aegis-Edge-Signature",
+                        "X-Aegis-Edge-Timestamp"));
 
         configuration.setExposedHeaders(
                 Arrays.asList(
