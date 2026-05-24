@@ -9,7 +9,7 @@
 #  * - Stage 2: Executes the application using a minimal, secure JRE environment.
 #  *
 #  * Critical Dependencies:
-#  * - Backend: `pom.xml`, `src/`, `checkstyle.xml`, `dependency-check-suppressions.xml`.
+#  * - Backend: `pom.xml`, `src/`, `checkstyle.xml`, `dependency-check-suppressions.xml`, `aegis/`.
 #  *
 #  * Security Constraints:
 #  * - The final container must run as the non-root `spring` user.
@@ -20,15 +20,20 @@
 #  * - Maintain the multi-stage build to keep the final image size minimal and secure.
 #  *
 #  * Change Intent:
-#  * - Resolving the Maven validate phase crash (`exit code: 1`) caused by missing Checkstyle and OWASP suppression configuration files in the build context.
+#  * - Resolving the Maven gRPC pipeline failure. The builder stage lacked the `aegis` directory, 
+#  * blinding the protobuf compiler to the `.proto` files required to generate stub classes.
 #  *
 #  * Future AI Guidance:
-#  * - If new root-level configuration files are added (e.g., for Spotless or JaCoCo), they MUST be explicitly copied into the `builder` stage.
+#  * - If new root-level configuration files or external proto definitions are added, 
+#  * they MUST be explicitly copied into the `builder` stage.
 #  *
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
 #  * - EDITED:
 #  * • Added `COPY checkstyle.xml .` and `COPY dependency-check-suppressions.xml .` to the builder stage.
-#  * • Why: The `maven-checkstyle-plugin` and `dependency-check-maven` plugins require these files to run natively inside the isolated Docker build context. Fixed "Unable to find configuration file at location" error.
+#  * • Why: The `maven-checkstyle-plugin` and `dependency-check-maven` plugins require these files to run natively inside the isolated Docker build context.
+#  * - EDITED:
+#  * • Added `COPY aegis ./aegis` to the builder stage.
+#  * • Why: Fixed `com.treishvaam.financeapi.security.aegis.zkp does not exist` build error. Protobuf plugin needs the `.proto` files to synthesize the Java stubs during `mvn compile`.
 #  */
 
 # ------------------------------------------------------------------------------
@@ -48,6 +53,7 @@ RUN mvn dependency:go-offline
 # 3. Copy validation configurations and source code, then build
 COPY checkstyle.xml .
 COPY dependency-check-suppressions.xml .
+COPY aegis ./aegis
 COPY src ./src
 RUN mvn clean package -DskipTests
 

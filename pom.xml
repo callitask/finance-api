@@ -349,6 +349,13 @@
 
     <build>
         <finalName>finance-api</finalName>
+        <extensions>
+            <extension>
+                <groupId>kr.motd.maven</groupId>
+                <artifactId>os-maven-plugin</artifactId>
+                <version>1.7.1</version>
+            </extension>
+        </extensions>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
@@ -387,19 +394,6 @@
             </plugin>
 
             <plugin>
-                <groupId>kr.motd.maven</groupId>
-                <artifactId>os-maven-plugin</artifactId>
-                <version>1.7.1</version>
-                <executions>
-                    <execution>
-                        <phase>initialize</phase>
-                        <goals>
-                            <goal>detect</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
                 <groupId>org.xolstice.maven.plugins</groupId>
                 <artifactId>protobuf-maven-plugin</artifactId>
                 <version>0.6.1</version>
@@ -437,7 +431,8 @@
                     <java>
                         <googleJavaFormat>
                             <version>1.19.2</version> 
-                            <style>AOSP</style> </googleJavaFormat>
+                            <style>AOSP</style> 
+                        </googleJavaFormat>
                         <removeUnusedImports />
                     </java>
                 </configuration>
