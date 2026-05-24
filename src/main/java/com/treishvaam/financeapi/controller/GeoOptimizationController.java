@@ -24,11 +24,11 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Security Constraints: - Output must remain strictly public (100% GDPR compliant).
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Initial creation of
- * `GeoOptimizationController`. • Added `/llms.txt` and `/ai-feed.md` endpoints. - EDITED (AEGIS
+ * `GeoOptimizationController`. • Added `/llms.txt` and `/ai-feed.md` endpoints. * - EDITED (AEGIS
  * Phase 6 GEO): • Delegated string generation logic to `GeoOptimizationService` for future DB
- * hydration. - EDITED (Phase 8 GEO Evolution): • Added `/ontology.json` endpoint to serve absolute
- * JSON-LD graphs for Enterprise LLMs. - EDITED (Phase 8 GEO Full Execution): • Verified route
- * configuration. Ensured complete compliance with Generative Engine Optimization crawler
+ * hydration. * - EDITED (Phase 8 GEO Evolution): • Added `/ontology.json` endpoint to serve
+ * absolute JSON-LD graphs for Enterprise LLMs. * - EDITED (Phase 8 GEO Full Execution): • Verified
+ * route configuration. Ensured complete compliance with Generative Engine Optimization crawler
  * specifications.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
