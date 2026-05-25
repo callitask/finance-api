@@ -26,7 +26,9 @@
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Implemented MerkleAuditLogService for
  * cryptographic database auditing. • Integrated Java 21 Virtual Threads for non-blocking periodic
  * tree generation. • Utilized BouncyCastle SHA3-256 for all node hashing. • Phase 7 / Batch 7
- * (Database Zero-Trust).
+ * (Database Zero-Trust). - EDITED (Batch 8 - Fix Forward): • Corrected `getUserId()` to
+ * `getPerformedBy()` to resolve build failure. • Why: Synchronizing entity mapping with the
+ * `AuditLog` structure without rolling back the BFT feature.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
@@ -77,10 +79,12 @@ public class MerkleAuditLogService {
 
                         // Generate Leaf Nodes
                         for (AuditLog logEntry : recentLogs) {
+                            // FIX: Replaced getUserId() with getPerformedBy() mapping directly to
+                            // the AuditLog Entity
                             String rawData =
                                     logEntry.getId()
                                             + logEntry.getAction()
-                                            + logEntry.getUserId()
+                                            + logEntry.getPerformedBy()
                                             + logEntry.getTimestamp().toString();
                             byte[] hash = digest.digest(rawData.getBytes(StandardCharsets.UTF_8));
                             hashes.add(Hex.toHexString(hash));
