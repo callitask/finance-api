@@ -11,14 +11,16 @@
  *
  * <p>Non-Negotiables: - Read-only operation.
  *
- * <p>Change Intent: - Implement the 7-node Byzantine quorum.
+ * <p>Change Intent: - Fix-forward remediation: Type strictness alignment.
  *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Initial creation of RateLimitValidator. •
- * Phase 2 Implementation.
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Initial creation of RateLimitValidator. -
+ * EDITED (Remediation): • Aligned method signature to `evaluate(HttpServletRequest, String)`. •
+ * Converted raw strings to `SecurityDecision` enums. • Phase 2 Implementation.
  */
 package com.treishvaam.financeapi.security.aegis.bcsm.validators;
 
 import com.treishvaam.financeapi.security.aegis.bcsm.AegisValidator;
+import com.treishvaam.financeapi.security.aegis.bcsm.SecurityDecision;
 import com.treishvaam.financeapi.security.aegis.bcsm.ValidatorResult;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
@@ -27,12 +29,12 @@ import org.springframework.stereotype.Component;
 public class RateLimitValidator implements AegisValidator {
 
     @Override
-    public ValidatorResult evaluate(HttpServletRequest request) {
+    public ValidatorResult evaluate(HttpServletRequest request, String sessionId) {
         // Evaluates if the IP is nearing exhaustion based on prior filter stamps
         boolean isThrottled = request.getAttribute("RATE_LIMIT_EXHAUSTED") != null;
 
         int score = isThrottled ? 85 : 10;
-        String rec = isThrottled ? "BLOCK" : "ALLOW";
+        SecurityDecision rec = isThrottled ? SecurityDecision.BLOCK : SecurityDecision.ALLOW;
 
         return new ValidatorResult(score, rec, "RATE_LIMIT_NODE");
     }

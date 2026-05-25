@@ -12,14 +12,17 @@
  *
  * <p>Non-Negotiables: - Safe string comparison only.
  *
- * <p>Change Intent: - Implement the 7-node Byzantine quorum.
+ * <p>Change Intent: - Fix-forward remediation: Type strictness alignment.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Initial creation of
- * TemporalPathValidator. • Phase 2 Implementation.
+ * TemporalPathValidator. - EDITED (Remediation): • Aligned method signature to
+ * `evaluate(HttpServletRequest, String)`. • Converted raw strings to `SecurityDecision` enums. •
+ * Phase 2 Implementation.
  */
 package com.treishvaam.financeapi.security.aegis.bcsm.validators;
 
 import com.treishvaam.financeapi.security.aegis.bcsm.AegisValidator;
+import com.treishvaam.financeapi.security.aegis.bcsm.SecurityDecision;
 import com.treishvaam.financeapi.security.aegis.bcsm.ValidatorResult;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
@@ -28,14 +31,14 @@ import org.springframework.stereotype.Component;
 public class TemporalPathValidator implements AegisValidator {
 
     @Override
-    public ValidatorResult evaluate(HttpServletRequest request) {
+    public ValidatorResult evaluate(HttpServletRequest request, String sessionId) {
         boolean isTemporalValid = request.getAttribute("AEGIS_TEMPORAL_VALID") != null;
         boolean isPublicStatic =
                 request.getRequestURI().startsWith("/sitemaps")
                         || request.getRequestURI().equals("/");
 
         int score = (!isTemporalValid && !isPublicStatic) ? 60 : 0;
-        String rec = score > 0 ? "WARN" : "ALLOW";
+        SecurityDecision rec = score > 0 ? SecurityDecision.WARN : SecurityDecision.ALLOW;
 
         return new ValidatorResult(score, rec, "TEMPORAL_NODE");
     }

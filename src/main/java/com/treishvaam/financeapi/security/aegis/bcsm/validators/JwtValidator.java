@@ -13,14 +13,16 @@
  * <p>Non-Negotiables: - Must not throw exceptions on missing tokens (anonymous access is valid for
  * some routes).
  *
- * <p>Change Intent: - Implement the 7-node Byzantine quorum.
+ * <p>Change Intent: - Fix-forward remediation: Type strictness alignment.
  *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Initial creation of JwtValidator. • Phase
- * 2 Implementation.
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Initial creation of JwtValidator. -
+ * EDITED (Remediation): • Aligned method signature to `evaluate(HttpServletRequest, String)`. •
+ * Converted raw strings to `SecurityDecision` enums. • Phase 2 Implementation.
  */
 package com.treishvaam.financeapi.security.aegis.bcsm.validators;
 
 import com.treishvaam.financeapi.security.aegis.bcsm.AegisValidator;
+import com.treishvaam.financeapi.security.aegis.bcsm.SecurityDecision;
 import com.treishvaam.financeapi.security.aegis.bcsm.ValidatorResult;
 import com.treishvaam.financeapi.security.aegis.crypto.AegisPqcJwtService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -36,18 +38,18 @@ public class JwtValidator implements AegisValidator {
     }
 
     @Override
-    public ValidatorResult evaluate(HttpServletRequest request) {
+    public ValidatorResult evaluate(HttpServletRequest request, String sessionId) {
         String authHeader = request.getHeader("Authorization");
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            return new ValidatorResult(0, "ALLOW", "JWT_NODE"); // Public route
+            return new ValidatorResult(0, SecurityDecision.ALLOW, "JWT_NODE"); // Public route
         }
 
         String token = authHeader.substring(7);
         boolean isValid = pqcJwtService.validateToken(token);
 
         int score = isValid ? 0 : 100;
-        String rec = isValid ? "ALLOW" : "BLOCK";
+        SecurityDecision rec = isValid ? SecurityDecision.ALLOW : SecurityDecision.BLOCK;
 
         return new ValidatorResult(score, rec, "JWT_NODE");
     }
