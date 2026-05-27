@@ -1,7 +1,7 @@
 # Backend API Reference
 
-**Stable Version:** `tfin-financeapi-Develop.0.0.0.1`
-**Security Status:** Fort Knox Security Suite Enabled
+**Stable Version:** `tfin-financeapi-Develop.0.0.0.7`
+**Security Status:** Fort Knox Security Suite Enabled / AEGIS Active
 
 This document provides a comprehensive reference for the REST API surface of the Treishvaam Finance Platform.
 
@@ -137,6 +137,32 @@ This document provides a comprehensive reference for the REST API surface of the
 | **GET** | `/sitemaps/categories.xml` | Public | Sitemap for categories (XML). |
 | **GET** | `/sitemaps/posts-{page}.xml` | Public | Sharded post sitemaps (XML, paginated). |
 
+## 5. AEGIS Security & GEO (Generative Engine Optimization)
+
+### Geo Optimization Controller (`GeoOptimizationController`)
+**Base Path**: `/geo`
+
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **GET** | `/llms.txt` | Public | Returns the standardized AI agent guidelines for parsing the site. |
+| **GET** | `/ai-feed.md` | Public | Returns a semantic Markdown feed of the latest content and market insights for LLM digestion. |
+| **GET** | `/ontology.json` | Public | Returns the structured JSON entity mapping of the enterprise structure. |
+
+### AEGIS MTD Controller (`AegisMtdController`)
+**Base Path**: `/aegis/mtd`
+
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **GET** | `/manifest` | **ZKP-Auth** | Secure retrieval of the daily Moving Target Defense temporal path manifest. |
+| **POST** | `/sync-edge` | **ZKP-Auth** | Forces a manual push of the latest threat intelligence to the Cloudflare Edge KV. |
+
+### Monitoring & Telemetry Controller (`MonitoringController`)
+**Base Path**: `/monitoring`
+
+| Method | Endpoint | Role | Description |
+| :--- | :--- | :--- | :--- |
+| **POST** | `/ingest` | Public | Endpoint for receiving Grafana Faro RUM payloads and AEGIS Frontend Biometric Hashes (L5-BIE). Whitelisted in WAF. |
+
 ---
 
-*This document is auto-synchronized with the codebase as of April 2026.*
+*This document is auto-synchronized with the codebase as of May 2026.*

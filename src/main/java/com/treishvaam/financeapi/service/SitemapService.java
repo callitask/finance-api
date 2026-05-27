@@ -47,7 +47,13 @@ import org.springframework.stereotype.Service;
  * XML sitemap validation errors in Google Search Console. - EDITED: • Phase 3 (Backend Dynamic
  * Integration): Added multi-tenant sitemap logic. • Dynamic BASE_URL resolution via TenantContext.
  * • Agro tenant seamlessly hijacks the blog/market endpoint structure to deliver static E-E-A-T
- * pages.
+ * pages. - EDITED (GEO OpenSearch Phase): • Injected `/llms.txt`, `/ai-feed.md`, and
+ * `/ontology.json` into the root sitemap output (page 0 and Agro root) with priority 1.0. • Why:
+ * Ensures AI agents automatically discover Generative Engine Optimization payloads during routine
+ * sitemap crawls without requiring manual search console submission. - DO-NOT-DELETE RULE
+ * (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI
+ * sessions. It must never be deleted, truncated, rewritten, or regenerated. Future AI must append
+ * only.
  */
 @Service
 @RequiredArgsConstructor
@@ -119,15 +125,33 @@ public class SitemapService {
         Pageable pageable = PageRequest.of(page, SITEMAP_BATCH_SIZE);
         Page<BlogPost> posts = blogPostRepository.findAllByStatus(PostStatus.PUBLISHED, pageable);
 
-        return buildUrlSet(
+        List<SitemapEntry> entries = new ArrayList<>();
+
+        // Inject GEO endpoints into the very first sitemap block (page 0) for AI Crawlers
+        if (page == 0) {
+            String baseUrl = getBaseUrl();
+            entries.add(new SitemapEntry(baseUrl + "/llms.txt", null, "daily", "1.0"));
+            entries.add(new SitemapEntry(baseUrl + "/ai-feed.md", null, "daily", "1.0"));
+            entries.add(new SitemapEntry(baseUrl + "/ontology.json", null, "daily", "1.0"));
+        }
+
+        entries.addAll(
                 posts.getContent().stream()
                         .map(this::constructBlogPostUrl)
                         .collect(Collectors.toList()));
+
+        return buildUrlSet(entries);
     }
 
     private String buildAgroStaticSitemap() {
         String baseUrl = getBaseUrl();
         List<SitemapEntry> entries = new ArrayList<>();
+
+        // GEO Endpoints for Agro
+        entries.add(new SitemapEntry(baseUrl + "/llms.txt", null, "daily", "1.0"));
+        entries.add(new SitemapEntry(baseUrl + "/ai-feed.md", null, "daily", "1.0"));
+        entries.add(new SitemapEntry(baseUrl + "/ontology.json", null, "daily", "1.0"));
+
         entries.add(new SitemapEntry(baseUrl, null, "weekly", "1.0"));
         entries.add(new SitemapEntry(baseUrl + "/about", null, "monthly", "0.8"));
         entries.add(new SitemapEntry(baseUrl + "/infrastructure", null, "monthly", "0.8"));

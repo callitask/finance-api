@@ -1,101 +1,171 @@
 # Security & Secret Management Policy
 
+**Classification:** Internal — No actual secret values are stored here. This file documents variable names, locations, and rotation policies only.
+
+---
+
 ## Overview
 
-This project adheres to a strict Zero-Trust security model ("Fort Knox Suite"). Hardcoded secrets are strictly prohibited in the codebase. All sensitive credentials are managed externally via **Infisical** for the backend and **Cloudflare Environment Variables** for the Edge and Frontend layers. 
+This project adheres to a strict **Zero-Trust Security Model** ("Fort Knox Suite"). Hardcoded secrets are strictly prohibited anywhere in the codebase. All sensitive credentials are managed externally:
 
-All future frontends (e.g., Hiring Marketplace) MUST inherit this exact schema.
+- **Backend secrets** → **Infisical** (Production Environment)
+- **Edge secrets** → **Cloudflare Worker Secrets** (`npx wrangler secret put`)
+- **Frontend public variables** → **Cloudflare Pages Environment Variables**
 
-## Secret Injection Process (Flash & Wipe)
-
-We utilize a "Flash & Wipe" strategy to ensure backend secrets never persist on the disk.
-
-1.  **Storage**: Secrets are stored encrypted in the Infisical Vault (Production Environment).
-2.  **Retrieval**: The `auto_deploy.sh` script authenticates with Infisical using a Machine Identity Token.
-3.  **Injection**: Secrets are exported to a temporary `.env` file solely for the duration of the `docker compose up` command.
-4.  **Wipe**: Immediately after container startup, the `.env` file is sanitized, removing all high-value secrets.
+All future frontends (e.g., Treishvaam Hiring Marketplace) **must** inherit this exact schema.
 
 ---
 
-## EDGE: Cloudflare Worker Secrets
-These are configured in the Cloudflare Dashboard -> Workers & Pages -> [Worker Name] -> Settings -> Variables.
+## Flash & Wipe Secret Injection Process
+
+Secrets never persist unencrypted on disk. The lifecycle per deployment:
+
+1. `auto_deploy.sh` authenticates with Infisical using a **Machine Identity Token** (Universal Auth — no human credentials involved)
+2. `infisical export` writes secrets to a temporary `.env` file
+3. `docker compose up -d` reads the `.env` file via `env_file:` directive
+4. Immediately after container startup, the `.env` file is **sanitised** — high-value secrets removed from disk
+5. Containers retain secrets only in their in-memory environment
+
+**Never commit `.env` to git.** It is in `.gitignore`.
+
+**Never wrap `.env` values in quotes.** Single or double quotes cause HikariCP to receive literal quote characters in the JDBC URL → fatal crash loop.
+
+---
+
+## 1. BACKEND: Infrastructure Secrets (Infisical → Docker Compose)
+
+| Variable | Description | Used By |
+| :--- | :--- | :--- |
+| `PROD_DB_URL` | JDBC URL for the application database | Backend |
+| `PROD_DB_USERNAME` | App DB username | Backend |
+| `PROD_DB_PASSWORD` | App DB password | Backend, MariaDB healthcheck |
+| `MARIADB_ENCRYPTION_KEY` | Docker secret for MariaDB TDE volume encryption | MariaDB (`encryption.cnf`) |
+| `KEYCLOAK_DB_PASSWORD` | Keycloak's dedicated MariaDB password | Keycloak, Keycloak-DB |
+| `KEYCLOAK_ADMIN_PASSWORD` | Keycloak admin console password | Keycloak |
+| `REDIS_PASSWORD` | Redis AUTH password | Redis, Backend |
+| `ELASTIC_PASSWORD` | Elasticsearch built-in security password | Elasticsearch, Backend |
+| `MINIO_ROOT_PASSWORD` | MinIO root/admin password | MinIO, Backend, Backup Service |
+| `RABBITMQ_DEFAULT_USER` | RabbitMQ admin username | RabbitMQ, Backend |
+| `RABBITMQ_DEFAULT_PASS` | RabbitMQ admin password | RabbitMQ, Backend |
+| `CLOUDFLARE_TUNNEL_TOKEN` | Cloudflare Zero Trust Tunnel token | cloudflared |
+| `GRAFANA_ADMIN_PASSWORD` | Grafana dashboard admin password | Grafana |
+| `BACKUP_MINIO_ACCESS_KEY` | Dedicated access key for backup service → MinIO | Backup Service |
+| `BACKUP_ENCRYPTION_KEY` | AES key for encrypting MariaDB dump files at rest | Backup Service |
+
+---
+
+## 2. BACKEND: Application Secrets (Infisical → Docker Compose)
+
+| Variable | Description | Used By |
+| :--- | :--- | :--- |
+| `JWT_SECRET_KEY` | Legacy JWT signing key (if applicable alongside PQC) | Backend |
+| `INTERNAL_API_SECRET_KEY` | Master key for `InternalSecretFilter` — locks internal-only POST endpoints | Backend |
+| `CONTENT_SIGNING_KEY` | HMAC-SHA256 key for blog post content integrity (`ContentIntegrityService`) | Backend |
+| `AEGIS_DB_SIGNING_KEY` | SHA3-256 HMAC key for JDBC query signatures (`AegisQueryInterceptor`) — Zero-Trust DB Driver Boundary | Backend |
+| `LINKEDIN_TOKEN_ENCRYPTION_KEY` | AES-256-GCM key for encrypting stored LinkedIn OAuth tokens | Backend |
+| `USER_EMAIL_ENCRYPTION_KEY` | Domain-specific AES-256-GCM key for `users.email` at rest | Backend |
+| `CONTACT_EMAIL_ENCRYPTION_KEY` | Domain-specific AES-256-GCM key for `contact_message.email` at rest | Backend |
+| `CONTACT_MESSAGE_ENCRYPTION_KEY` | Domain-specific AES-256-GCM key for `contact_message.message` at rest | Backend |
+| `AUDIT_IP_ENCRYPTION_KEY` | Domain-specific AES-256-GCM key for `audit_log.ip_address` at rest | Backend |
+| `APP_ADMIN_EMAIL` | Email for the bootstrapped admin user (created by `DataInitializer`) | Backend |
+| `APP_ADMIN_PASSWORD` | Password for the bootstrapped admin user | Backend |
+| `FINANCE_FRONTEND_URL` | Production Finance frontend URL (used by Keycloak CORS config) | Keycloak |
+| `FINANCE_FRONTEND_LOCAL_URL` | Local development Finance frontend URL | Keycloak |
+
+---
+
+## 3. BACKEND: External API Keys (Infisical → Docker Compose)
+
+| Variable | Description | Used By |
+| :--- | :--- | :--- |
+| `ALPHAVANTAGE_API_KEY` | AlphaVantage — Forex and technical indicators | Backend (MarketDataService) |
+| `FINNHUB_API_KEY` | Finnhub — Real-time stock quotes and news | Backend (MarketDataService) |
+| `FMP_API_KEY` | Financial Modeling Prep — Market movers (gainers/losers) | Backend (MarketDataService) |
+| `MARKET_DATA_API_KEY` | Generic key for additional market data providers | Backend |
+| `NEWS_API_KEY` | NewsData.io — News headlines and articles | Backend (NewsHighlightService) |
+| `GA4_PROPERTY_ID` | Google Analytics 4 Property ID for server-side reporting | Backend (AnalyticsService) |
+| `GA4_BIGQUERY_PROJECT_ID` | Google Cloud project ID for GA4 BigQuery export | Backend (AnalyticsService) |
+| `GA4_BIGQUERY_DATASET_ID` | BigQuery dataset ID for GA4 raw event data | Backend (AnalyticsService) |
+
+**Note:** `ga4-credentials.json` (Google Cloud service account key for BigQuery) is mounted as a Docker volume — never committed to git.
+
+---
+
+## 4. BACKEND: AEGIS / Cloudflare Secrets (Infisical → Docker Compose)
+
+| Variable | Description | Used By |
+| :--- | :--- | :--- |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account identifier | Backend (`CloudflareEdgeSyncService`) |
+| `CLOUDFLARE_THREAT_KV_NAMESPACE_ID` | KV namespace ID for the `AEGIS_THREAT_KV` store | Backend (`CloudflareEdgeSyncService`) |
+| `CLOUDFLARE_API_TOKEN` | Scoped Cloudflare API token for KV writes and cache purge | Backend (`CloudflareEdgeSyncService`) |
+
+**Cloudflare API Token Scope:**
+- Account: `Workers KV: Edit`, `Workers Routes: Edit`, `Account Settings: Read`
+- Zone: `treishvaamfinance.com` — `Zone: Read`, `Cache Purge: Purge`
+- IP Fencing: Token is locked to server IPs only
+- **TTL: 90 days.** The `SecretKeyRotationDue` Grafana alert fires 7 days before expiry.
+
+---
+
+## 5. EDGE: Cloudflare Worker Secrets
+
+Set via `npx wrangler secret put <NAME>` — **never** in `wrangler.toml` or the repository.
 
 ### Finance SEO Worker (`treishfin-seo-worker`)
-| Variable Name | Description |
+
+| Variable | Description |
 | :--- | :--- |
-| `BACKEND_URL` | Origin URL for API calls. |
-| `FRONTEND_URL` | Public Frontend URL. |
+| `AEGIS_EDGE_SECRET` | Cryptographic seed for HMAC-SHA-512 `X-Aegis-Edge-Signature` signing. Backend `AegisEdgeValidationFilter` verifies this on every request |
+| `BACKEND_API_URL` | Cloudflare Tunnel URL to the Spring Boot backend — never the public domain |
 
 ### Agro SEO Worker (`treishvaamagro-seo-worker`)
-| Variable Name | Description |
+
+| Variable | Description |
 | :--- | :--- |
-| `BACKEND_ORIGIN` | Strict backend ingress route (Do not hardcode). |
-| `CF_PAGES_ORIGIN` | Allowed Cloudflare Pages domain for CORS/routing. |
+| `AEGIS_EDGE_SECRET` | Same purpose as Finance worker — HMAC-SHA-512 signing key |
+| `BACKEND_ORIGIN` | Backend ingress route for Agro — do not hardcode |
+| `CF_PAGES_ORIGIN` | Agro Cloudflare Pages origin URL for internal Worker fetch |
 
 ---
 
-## FRONTEND: Cloudflare Pages Secrets
-These are configured in Cloudflare Dashboard -> Workers & Pages -> [Project Name] -> Settings -> Environment Variables.
+## 6. FRONTEND: Cloudflare Pages Environment Variables
 
-### React Frontends (Finance & Agro)
-| Variable Name | Description | Status |
+Set in Cloudflare Dashboard → Workers & Pages → [Project] → Settings → Environment Variables.
+
+### Finance Frontend (`treishvaam-finance-frontend`)
+
+| Variable | Description | Required |
 | :--- | :--- | :--- |
-| `REACT_APP_API_URL` | Base URL for the Backend API. | **Required** |
-| `REACT_APP_AUTH_URL` | Base URL for Keycloak Auth. | **Required** |
-| `REACT_APP_GA_MEASUREMENT_ID` | Google Analytics 4 ID (e.g., `G-XXXXX`). | Optional |
-| `REACT_APP_ADSENSE_CLIENT_ID` | Google AdSense Pub ID (e.g., `ca-pub-XXXXX`). | Optional |
-| `REACT_APP_GOOGLE_ADS_ID` | Google Ads Conversion ID (e.g., `AW-XXXXX`). | Optional |
+| `NEXT_PUBLIC_API_URL` | Spring Boot Backend API base URL | **Yes** |
+| `NEXT_PUBLIC_GA_MEASUREMENT_ID` | Google Analytics 4 Measurement ID (`G-XXXXXXXXXX`) | Yes |
+| `NEXT_PUBLIC_GOOGLE_ADS_ID` | Google Ads Conversion ID (`AW-XXXXXXXXXX`) | Yes |
+| `NEXT_PUBLIC_ADSENSE_CLIENT_ID` | Google AdSense Publisher ID (`ca-pub-XXXXXXXXXXXXXXXX`) | Yes |
+| `NEXT_PUBLIC_ENFORCE_STRICT_PRIVACY` | `true` or `false` — injects `anonymize_ip: true` into GA4 without rebuild | Yes |
+| `NEXT_PUBLIC_CHAIRMAN_PORTRAIT_URL` | Dynamic URL for team portrait (bypasses repo commits for asset swaps) | Yes |
 
-### Next.js Frontends (Parent Group)
-| Variable Name | Description | Status |
-| :--- | :--- | :--- |
-| `NEXT_PUBLIC_API_URL` | Base URL for the Backend API. | **Required** |
-| `NEXT_PUBLIC_GA_MEASUREMENT_ID` | Google Analytics 4 ID (e.g., `G-XXXXX`). | Optional |
-| `NEXT_PUBLIC_ADSENSE_CLIENT_ID`| Google AdSense Pub ID (e.g., `ca-pub-XXXXX`). | Optional |
-| `NEXT_PUBLIC_GOOGLE_ADS_ID` | Google Ads Conversion ID (e.g., `AW-XXXXX`). | Optional |
-
-*Note: For maximum performance (0ms TBT), tracking IDs must NEVER be hardcoded in the codebase. They must be loaded dynamically based on the presence of these environment variables.*
+**NEVER use `REACT_APP_*` prefix** — this is Next.js. Only `NEXT_PUBLIC_*` is supported.
 
 ---
 
-## BACKEND: Infrastructure Secrets (Infisical)
-| Variable Name | Description | Service(s) |
-| :--- | :--- | :--- |
-| `MINIO_ROOT_PASSWORD` | Root password for Object Storage. | MinIO, Backup Service |
-| `GRAFANA_ADMIN_PASSWORD` | Admin password for Observability dashboards. | Grafana |
-| `KEYCLOAK_DB_PASSWORD` | Password for the Identity Database. | Keycloak, Keycloak DB |
-| `RABBITMQ_DEFAULT_USER` | Admin username for the Message Broker. | RabbitMQ, Backend |
-| `RABBITMQ_DEFAULT_PASS` | Admin password for the Message Broker. | RabbitMQ, Backend |
-| `BACKUP_MINIO_ACCESS_KEY` | Access key for Backup Service to talk to MinIO. | Backup Service |
-| `CLOUDFLARE_TUNNEL_TOKEN` | Token for Zero Trust Tunnel connection. | Cloudflared |
-| `REDIS_PASSWORD` | Authentication password for Redis Cache instance. | Redis, Backend |
-| `ELASTIC_PASSWORD` | Authentication password for Elasticsearch indexing. | Elasticsearch, Backend |
+## 7. Rotation Policy
 
-## BACKEND: Application Secrets (Infisical)
-| Variable Name | Description | Service(s) |
+| Secret Category | Rotation Frequency | Method |
 | :--- | :--- | :--- |
-| `PROD_DB_URL` | JDBC URL for the main application database. | Backend |
-| `PROD_DB_USERNAME` | Username for the main application database. | Backend |
-| `PROD_DB_PASSWORD` | Password for the main application database. | Backend |
-| `JWT_SECRET_KEY` | Secret for legacy token signing (if applicable). | Backend |
-| `APP_ADMIN_EMAIL` | Email for the bootstrapped Admin user. | Backend |
-| `APP_ADMIN_PASSWORD` | Password for the bootstrapped Admin user. | Backend, Keycloak |
-| `INTERNAL_API_SECRET_KEY` | **Critical**. Master key for `InternalSecretFilter`. Used to lock down POST endpoints. | Backend |
-
-## BACKEND: External API Keys (Infisical)
-| Variable Name | Description | Service(s) |
-| :--- | :--- | :--- |
-| `MARKET_DATA_API_KEY` | Generic key for market data providers. | Backend |
-| `ALPHAVANTAGE_API_KEY` | API Key for AlphaVantage. | Backend |
-| `FINNHUB_API_KEY` | API Key for Finnhub. | Backend |
-| `NEWS_API_KEY` | API Key for NewsAPI. | Backend |
+| Database passwords | Every 90 days | Update Infisical → `scripts/rotate_secrets.sh` → Docker rolling restart |
+| Cloudflare API Token | Every 90 days (hard TTL) | Regenerate in CF dashboard → update Infisical → re-deploy |
+| `AEGIS_EDGE_SECRET` | On suspected breach or every 90 days | `npx wrangler secret put AEGIS_EDGE_SECRET` per worker |
+| Encryption keys (AES, HMAC) | On suspected breach only | Requires DB re-encryption migration — coordinate carefully |
+| External API keys | Immediately on vendor notification or breach | Update Infisical — auto-reloaded on next deploy |
+| Keycloak admin password | Every 90 days | Update Infisical + Keycloak admin UI |
+| `NEXT_PUBLIC_*` frontend vars | As needed | Update Cloudflare Pages env vars — triggers automatic rebuild |
 
 ---
 
-## Rotation Policy
+## 8. What Must NEVER Happen
 
-* **Database Passwords**: Rotate every 90 days. Requires full stack restart (`auto_deploy.sh`).
-* **API Keys**: Rotate immediately upon vendor notification or suspected breach.
-* **Worker Secrets**: Update in Cloudflare Dashboard immediately if domain changes.
-* **Internal Secret**: Rotate manually via Infisical if internal service integrity is compromised.
-* **Tracking IDs**: Can be added/removed from Cloudflare Pages seamlessly without requiring a code push.
+- No secret value stored in git (enforced by Gitleaks on every CI push)
+- No `.env` file committed (enforced by `.gitignore`)
+- No hardcoded URLs, origins, or backend addresses in any source file
+- No credentials passed as CLI arguments to Python scripts (use `ProcessBuilder.environment()`)
+- No observability UIs (Grafana, RabbitMQ) exposed to `0.0.0.0`
+- No `liboqs-java` in `pom.xml` (breaks CI/CD — BouncyCastle is the sole PQC provider)
