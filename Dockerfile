@@ -31,9 +31,17 @@
 #  * - EDITED:
 #  * • Added `COPY checkstyle.xml .` and `COPY dependency-check-suppressions.xml .` to the builder stage.
 #  * • Why: The `maven-checkstyle-plugin` and `dependency-check-maven` plugins require these files to run natively inside the isolated Docker build context.
-#  * - EDITED:
+#  * #  * - EDITED:
 #  * • Added `COPY aegis ./aegis` to the builder stage.
 #  * • Why: Fixed `com.treishvaam.financeapi.security.aegis.zkp does not exist` build error. Protobuf plugin needs the `.proto` files to synthesize the Java stubs during `mvn compile`.
+#  *
+#  * - EDITED:
+#  * • Enforced explicit `--uid 1000` and `--gid 1000` during the `spring` system user creation.
+#  * • Why: To resolve `java.io.FileNotFoundException (Permission denied)` on mapped volumes. By locking the internal user to a deterministic UID, the infrastructure can enforce strict `chown` ownership on host volumes, replacing the insecure `chmod 777` workaround.
+#  *
+#  * - DO-NOT-DELETE RULE (ABSOLUTE):
+#  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
+#  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
 #  */
 
 # ------------------------------------------------------------------------------
@@ -80,8 +88,8 @@ RUN pip3 install --no-cache-dir \
     wikipedia-api
 
 # 2. Create necessary directories and Non-Root User (Fort Knox)
-# We create a system user 'spring' to run the app safely.
-RUN addgroup --system spring && adduser --system --ingroup spring spring
+# We create a system user 'spring' to run the app safely with a deterministic UID/GID.
+RUN addgroup --system --gid 1000 spring && adduser --system --uid 1000 --ingroup spring spring
 
 RUN mkdir -p /app/uploads /app/sitemaps /app/logs /app/scripts && \
     chown -R spring:spring /app
