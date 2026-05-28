@@ -26,11 +26,11 @@
 #   - Must handle permission errors gracefully.
 #
 # Change Intent:
-#   - Resolving permission denied errors and OS cache flushing without relying on interactive sudo.
+#   - Cleaned up manual shell-based docker permission fixes in favor of Docker Compose `init-container` architecture.
 #
 # Future AI Guidance:
 #   - Do NOT use `sudo chown -R $USER:$USER .` as it corrupts MariaDB host-mounted data.
-#   - All permission escalations must route through ephemeral Docker containers (`docker run --rm alpine`) to bypass non-interactive sudo password blocks.
+#   - Memory recovery `drop_caches` remains via an ephemeral privileged container.
 #
 # IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
 #   - ADDED:
@@ -52,6 +52,9 @@
 #     • Replaced all `sudo` commands with ephemeral `docker run --rm alpine` privilege escalations.
 #     • Restricted Git permission repair to `.git` to prevent MariaDB data corruption.
 #     • Reason: `sudo` commands were silently failing because `vboxuser` requires an interactive password prompt. Using the Docker daemon guarantees root-level host modifications (folder creation, chmod 777, and sysctl drop_caches) without interactive blocking.
+#   - EDITED:
+#     • Removed inline Docker volume permission repair.
+#     • Reason: Delegated to a native Docker Compose init-container (`permission-fixer`) to eliminate race conditions between bash script execution and container orchestration. Memory flush via privileged Docker run remains.
 # ==============================================================================
 
 # ==============================================================================
@@ -171,12 +174,8 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
         exit 1
     fi
 
-    # --- 5. PERMISSION REPAIR (CRITICAL FIX FOR NON-ROOT CONTAINER) ---
-    echo "[System] Fixing permissions for Non-Root User via Docker Daemon..."
-    # We use an ephemeral Alpine container to bypass the need for host sudo passwords.
-    # This guarantees the Spring Boot container (UID 100/101) has write access to bind-mounts.
-    docker run --rm -v "$(pwd):/workspace" alpine sh -c "mkdir -p /workspace/logs /workspace/uploads /workspace/sitemaps && chmod -R 777 /workspace/logs /workspace/uploads /workspace/sitemaps"
-    # ------------------------------------------------------------------
+    # --- 5. PERMISSION REPAIR ---
+    echo "[System] Folder permissions are now securely orchestrated via Docker Compose Init Container (permission-fixer)."
     
     # C. RESTART SERVICES (Passwordless)
     echo "[Docker] Rebuilding services..."

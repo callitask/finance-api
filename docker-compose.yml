@@ -8,7 +8,7 @@
 #  * - Manages internal networking, service discovery, and container lifecycles.
 #  *
 #  * Critical Dependencies:
-#  * - Backend: relies on treishvaam-db, redis, elasticsearch, rabbitmq, keycloak.
+#  * - Backend: relies on treishvaam-db, redis, elasticsearch, rabbitmq, keycloak, and permission-fixer.
 #  * - RabbitMQ: Must be healthy (not just started) for backend to boot successfully.
 #  *
 #  * Security Constraints:
@@ -71,6 +71,11 @@
 #  * - EDITED (Hotfix - Envoy Sidecar Resilience):
 #  * • Added `restart: always` to the `envoy-sidecar` service.
 #  * • Why: The sidecar proxy would exit entirely if the backend container was unreachable during startup because it lacked a restart policy. This prevents silent proxy deaths.
+#  *
+#  * - EDITED (Hotfix - Init Container for Permissions):
+#  * • Added `permission-fixer` ephemeral Alpine container.
+#  * • Added `service_completed_successfully` dependency to the `backend` service.
+#  * • Why: Replaces unreliable shell-based permission hacks. Guarantees that the strict `root`-owned bind mounts created by Docker daemon are set to `777` *before* the Spring Boot JVM initializes, preventing `java.io.FileNotFoundException` on `/app/logs/backend.json`.
 #  *
 #  * - DO-NOT-DELETE RULE:
 #  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
@@ -299,6 +304,18 @@ services:
     environment:
       - WAZUH_MANAGER=127.0.0.1
 
+  permission-fixer:
+    image: alpine:latest
+    container_name: treishvaam-permission-fixer
+    networks:
+      - treish_net
+    user: "root"
+    volumes:
+      - ./logs:/workspace/logs
+      - ./uploads:/workspace/uploads
+      - ./sitemaps:/workspace/sitemaps
+    command: sh -c "mkdir -p /workspace/logs /workspace/uploads /workspace/sitemaps && chmod -R 777 /workspace/logs /workspace/uploads /workspace/sitemaps"
+
   backend:
     build: .
     image: ghcr.io/callitask/finance-api:latest
@@ -374,6 +391,8 @@ services:
         condition: service_started
       keycloak:
         condition: service_started
+      permission-fixer:
+        condition: service_completed_successfully
     healthcheck:
       test: [ "CMD-SHELL", "python3 -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.settimeout(1); s.connect((\"localhost\", 8080)); s.close();' || exit 1" ]
       interval: 15s
