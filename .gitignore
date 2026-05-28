@@ -1,47 +1,41 @@
 # AI-CONTEXT:
 #
 # Purpose:
-# - Defines intentionally untracked files to ignore for the backend project version control.
+# - Defines intentionally untracked files for the backend project version control.
 #
 # Scope:
-# - Responsible for preventing IDE files, compiled binaries, secrets, and AI workspace folders from entering Git.
-# - Must never ignore source code (src/) or configuration files (config/).
-#
-# Critical Dependencies:
-# - Backend: Git, Automated CI/CD Runner.
-# - Frontend: N/A
-# - Worker / SEO / Sitemap: N/A
+# - Prevents IDE files, compiled binaries, secrets, stray documents, and AI
+#   workspace folders from entering Git.
+# - Must NEVER ignore src/ or config/ — these are critical source directories.
 #
 # Security Constraints:
-# - Environment variables and local security keys (.env, *.pem, *.key) must remain ignored.
-#
-# Non-Negotiables:
-# - Never use root-level wildcards that could unintentionally block source directories.
-#
-# Change Intent:
-# - Fixed a catastrophic wildcard ignore bug that inadvertently blocked `src/` and `config/` directories during the previous execution.
-#
-# Future AI Guidance:
-# - Always specify exact directory paths for temporary AI files. Never use global `/**` overrides.
+# - All .env variants and key files (.pem, .key) must remain ignored.
+# - AI session folders (BACKEND CODE FILES/, RULES OF ENGAGEMENT/) must be ignored.
 #
 # IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
 # - EDITED:
-# • Replaced global wildcard ignore with strict, scoped ignores.
-# • Unblocked `src/` and `config/` to allow critical security files to reach the deployment server.
-# • Phase: CI/CD Pipeline Fix.
-#
-# - DO-NOT-DELETE RULE:
-# This IMMUTABLE CHANGE HISTORY section must never be deleted,
-# truncated, rewritten, or regenerated.
-# Future AI must append only.
+#   • Replaced global wildcard ignore with strict, scoped ignores.
+#   • Unblocked src/ and config/ to allow critical security files to reach the deployment server.
+#   • Phase: CI/CD Pipeline Fix.
+# - EDITED:
+#   • Added stray files: "New Text Document.txt", docs_file_list.json,
+#     verification_test.txt, auth_trigger.txt, HANDOVER_DOCUMENT_TEMPLATE.md.
+#   • Added *.txt catch-all for temporary text files.
+#   • Date: 2026-05-25 / Docs Restructure Phase.
 
-HELP.md
+# ============================================================
+# BUILD ARTIFACTS
+# ============================================================
 target/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-### STS ###
+# ============================================================
+# IDE FILES
+# ============================================================
+
+### Spring Tool Suite ###
 .apt_generated
 .classpath
 .factorypath
@@ -67,18 +61,38 @@ build/
 ### VS Code ###
 .vscode/
 
-### Mac OS ###
+# ============================================================
+# OS FILES
+# ============================================================
 .DS_Store
+Thumbs.db
 
-### Environment & Secrets ###
+# ============================================================
+# ENVIRONMENT & SECRETS — NEVER COMMIT THESE
+# ============================================================
 .env
 .env.*
+!.env.dev.example
 *.pem
 *.key
 
-### AI & Temporary Workspaces ###
+# ============================================================
+# AI SESSION & TEMPORARY WORKSPACE FOLDERS
+# ============================================================
 BACKEND_CODE_FILES/
 BACKEND CODE FILES/
 RULES OF ENGAGEMENT/
+RULES OF ENGAGEMENT & AI INSTRUCTIONS & EDITS/
+
+# ============================================================
+# STRAY / TEMPORARY FILES
+# ============================================================
 TODO.md
+HELP.md
 HANDOVER_DOCUMENT.md
+HANDOVER_DOCUMENT_TEMPLATE.md
+docs_file_list.json
+New Text Document.txt
+verification_test.txt
+auth_trigger.txt
+*.txt

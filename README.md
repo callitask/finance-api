@@ -198,4 +198,5 @@ git push origin develop
 ---
 
 ## License
-Proprietary software. All rights reserved by Treishvaam Group.
+This software is proprietary. See [LICENSE](LICENSE.md) for full terms.
+All rights reserved by Amitsagar Kandpal (Treishvaam Group) © 2024–2026.
