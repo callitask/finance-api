@@ -68,6 +68,10 @@
 #  * • Added TCP netcat healthcheck for the gRPC 9090 port.
 #  * • Why: Enhances Zero-Trust posture by executing a static, compiled binary without shell or source code exposure, officially bringing the L3-ZKA engine online for production routing.
 #  *
+#  * - EDITED (Hotfix - Envoy Sidecar Resilience):
+#  * • Added `restart: always` to the `envoy-sidecar` service.
+#  * • Why: The sidecar proxy would exit entirely if the backend container was unreachable during startup because it lacked a restart policy. This prevents silent proxy deaths.
+#  *
 #  * - DO-NOT-DELETE RULE:
 #  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
 #  * truncated, rewritten, or regenerated.
@@ -248,6 +252,7 @@ services:
   envoy-sidecar:
     image: envoyproxy/envoy:v1.29-latest
     container_name: treishvaam-envoy
+    restart: always
     networks:
       - treish_net
     volumes:

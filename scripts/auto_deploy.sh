@@ -45,6 +45,9 @@
 #   - EDITED:
 #     • Injected a proactive OS Memory Recovery sequence (`drop_caches` and `docker builder prune`) before `docker compose up`.
 #     • Reason: Fixes a severe out-of-memory crash loop (OOM Kill / Exit 137). When scaling to 2 replicas, the instantaneous memory spike of booting two Spring Boot JVMs and their respective Python processes simultaneously exhausted the VM's RAM. Evicting the Linux page cache guarantees maximum available RAM for the container initialization phase.
+#   - EDITED:
+#     • Elevated Step 5 (Permission Repair) to utilize `sudo` when creating and chmodding the `logs`, `uploads`, and `sitemaps` bind-mount directories.
+#     • Reason: Fixes `java.io.FileNotFoundException: /app/logs/backend.json (Permission denied)` crash loop. Docker daemon creates host volumes as root, causing the unprivileged CI user to fail at modifying them, starving the non-root Spring Boot JVM of write access.
 # ==============================================================================
 
 # ==============================================================================
@@ -171,8 +174,13 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     # --- 5. PERMISSION REPAIR (CRITICAL FIX FOR NON-ROOT CONTAINER) ---
     echo "[System] Fixing permissions for Non-Root User..."
     # We ensure these folders exist and are writable by the container (UID 100/101)
-    mkdir -p logs uploads sitemaps
-    chmod -R 777 logs uploads sitemaps
+    if command -v sudo >/dev/null 2>&1; then
+        sudo mkdir -p logs uploads sitemaps
+        sudo chmod -R 777 logs uploads sitemaps
+    else
+        mkdir -p logs uploads sitemaps
+        chmod -R 777 logs uploads sitemaps
+    fi
     # ------------------------------------------------------------------
     
     # C. RESTART SERVICES (Passwordless)
