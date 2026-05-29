@@ -111,6 +111,11 @@
 #  * • Injected `SPRING_REDIS_PASSWORD` and `SPRING_REDIS_HOST` environment variables into the backend service.
 #  * • Why: Spring Boot 3 migrated property spaces to `spring.data.redis.*`, but the custom Bucket4j Lettuce proxy manager bean attempts to bind to the legacy `spring.redis.*` namespace. Bridging both variables prevents the `NOAUTH` connection rejection and restores the L7 rate limiter.
 #  *
+#  * - EDITED (Hotfix - Redis Auth Race Condition & DB Signing Fix):
+#  * • Changed Redis container healthcheck to authenticate via `redis-cli -a $$REDISCLI_AUTH ping | grep PONG` before reporting healthy.
+#  * • Mapped `AEGIS_DB_SIGNING_KEY` environment variable to backend service.
+#  * • Why: `redis-cli ping` exits 0 even on `NOAUTH` errors, causing race conditions where the backend boots before Redis is fully authenticated. Injecting the DB signing key restores Zero-Trust query validations.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -255,7 +260,7 @@ services:
         limits:
           memory: 256M
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: [ "CMD-SHELL", "redis-cli -a $$REDISCLI_AUTH ping | grep PONG" ]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -452,6 +457,7 @@ services:
       - CONTACT_EMAIL_ENCRYPTION_KEY=${CONTACT_EMAIL_ENCRYPTION_KEY}
       - CONTACT_MESSAGE_ENCRYPTION_KEY=${CONTACT_MESSAGE_ENCRYPTION_KEY}
       - AUDIT_IP_ENCRYPTION_KEY=${AUDIT_IP_ENCRYPTION_KEY}
+      - AEGIS_DB_SIGNING_KEY=${AEGIS_DB_SIGNING_KEY}
       - JAVA_TOOL_OPTIONS=-Xmx768m -Xms512m
     volumes:
       - ./backend-app.war:/app/app.war

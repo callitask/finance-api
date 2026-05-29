@@ -47,6 +47,12 @@
  * crash loop. Explicit `@Value` binding forces Spring to guarantee credential presence before
  * instantiating the bean.
  *
+ * <p>- EDITED (Redis Password Fallback Hardening): • Updated @Value annotation to
+ * `@Value("${spring.data.redis.password:${SPRING_DATA_REDIS_PASSWORD:${SPRING_REDIS_PASSWORD:}}}")`.
+ * • Why: To guarantee password resolution regardless of which Spring or Docker environment
+ * namespace is evaluated first, eliminating unauthenticated HELLO command crashes during Lettuce
+ * initialization.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -76,7 +82,9 @@ public class Bucket4jConfig {
     @Bean(destroyMethod = "shutdown")
     public RedisClient bucket4jRedisClient(
             RedisProperties properties,
-            @Value("${spring.data.redis.password:${SPRING_REDIS_PASSWORD:}}") String redisPassword,
+            @Value(
+                            "${spring.data.redis.password:${SPRING_DATA_REDIS_PASSWORD:${SPRING_REDIS_PASSWORD:}}}")
+                    String redisPassword,
             ClientResources clientResources) {
         RedisURI.Builder uriBuilder =
                 RedisURI.builder().withHost(properties.getHost()).withPort(properties.getPort());
