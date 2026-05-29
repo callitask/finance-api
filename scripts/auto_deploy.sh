@@ -59,6 +59,9 @@
 #     • Swapped destructive `docker builder prune -a -f` for a rolling retention strategy (`--filter until=168h -f`).
 #     • Enforced `export DOCKER_BUILDKIT=1` before `docker compose up`.
 #     • Reason: A destructive whole-cache wipe deletes the internal Maven dependencies, forcing a massive 5-minute internet re-download loop on every push. Using BuildKit caching + 7-day retention balances minimal disk growth with maximum deployment speed.
+#   - EDITED (OOM Prevention & Infrastructure Stabilization):
+#     • Injected a privileged Docker alpine sequence to dynamically provision and mount a 4GB swap file on the Ubuntu host (`/swapfile`).
+#     • Reason: A catastrophic Linux OOM Killer event eradicated MariaDB, Redis, and Keycloak from the Docker daemon because the host's 4.8GB RAM was instantly depleted by the dual-replica backend JVMs. Provisioning 4GB of swap directly via chroot ensures the memory buffer exists without requiring manual SSH intervention.
 # ==============================================================================
 
 # ==============================================================================
@@ -186,10 +189,13 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     
     docker compose down --remove-orphans
 
-    # --- 5.5 MEMORY RECOVERY (CRITICAL FOR DUAL-REPLICA BOOT) ---
+    # --- 5.5 MEMORY RECOVERY & SWAP PROVISIONING (CRITICAL) ---
     echo "[System] Executing Aggressive OS Memory Recovery..."
     docker run --rm --privileged alpine sh -c "sync && echo 3 > /proc/sys/vm/drop_caches"
     
+    echo "[System] Ensuring 4GB Enterprise Swap Space via host mount..."
+    docker run --rm --privileged -v /:/host alpine sh -c "if [ ! -f /host/swapfile ]; then echo '[Swap] Creating 4GB swap file...'; dd if=/dev/zero of=/host/swapfile bs=1M count=4096 status=none && chmod 600 /host/swapfile && mkswap /host/swapfile && chroot /host swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /host/etc/fstab; else echo '[Swap] Swapfile exists. Ensuring it is active...'; chroot /host swapon -a || true; fi"
+
     # Prune dangling builder cache older than 7 days to preserve active Maven layers
     docker builder prune --filter until=168h -f
 
