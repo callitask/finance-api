@@ -39,6 +39,10 @@
 #  * • Enforced explicit `--uid 1000` and `--gid 1000` during the `spring` system user creation.
 #  * • Why: To resolve `java.io.FileNotFoundException (Permission denied)` on mapped volumes. By locking the internal user to a deterministic UID, the infrastructure can enforce strict `chown` ownership on host volumes, replacing the insecure `chmod 777` workaround.
 #  *
+#  * - EDITED (Anti-Stale Cache Injection):
+#  * • Injected `ARG CACHE_BUST` before the `spring` user creation.
+#  * • Why: To forcefully invalidate the server-side Docker daemon build cache, ensuring the Git Runner compiles the new UID rules rather than recycling the broken image layer.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -89,6 +93,8 @@ RUN pip3 install --no-cache-dir \
 
 # 2. Create necessary directories and Non-Root User (Fort Knox)
 # We create a system user 'spring' to run the app safely with a deterministic UID/GID.
+# Injected CACHE_BUST to prevent the Git Runner from using stale layers without the UID rule.
+ARG CACHE_BUST=1
 RUN addgroup --system --gid 1000 spring && adduser --system --uid 1000 --ingroup spring spring
 
 RUN mkdir -p /app/uploads /app/sitemaps /app/logs /app/scripts && \

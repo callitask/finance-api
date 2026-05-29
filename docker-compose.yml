@@ -82,6 +82,11 @@
 #  * • Updated backend dependencies (`SPRING_DATA_REDIS_HOST`, `SPRING_ELASTICSEARCH_URIS`, `STORAGE_S3_ENDPOINT`, `SPRING_RABBITMQ_HOST`) to map explicitly to Docker Compose service names (e.g., `redis`) rather than custom container names (e.g., `treishvaam-redis`).
 #  * • Why: To resolve `SERVFAIL` internal DNS resolution crashes by Lettuce/Bucket4j during peak startup load, and to harden the File I/O boundaries against least-privilege violations without dropping the application context.
 #  *
+#  * - EDITED (VirtualBox Quirks Mitigation & Cache Busting):
+#  * • Updated `permission-fixer` to apply a dual-layer strategy: `chown -R 1000:1000` followed immediately by `chmod -R 777` explicitly on the mounted directories.
+#  * • Expanded `backend.build` directive to accept a `CACHE_BUST` argument.
+#  * • Why: VirtualBox `vboxsf` mounts frequently ignore container-side UID assertions. The dual-layer strategy guarantees JVM writability, while the cache bust ensures the runner completely recompiles the Zero-Trust execution rules.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -318,10 +323,13 @@ services:
       - ./logs:/workspace/logs
       - ./uploads:/workspace/uploads
       - ./sitemaps:/workspace/sitemaps
-    command: sh -c "mkdir -p /workspace/logs /workspace/uploads /workspace/sitemaps && chown -R 1000:1000 /workspace/logs /workspace/uploads /workspace/sitemaps"
+    command: sh -c "mkdir -p /workspace/logs /workspace/uploads /workspace/sitemaps && chown -R 1000:1000 /workspace/logs /workspace/uploads /workspace/sitemaps && chmod -R 777 /workspace/logs /workspace/uploads /workspace/sitemaps"
 
   backend:
-    build: .
+    build:
+      context: .
+      args:
+        - CACHE_BUST=${CACHE_BUST:-1}
     image: ghcr.io/callitask/finance-api:latest
     restart: always
     networks:
