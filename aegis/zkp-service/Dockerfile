@@ -21,13 +21,13 @@
 #  * • Injected `netcat-openbsd` into the runtime layer for native Docker TCP healthchecks.
 #  * • Why: Secures the gRPC authentication engine from shell injection and container escape vectors while ensuring VirtualBox stability.
 #  * #  * - EDITED:
-#  * • Upgraded builder to `golang:1.23-alpine` and explicitly pinned `gnark` to `v0.14.0`.
-#  * • Reason: gnark v0.15.0 introduced an upstream compiler crash requiring an incompatible Go version. Pinning the dependency and bumping the compiler guarantees deterministic builds.
-#  * • Behavior remaining unchanged: Minimal alpine runtime and stripped binary footprint.
+#  * • Upgraded builder to `golang:1.26-alpine` and explicitly pinned `gnark` and `grpc`.
+#  * • Reason: gnark v0.14.0 and grpc v1.81.1 require go >= 1.25.0. The previous 1.23 toolchain caused a fatal SERVFAIL/Exit Code 1 during compilation. Moving forward to 1.26 ensures deterministic, secure compilation without rolling back enterprise dependencies.
+#  * • Behavior remaining unchanged: Minimal alpine runtime and stripped 256M binary footprint.
 #  */
 
 # Stage 1: Build
-FROM golang:1.23-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 # Install git and required dependencies for go mod
 RUN apk add --no-cache git
@@ -39,7 +39,7 @@ COPY . .
 
 # Ensure go.mod exists and pin dependencies to stable versions
 RUN if [ ! -f go.mod ]; then go mod init aegis/zkp-service; fi
-RUN go get github.com/consensys/gnark@v0.14.0 google.golang.org/grpc
+RUN go get github.com/consensys/gnark@v0.14.0 google.golang.org/grpc@v1.81.1
 
 # Fetch dependencies
 RUN go mod tidy
