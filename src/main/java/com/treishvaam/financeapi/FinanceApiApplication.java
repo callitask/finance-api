@@ -7,8 +7,8 @@ package com.treishvaam.financeapi;
  * application.
  *
  * <p>Scope: - Bootstraps the application, configures base package scanning, and defines core beans
- * (e.g., ObjectMapper). - Enforces strict repository boundaries between JPA and Elasticsearch to
- * prevent context initialization crashes.
+ * (e.g., ObjectMapper). - Enforces strict repository boundaries between JPA, Elasticsearch, and
+ * Redis to prevent context initialization crashes.
  *
  * <p>Critical Dependencies: - Backend: Spring Boot, JPA, Elasticsearch, Redis (Caching) - Frontend:
  * N/A - Worker / SEO / Sitemap: N/A
@@ -22,17 +22,24 @@ package com.treishvaam.financeapi;
  *
  * <p>Change Intent: - Resolved "Could not safely identify store assignment" crash by explicitly
  * routing repository packages to their respective data stores (JPA vs Elasticsearch) and disabling
- * reactive auto-configuration.
+ * reactive and unintended Redis auto-configurations.
  *
- * <p>Future AI Guidance: - If adding a new data store (e.g., MongoDB, Redis Repositories), you MUST
- * add its respective @EnableXRepositories annotation and explicitly map its package to avoid
- * ambiguous bean collisions.
+ * <p>Future AI Guidance: - If adding a new data store (e.g., MongoDB), you MUST add its
+ * respective @EnableXRepositories annotation and explicitly map its package to avoid ambiguous bean
+ * collisions. If adding ACTUAL Redis repositories in the future, remove the exclusion and
+ * explicitly map the Redis repository packages.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Added explicit `@EnableJpaRepositories`
  * and `@EnableElasticsearchRepositories`. • Added `@SpringBootApplication(exclude =
  * {ReactiveElasticsearchRepositoriesAutoConfiguration.class})`. • Why: The application crashed on
  * startup because Spring Boot's auto-configuration attempted to bind JPA entities to Reactive
  * Elasticsearch and threw ambiguity errors. • Date: 2026-05-20 Phase 6 Observability/Stability Fix
+ * * - EDITED (Phase 6 - Repository Boundary Hardening): • Added
+ * `RedisRepositoriesAutoConfiguration.class` to the `@SpringBootApplication(exclude = {...})` list.
+ * • Why: Spring Data Redis auto-configuration was aggressively attempting to assign JPA and
+ * Elasticsearch repository interfaces as Redis Repositories because the Redis caching dependency is
+ * present. Explicitly excluding the repository auto-config resolves the "Could not safely identify
+ * store assignment" initialization warnings without disabling `@EnableCaching` features.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
@@ -42,6 +49,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.data.elasticsearch.ReactiveElasticsearchRepositoriesAutoConfiguration;
+import org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
 import org.springframework.cache.annotation.EnableCaching; // ADDED: Import for caching
@@ -52,7 +60,11 @@ import org.springframework.data.elasticsearch.repository.config.EnableElasticsea
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-@SpringBootApplication(exclude = {ReactiveElasticsearchRepositoriesAutoConfiguration.class})
+@SpringBootApplication(
+        exclude = {
+            ReactiveElasticsearchRepositoriesAutoConfiguration.class,
+            RedisRepositoriesAutoConfiguration.class
+        })
 @EnableScheduling
 @EnableCaching // ADDED: Enables Spring's caching capabilities
 @EnableJpaRepositories(
