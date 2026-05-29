@@ -92,12 +92,15 @@
 #  * • Re-applied Docker Named Volumes (`app_logs`, `app_uploads`, `app_sitemaps`) to bypass VirtualBox `vboxsf` limitations, as the previous config iteration lacked them.
 #  * • Why: Without explicit constraints, the Linux host OOM killer systematically assassinated the infrastructure containers during peak backend startup. Enforcing resource boundaries and reinstating the named volumes permanently secures the orchestration layer against cascaded memory and permission failures.
 #  *
+#  * - EDITED (Compose v2 Specification Upgrade):
+#  * • Removed `version: '3.8'` to allow native Compose v2 directives (e.g., `condition: service_completed_successfully` for init-containers, and `environment` within `secrets`).
+#  * • Converted `command` strings to strictly typed YAML arrays in `keycloak`, `minio`, `tunnel`, `permission-fixer`, `loki`, and `promtail`.
+#  * • Why: The legacy '3.8' schema validator rejected modern directives, causing `auto_deploy.sh` to silently fail pre-flight checks and preventing `treishvaam-redis`, `treishvaam-db`, and `treishvaam-rabbitmq` from spinning up (resulting in `java.net.UnknownHostException` / `SERVFAIL` in the backend). Array syntax prevents special characters in Infisical secrets from triggering dangerous shell expansions.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
 #  */
-
-version: '3.8'
 
 networks:
   treish_net:
@@ -178,7 +181,7 @@ services:
       KC_METRICS_ENABLED: "true"
       FINANCE_FRONTEND_URL: ${FINANCE_FRONTEND_URL:-https://treishvaamfinance.com}
       FINANCE_FRONTEND_LOCAL_URL: ${FINANCE_FRONTEND_LOCAL_URL:-http://localhost:3000}
-    command: start-dev --import-realm
+    command: [ "start-dev", "--import-realm" ]
     volumes:
       - ./config/keycloak/realm-export.json:/opt/keycloak/data/import/realm.json
     deploy:
@@ -250,7 +253,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - ./data/minio:/data
-    command: server /data --console-address ":9001"
+    command: [ "server", "/data", "--console-address", ":9001" ]
     deploy:
       resources:
         limits:
@@ -293,7 +296,7 @@ services:
     restart: always
     networks:
       - treish_net
-    command: tunnel run
+    command: [ "tunnel", "run" ]
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
     deploy:
@@ -373,7 +376,7 @@ services:
       - app_logs:/workspace/logs
       - app_uploads:/workspace/uploads
       - app_sitemaps:/workspace/sitemaps
-    command: sh -c "mkdir -p /workspace/logs /workspace/uploads /workspace/sitemaps && chown -R 1000:1000 /workspace/logs /workspace/uploads /workspace/sitemaps && chmod -R 777 /workspace/logs /workspace/uploads /workspace/sitemaps"
+    command: [ "sh", "-c", "mkdir -p /workspace/logs /workspace/uploads /workspace/sitemaps && chown -R 1000:1000 /workspace/logs /workspace/uploads /workspace/sitemaps && chmod -R 777 /workspace/logs /workspace/uploads /workspace/sitemaps" ]
 
   backend:
     build:
@@ -502,7 +505,7 @@ services:
       - treish_net
     volumes:
       - ./config/loki-config.yml:/etc/loki/local-config.yaml
-    command: -config.file=/etc/loki/local-config.yaml
+    command: [ "-config.file=/etc/loki/local-config.yaml" ]
     deploy:
       resources:
         limits:
@@ -522,7 +525,7 @@ services:
     volumes:
       - ./config/promtail-config.yml:/etc/promtail/config.yml
       - app_logs:/app/logs
-    command: -config.file=/etc/promtail/config.yml
+    command: [ "-config.file=/etc/promtail/config.yml" ]
     deploy:
       resources:
         limits:
