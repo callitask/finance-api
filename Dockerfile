@@ -31,7 +31,8 @@
 #  * - EDITED:
 #  * • Added `COPY checkstyle.xml .` and `COPY dependency-check-suppressions.xml .` to the builder stage.
 #  * • Why: The `maven-checkstyle-plugin` and `dependency-check-maven` plugins require these files to run natively inside the isolated Docker build context.
-#  * #  * - EDITED:
+#  *
+#  * - EDITED:
 #  * • Added `COPY aegis ./aegis` to the builder stage.
 #  * • Why: Fixed `com.treishvaam.financeapi.security.aegis.zkp does not exist` build error. Protobuf plugin needs the `.proto` files to synthesize the Java stubs during `mvn compile`.
 #  *
@@ -42,6 +43,10 @@
 #  * - EDITED (Anti-Stale Cache Injection):
 #  * • Injected `ARG CACHE_BUST` before the `spring` user creation.
 #  * • Why: To forcefully invalidate the server-side Docker daemon build cache, ensuring the Git Runner compiles the new UID rules rather than recycling the broken image layer.
+#  *
+#  * - EDITED (Enterprise BuildKit Caching):
+#  * • Added `--mount=type=cache,target=/root/.m2` to `mvn dependency:go-offline` and `mvn clean package`.
+#  * • Why: Prevents redundant Maven dependency downloads across CI/CD deployments. By persisting the local repository outside the image layer filesystem, deployments become near-instantaneous despite aggressive Docker cleanup policies.
 #  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
@@ -59,15 +64,15 @@ WORKDIR /build
 
 # 1. Copy configuration
 COPY pom.xml .
-# 2. Download dependencies (Cached if pom.xml doesn't change)
-RUN mvn dependency:go-offline
+# 2. Download dependencies (Cached if pom.xml doesn't change via BuildKit)
+RUN --mount=type=cache,target=/root/.m2 mvn dependency:go-offline
 
 # 3. Copy validation configurations and source code, then build
 COPY checkstyle.xml .
 COPY dependency-check-suppressions.xml .
 COPY aegis ./aegis
 COPY src ./src
-RUN mvn clean package -DskipTests
+RUN --mount=type=cache,target=/root/.m2 mvn clean package -DskipTests
 
 # ------------------------------------------------------------------------------
 # STAGE 2: Run the Application

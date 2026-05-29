@@ -55,6 +55,10 @@
 #   - EDITED:
 #     • Removed inline Docker volume permission repair.
 #     • Reason: Delegated to a native Docker Compose init-container (`permission-fixer`) to eliminate race conditions between bash script execution and container orchestration. Memory flush via privileged Docker run remains.
+#   - EDITED (Rolling Cache Retention & BuildKit):
+#     • Swapped destructive `docker builder prune -a -f` for a rolling retention strategy (`--filter until=168h -f`).
+#     • Enforced `export DOCKER_BUILDKIT=1` before `docker compose up`.
+#     • Reason: A destructive whole-cache wipe deletes the internal Maven dependencies, forcing a massive 5-minute internet re-download loop on every push. Using BuildKit caching + 7-day retention balances minimal disk growth with maximum deployment speed.
 # ==============================================================================
 
 # ==============================================================================
@@ -185,9 +189,12 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     # --- 5.5 MEMORY RECOVERY (CRITICAL FOR DUAL-REPLICA BOOT) ---
     echo "[System] Executing Aggressive OS Memory Recovery..."
     docker run --rm --privileged alpine sh -c "sync && echo 3 > /proc/sys/vm/drop_caches"
-    # Prune dangling builder cache to recover disk/memory overhead
-    docker builder prune -a -f
+    
+    # Prune dangling builder cache older than 7 days to preserve active Maven layers
+    docker builder prune --filter until=168h -f
 
+    # Enforce BuildKit to utilize the Maven layer cache mounts
+    export DOCKER_BUILDKIT=1
     docker compose up -d --build --force-recreate
     
     # --- SAFETY BUFFER ---
