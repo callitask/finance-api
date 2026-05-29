@@ -71,6 +71,10 @@
 #     • Added `sysctl -w net.ipv6.conf.all.disable_ipv6=1` via nsenter.
 #     • Added a second `set -a; source "$ENV_FILE"; set +a` after Infisical hydration.
 #     • Reason: The previous DNS restart severed the Docker daemon's internal `127.0.0.11` bridge, causing the backend to crash with `java.net.UnknownHostException: Failed to resolve 'redis' (SERVFAIL)`. The IPv6 disable command fixes the `dial tcp [2600:...]:443: i/o timeout` registry pull errors without breaking local DNS. The re-source command guarantees shell-level variables are hydrated before `docker compose up` executes.
+#   - EDITED (BuildKit Memory Throttling & Sudo Trap Prevention):
+#     • Injected `export GOMAXPROCS=1` to force single-threaded Docker layer extraction.
+#     • Injected explicit ownership reset for the transient `.env` file via Docker Alpine.
+#     • Reason: Prevents BuildKit from spiking memory to 1.9GB and crashing the GitHub Runner (OOM Kill), and prevents the runner's post-job cleanup from getting trapped in a headless `sudo` password prompt when manipulating credential files touched by root.
 # ==============================================================================
 
 # ==============================================================================
@@ -192,6 +196,9 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
         exit 1
     fi
 
+    # Reset ownership of .env to ensure the unprivileged runner can wipe it later without invoking a sudo password prompt
+    docker run --rm -v "$(pwd):/workspace" alpine sh -c "chown $(id -u):$(id -g) /workspace/.env 2>/dev/null || true"
+
     # --- 5. PERMISSION REPAIR ---
     echo "[System] Folder permissions are now securely orchestrated via Docker Compose Init Container (permission-fixer)."
     
@@ -211,6 +218,8 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
 
     docker builder prune --filter until=168h -f
 
+    # Enforce single-threaded build extraction to prevent 1.9GB RAM spikes from assassinating the GH Runner
+    export GOMAXPROCS=1
     export DOCKER_BUILDKIT=1
     docker compose up -d --build --force-recreate
     

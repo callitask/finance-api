@@ -48,9 +48,13 @@
 #  * • Added `--mount=type=cache,target=/root/.m2` to `mvn dependency:go-offline` and `mvn clean package`.
 #  * • Why: Prevents redundant Maven dependency downloads across CI/CD deployments. By persisting the local repository outside the image layer filesystem, deployments become near-instantaneous despite aggressive Docker cleanup policies.
 #  *
+#  * - EDITED (OOM Killer Mitigation):
+#  * • Injected `ENV MAVEN_OPTS="-Xmx512m -XX:MaxMetaspaceSize=128m"` into the builder stage.
+#  * • Why: Restricts the active memory allocation during Maven's compilation and protobuf stub generation, preventing the Git Runner from exceeding the VirtualBox 4.8GB threshold and getting assassinated by the Linux OOM Killer.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
-#  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
-#  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
+#  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
+#  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
 #  */
 
 # ------------------------------------------------------------------------------
@@ -62,8 +66,12 @@ FROM maven:3.9.6-eclipse-temurin-21 AS builder
 
 WORKDIR /build
 
+# Enforce strict memory bounds on the compiler to prevent host OOM crashes during CI/CD
+ENV MAVEN_OPTS="-Xmx512m -XX:MaxMetaspaceSize=128m"
+
 # 1. Copy configuration
 COPY pom.xml .
+
 # 2. Download dependencies (Cached if pom.xml doesn't change via BuildKit)
 RUN --mount=type=cache,target=/root/.m2 mvn dependency:go-offline
 
