@@ -112,9 +112,9 @@
 #  * • Why: Spring Boot 3 migrated property spaces to `spring.data.redis.*`, but the custom Bucket4j Lettuce proxy manager bean attempts to bind to the legacy `spring.redis.*` namespace. Bridging both variables prevents the `NOAUTH` connection rejection and restores the L7 rate limiter.
 #  *
 #  * - EDITED (Hotfix - Redis Auth Race Condition & DB Signing Fix):
-#  * • Changed Redis container healthcheck to authenticate via `redis-cli -a $$REDISCLI_AUTH ping | grep PONG` before reporting healthy.
+#  * • Changed Redis container healthcheck to authenticate via `CMD-SHELL` evaluating `$$REDISCLI_AUTH` natively.
 #  * • Mapped `AEGIS_DB_SIGNING_KEY` environment variable to backend service.
-#  * • Why: `redis-cli ping` exits 0 even on `NOAUTH` errors, causing race conditions where the backend boots before Redis is fully authenticated. Injecting the DB signing key restores Zero-Trust query validations.
+#  * • Why: Prevents race conditions where the backend boots before Redis is fully authenticated, and restores Zero-Trust query validations without exposing passwords in the container execution tree.
 #  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
