@@ -87,6 +87,10 @@
 #  * • Expanded `backend.build` directive to accept a `CACHE_BUST` argument.
 #  * • Why: VirtualBox `vboxsf` mounts frequently ignore container-side UID assertions. The dual-layer strategy guarantees JVM writability, while the cache bust ensures the runner completely recompiles the Zero-Trust execution rules.
 #  *
+#  * - EDITED (Architecture Hardening - File I/O Pivot):
+#  * • Migrated `logs`, `uploads`, and `sitemaps` from Host Bind Mounts (`./logs`, etc.) to Docker Named Volumes (`app_logs`, etc.) across all interacting services (backend, permission-fixer, nginx, promtail).
+#  * • Why: To permanently resolve the Logback `FileNotFoundException (Permission denied)` crash loop. VirtualBox's host folder sharing (`vboxsf`) actively strips/ignores container-level `chown 1000:1000` commands. Native Docker named volumes operate on pure Linux ext4, bypassing the hypervisor constraint entirely. Database mappings (`./data/*`) are intentionally preserved as bind mounts to prevent data detachment.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -97,6 +101,11 @@ version: '3.8'
 networks:
   treish_net:
     driver: bridge
+
+volumes:
+  app_logs:
+  app_uploads:
+  app_sitemaps:
 
 services:
   treishvaam-db:
@@ -320,9 +329,9 @@ services:
       - treish_net
     user: "root"
     volumes:
-      - ./logs:/workspace/logs
-      - ./uploads:/workspace/uploads
-      - ./sitemaps:/workspace/sitemaps
+      - app_logs:/workspace/logs
+      - app_uploads:/workspace/uploads
+      - app_sitemaps:/workspace/sitemaps
     command: sh -c "mkdir -p /workspace/logs /workspace/uploads /workspace/sitemaps && chown -R 1000:1000 /workspace/logs /workspace/uploads /workspace/sitemaps && chmod -R 777 /workspace/logs /workspace/uploads /workspace/sitemaps"
 
   backend:
@@ -381,9 +390,9 @@ services:
       - ./backend-app.war:/app/app.war
       - ./ga4-credentials.json:/app/ga4-credentials.json
       - ./scripts:/app/scripts
-      - ./uploads:/app/uploads
-      - ./sitemaps:/app/sitemaps
-      - ./logs:/app/logs
+      - app_uploads:/app/uploads
+      - app_sitemaps:/app/sitemaps
+      - app_logs:/app/logs
     devices:
       - /dev/random:/dev/random
       - /dev/urandom:/dev/urandom
@@ -424,8 +433,8 @@ services:
     volumes:
       - ./nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/lua:/etc/nginx/lua:ro
-      - ./uploads:/app/uploads
-      - ./sitemaps:/app/sitemaps
+      - app_uploads:/app/uploads
+      - app_sitemaps:/app/sitemaps
     depends_on:
       backend:
         condition: service_healthy
@@ -460,7 +469,7 @@ services:
       - treish_net
     volumes:
       - ./config/promtail-config.yml:/etc/promtail/config.yml
-      - ./logs:/app/logs
+      - app_logs:/app/logs
     command: -config.file=/etc/promtail/config.yml
 
   prometheus:
