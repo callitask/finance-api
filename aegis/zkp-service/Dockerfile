@@ -20,22 +20,38 @@
 #  * • Stripped debug symbols (`-ldflags="-w -s"`) to reduce attack surface and binary size.
 #  * • Injected `netcat-openbsd` into the runtime layer for native Docker TCP healthchecks.
 #  * • Why: Secures the gRPC authentication engine from shell injection and container escape vectors while ensuring VirtualBox stability.
-#  * #  * - EDITED:
+#  * - EDITED:
 #  * • Upgraded builder to `golang:1.26-alpine` and explicitly pinned `gnark` and `grpc`.
 #  * • Reason: gnark v0.14.0 and grpc v1.81.1 require go >= 1.25.0. The previous 1.23 toolchain caused a fatal SERVFAIL/Exit Code 1 during compilation. Moving forward to 1.26 ensures deterministic, secure compilation without rolling back enterprise dependencies.
 #  * • Behavior remaining unchanged: Minimal alpine runtime and stripped 256M binary footprint.
+#  * - EDITED:
+#  * • Injected `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` into the build stage.
+#  * • Reason: The build was crashing with `package aegis/zkp-service/pb is not in std` because the gRPC Go files were never generated from the `.proto` schema before running `go build`. The Dockerfile now dynamically compiles the proto files into a `pb/` directory.
 #  */
 
 # Stage 1: Build
 FROM golang:1.26-alpine AS builder
 
-# Install git and required dependencies for go mod
-RUN apk add --no-cache git
+# Install git, protoc, and protobuf dependencies
+RUN apk add --no-cache git protoc protobuf-dev
 
 WORKDIR /app
 
+# Install Go protobuf plugins
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+# Add Go bin to PATH
+ENV PATH="$PATH:/go/bin"
+
 # Copy source code
 COPY . .
+
+# Generate gRPC code from proto file into the pb directory deterministically
+RUN mkdir -p pb
+RUN protoc --go_out=pb --go_opt=paths=source_relative \
+    --go-grpc_out=pb --go-grpc_opt=paths=source_relative \
+    aegis_zkp.proto
 
 # Ensure go.mod exists and pin dependencies to stable versions
 RUN if [ ! -f go.mod ]; then go mod init aegis/zkp-service; fi
