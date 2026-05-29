@@ -1,3 +1,40 @@
+# /**
+#  * AI-CONTEXT:
+#  *
+#  * Purpose:
+#  * - Configuration for Grafana Tempo (Distributed Tracing).
+#  *
+#  * Scope:
+#  * - Defines receivers for Zipkin and OTLP.
+#  * - Configures local storage for trace blocks and WAL.
+#  *
+#  * Critical Dependencies:
+#  * - Backend: Receives spans from the Spring Boot application.
+#  * - Grafana/Loki: Integrates for trace discovery.
+#  *
+#  * Security Constraints:
+#  * - Tempo receiver ports (9411, 4317, 4318) must only be accessible within the internal Docker bridge network.
+#  *
+#  * Non-Negotiables:
+#  * - Must remain compatible with the Tempo 2.x configuration schema.
+#  *
+#  * Change Intent:
+#  * - Fix crash loop by removing deprecated fields that violate the modern Tempo app.Config structure.
+#  *
+#  * Future AI Guidance:
+#  * - Do not reintroduce top-level 'ingester' or 'compactor' configurations; Tempo 2.x handles these dynamically or via updated schema blocks.
+#  *
+#  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+#  * - EDITED:
+#  * • Removed deprecated `ingester` and `compactor` blocks.
+#  * • Why: Caused fatal `yaml: unmarshal errors` on startup because the Tempo 2.x configuration schema abandoned these top-level fields.
+#  * • Behavior preserved: Base tracing, receiver endpoints, and local storage remain fully intact using stable internal defaults.
+#  *
+#  * - DO-NOT-DELETE RULE (ABSOLUTE):
+#  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
+#  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
+#  */
+
 server:
   http_listen_port: 3200
 
@@ -11,18 +48,6 @@ distributor:
           endpoint: 0.0.0.0:4318
         grpc:
           endpoint: 0.0.0.0:4317
-
-ingester:
-  trace_idle_period: 10s
-  max_block_bytes: 1_000_000
-  max_block_duration: 5m
-
-compactor:
-  compaction:
-    compaction_window: 1h
-    max_block_bytes: 100_000_000
-    block_retention: 24h
-    compacted_block_retention: 1h
 
 storage:
   trace:

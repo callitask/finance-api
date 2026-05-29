@@ -3,11 +3,12 @@
 #  * Purpose: MariaDB at-rest encryption configuration (ARCH-06).
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
 #  * - ADDED: Enabled InnoDB transparent encryption using Docker secrets for key management.
+#  * - EDITED: Updated file_key_management_filename to /etc/mysql/encryption/keyfile to support the quote-stripping init layer.
 #  */
 [mysqld]
 # Enable File Key Management Plugin
 plugin_load_add = file_key_management
-file_key_management_filename = /run/secrets/mariadb_encryption_key
+file_key_management_filename = /etc/mysql/encryption/keyfile
 file_key_management_encryption_algorithm = AES_CTR
 
 # Encrypt all tables

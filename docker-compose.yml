@@ -102,6 +102,11 @@
 #  * • Renamed `WAZUH_MANAGER` to `WAZUH_MANAGER_SERVER` per official Wazuh Docker specifications.
 #  * • Why: The deprecated 4.7.3 image tag caused `docker compose pull` to fatally abort the entire infrastructure pipeline, preventing Redis, MariaDB, and RabbitMQ from deploying, leaving the backend trapped in a `java.net.UnknownHostException (SERVFAIL)` crash loop.
 #  *
+#  * - EDITED (Hotfix - Infrastructure Crash Loop Resolutions):
+#  * • Overrode `treishvaam-db` entrypoint to dynamically read `/run/secrets/mariadb_encryption_key`, strip any Docker/Infisical injected string quotes, and write it securely to `/etc/mysql/encryption/keyfile` before executing `mariadbd`.
+#  * • Injected `CANARY_DOMAINS` and `CANARY_SECRET_KEY` into `aegis-canary-server`.
+#  * • Why: Prevented the MariaDB TDE engine from throwing a `Syntax error at ... column 2` fatal abort, and allowed the Thinkst entrypoint to successfully bind.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -126,6 +131,10 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${PROD_DB_PASSWORD}
       MYSQL_DATABASE: finance_db
+    entrypoint:
+      - /bin/sh
+      - -c
+      - "mkdir -p /etc/mysql/encryption && tr -d '\"' < /run/secrets/mariadb_encryption_key | tr -d \"'\" > /etc/mysql/encryption/keyfile && chown mysql:mysql /etc/mysql/encryption/keyfile && exec docker-entrypoint.sh mariadbd"
     volumes:
       - ./data/mariadb:/var/lib/mysql
       - ./config/mariadb/encryption.cnf:/etc/mysql/conf.d/encryption.cnf:ro
@@ -351,6 +360,9 @@ services:
       - treish_net
     ports:
       - "127.0.0.1:8089:80"
+    environment:
+      - CANARY_DOMAINS=localhost
+      - CANARY_SECRET_KEY=${CANARY_SECRET_KEY:-aegis_deception_secret_key_9911}
     deploy:
       resources:
         limits:
