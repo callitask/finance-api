@@ -71,13 +71,10 @@
 #     • Added `sysctl -w net.ipv6.conf.all.disable_ipv6=1` via nsenter.
 #     • Added a second `set -a; source "$ENV_FILE"; set +a` after Infisical hydration.
 #     • Reason: The previous DNS restart severed the Docker daemon's internal `127.0.0.11` bridge, causing the backend to crash with `java.net.UnknownHostException: Failed to resolve 'redis' (SERVFAIL)`. The IPv6 disable command fixes the `dial tcp [2600:...]:443: i/o timeout` registry pull errors without breaking local DNS. The re-source command guarantees shell-level variables are hydrated before `docker compose up` executes.
-#   - EDITED (BuildKit Memory Throttling & Sudo Trap Prevention):
-#     • Injected `export GOMAXPROCS=1` to force single-threaded Docker layer extraction.
-#     • Injected explicit ownership reset for the transient `.env` file via Docker Alpine.
-#     • Reason: Prevents BuildKit from spiking memory to 1.9GB and crashing the GitHub Runner (OOM Kill), and prevents the runner's post-job cleanup from getting trapped in a headless `sudo` password prompt when manipulating credential files touched by root.
-#   - EDITED (Bash Semicolon Crash Resolution):
-#     • Removed the final `source "$ENV_FILE"` command after Infisical hydration.
-#     • Reason: Docker Compose natively reads `.env` dynamically. Forcing Bash to source it caused a fatal syntax error because the MariaDB TDE string (`1;828FA...`) contains a semicolon, which Bash parses as an illegal "End of Command" operator, terminating the script and preventing full secret injection.
+#   - EDITED (Bash Semicolon Crash Resolution & BuildKit Limits):
+#     • Removed the `sed` quote-stripper and the final `source "$ENV_FILE"` command from the Infisical export block.
+#     • Restored `export GOMAXPROCS=1`.
+#     • Reason: Docker Compose natively reads `.env` dynamically and strips quotes automatically. Forcing Bash to evaluate it caused a fatal syntax error because the MariaDB TDE string (`1;828FA...`) contains a semicolon, crashing the deploy script before `docker compose up` could execute, resulting in permanently missing database and proxy containers.
 # ==============================================================================
 
 # ==============================================================================
@@ -175,7 +172,7 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     fi
     cp "$TEMPLATE_FILE" "$ENV_FILE"
     
-    # We only source the template to pull the harmless INFISICAL_PROJECT_ID required for the export command.
+    # We only source the template to get INFISICAL_PROJECT_ID natively before fetching secrets
     set -a; source "$ENV_FILE"; set +a
     
     echo "[Security] Fetching live secrets from Infisical..."
@@ -183,12 +180,12 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
 
     TEMP_SECRETS=$(mktemp)
     
-    infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv | sed "s/['\"]//g" > "$TEMP_SECRETS" 2>/dev/null
+    infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$TEMP_SECRETS" 2>/dev/null
     EXIT_CODE=$?
 
     if [ $EXIT_CODE -eq 0 ] && [ -s "$TEMP_SECRETS" ] && ! grep -qE "arrow keys|Select project|login" "$TEMP_SECRETS"; then
         cat "$TEMP_SECRETS" >> "$ENV_FILE"
-        echo "  > Secrets injected successfully. (Skipping Bash source to prevent parsing crashes on special characters)."
+        echo "  > Secrets injected successfully. (Bypassed Bash source to prevent parsing crashes on semicolons)."
         rm "$TEMP_SECRETS"
     else
         echo "CRITICAL: Infisical fetch failed or returned interactive prompt."
