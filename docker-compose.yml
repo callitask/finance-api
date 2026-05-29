@@ -103,18 +103,16 @@
 #  * • Why: The deprecated 4.7.3 image tag caused `docker compose pull` to fatally abort the entire infrastructure pipeline, preventing Redis, MariaDB, and RabbitMQ from deploying, leaving the backend trapped in a `java.net.UnknownHostException (SERVFAIL)` crash loop.
 #  *
 #  * - EDITED (Hotfix - Infrastructure Crash Loop Resolutions):
-#  * • Overrode `treishvaam-db` entrypoint to dynamically read `/run/secrets/mariadb_encryption_key`, strip any Docker/Infisical injected string quotes, and write it securely to `/etc/mysql/encryption/keyfile` before executing `mariadbd`.
 #  * • Injected `CANARY_DOMAINS` and `CANARY_SECRET_KEY` into `aegis-canary-server`.
-#  * • Why: Prevented the MariaDB TDE engine from throwing a `Syntax error at ... column 2` fatal abort, and allowed the Thinkst entrypoint to successfully bind.
+#  * • Why: Allowed the Thinkst entrypoint to successfully bind.
 #  *
-#  * - EDITED (Hotfix - Redis NOAUTH Crash & Bucket4j Bridge):
-#  * • Injected `SPRING_REDIS_PASSWORD` and `SPRING_REDIS_HOST` environment variables into the backend service.
-#  * • Why: Spring Boot 3 migrated property spaces to `spring.data.redis.*`, but the custom Bucket4j Lettuce proxy manager bean attempts to bind to the legacy `spring.redis.*` namespace. Bridging both variables prevents the `NOAUTH` connection rejection and restores the L7 rate limiter.
-#  *
-#  * - EDITED (Hotfix - Redis Auth Race Condition & DB Signing Fix):
-#  * • Changed Redis container healthcheck to authenticate via `CMD-SHELL` evaluating `$$REDISCLI_AUTH` natively.
-#  * • Mapped `AEGIS_DB_SIGNING_KEY` environment variable to backend service.
-#  * • Why: Prevents race conditions where the backend boots before Redis is fully authenticated, and restores Zero-Trust query validations without exposing passwords in the container execution tree.
+#  * - EDITED (Hotfix - Database & Redis Environment Crash Loops):
+#  * • Mapped `REDIS_PASSWORD=${REDIS_PASSWORD}` explicitly into `backend` to satisfy the static `${REDIS_PASSWORD}` placeholder requirement in `application-prod.properties`.
+#  * • Mapped `AEGIS_DB_SIGNING_KEY=${AEGIS_DB_SIGNING_KEY}` to restore database zero-trust boundary.
+#  * • Replaced broken `secrets` mount for `treishvaam-db` with direct environment variable injection `MARIADB_ENCRYPTION_KEY`.
+#  * • Updated `treishvaam-db` entrypoint to securely evaluate `$$MARIADB_ENCRYPTION_KEY` using `printf` inside the isolated shell.
+#  * • Updated `redis` healthcheck to authenticate securely via `$$REDISCLI_AUTH`.
+#  * • Why: Docker Compose `secrets` engine was silently failing to mount the keyfile on the Ubuntu host, causing a locked `Dead` nameless container and preventing DB startup. The Redis mapping fixes the final placeholder resolution gap causing NOAUTH crashes.
 #  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
@@ -140,15 +138,14 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${PROD_DB_PASSWORD}
       MYSQL_DATABASE: finance_db
+      MARIADB_ENCRYPTION_KEY: ${MARIADB_ENCRYPTION_KEY}
     entrypoint:
       - /bin/sh
       - -c
-      - "mkdir -p /etc/mysql/encryption && tr -d '\"' < /run/secrets/mariadb_encryption_key | tr -d \"'\" > /etc/mysql/encryption/keyfile && chown mysql:mysql /etc/mysql/encryption/keyfile && exec docker-entrypoint.sh mariadbd"
+      - "mkdir -p /etc/mysql/encryption && printf '%s' \"$$MARIADB_ENCRYPTION_KEY\" | tr -d '\"' | tr -d \"'\" > /etc/mysql/encryption/keyfile && chown mysql:mysql /etc/mysql/encryption/keyfile && exec docker-entrypoint.sh mariadbd"
     volumes:
       - ./data/mariadb:/var/lib/mysql
       - ./config/mariadb/encryption.cnf:/etc/mysql/conf.d/encryption.cnf:ro
-    secrets:
-      - mariadb_encryption_key
     deploy:
       resources:
         limits:
@@ -440,6 +437,7 @@ services:
       - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
       - SPRING_REDIS_HOST=redis
       - SPRING_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
       - SPRING_ELASTICSEARCH_URIS=http://elasticsearch:9200
       - SPRING_ELASTICSEARCH_USERNAME=elastic
       - SPRING_ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
@@ -670,7 +668,3 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-
-secrets:
-  mariadb_encryption_key:
-    environment: "MARIADB_ENCRYPTION_KEY"
