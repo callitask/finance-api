@@ -26,7 +26,7 @@
 #   - Must handle permission errors gracefully.
 #
 # Change Intent:
-#   - Cleaned up manual shell-based docker permission fixes in favor of Docker Compose `init-container` architecture.
+#   - Eliminate IPv6 blackhole timeouts during image pulls and fix internal Docker DNS drops.
 #
 # Future AI Guidance:
 #   - Do NOT use `sudo chown -R $USER:$USER .` as it corrupts MariaDB host-mounted data.
@@ -66,6 +66,11 @@
 #     • Added PID-verified Lockfile (`/tmp/treishvaam_deploy.lock`).
 #     • Added host DNS flush (`nsenter -t 1 -m -u -n -i systemctl restart systemd-resolved`).
 #     • Reason: The 1-minute cron job was overlapping with active 3-minute deployments, causing the second script to run `docker compose down` and terminate the first script's active image pulls (Resulting in `Interrupted` and `SERVFAIL` logs). The lockfile guarantees sequential execution, while the DNS flush ensures VirtualBox NAT routes do not stall `quay.io` pulls.
+#   - EDITED (IPv6 & DNS Healing Fix):
+#     • Removed `systemctl restart systemd-resolved` from the script.
+#     • Added `sysctl -w net.ipv6.conf.all.disable_ipv6=1` via nsenter.
+#     • Added a second `set -a; source "$ENV_FILE"; set +a` after Infisical hydration.
+#     • Reason: The previous DNS restart severed the Docker daemon's internal `127.0.0.11` bridge, causing the backend to crash with `java.net.UnknownHostException: Failed to resolve 'redis' (SERVFAIL)`. The IPv6 disable command fixes the `dial tcp [2600:...]:443: i/o timeout` registry pull errors without breaking local DNS. The re-source command guarantees shell-level variables are hydrated before `docker compose up` executes.
 # ==============================================================================
 
 # ==============================================================================
@@ -175,7 +180,9 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
 
     if [ $EXIT_CODE -eq 0 ] && [ -s "$TEMP_SECRETS" ] && ! grep -qE "arrow keys|Select project|login" "$TEMP_SECRETS"; then
         cat "$TEMP_SECRETS" >> "$ENV_FILE"
-        echo "  > Secrets injected successfully."
+        # CRITICAL FIX: Source the environment again AFTER writing the secrets so the active shell executing docker-compose holds them in memory.
+        set -a; source "$ENV_FILE"; set +a
+        echo "  > Secrets injected and sourced successfully."
         rm "$TEMP_SECRETS"
     else
         echo "CRITICAL: Infisical fetch failed or returned interactive prompt."
@@ -195,8 +202,9 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     echo "[System] Executing Aggressive OS Memory Recovery..."
     docker run --rm --privileged alpine sh -c "sync && echo 3 > /proc/sys/vm/drop_caches"
     
-    echo "[System] Flushing Host DNS Cache to prevent Image Pull Timeouts (SERVFAIL)..."
-    docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -n -i systemctl restart systemd-resolved
+    echo "[System] Disabling host IPv6 to prevent Registry Pull Timeouts (i/o timeout on 2600:)..."
+    docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -n -i sysctl -w net.ipv6.conf.all.disable_ipv6=1
+    docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -n -i sysctl -w net.ipv6.conf.default.disable_ipv6=1
 
     echo "[System] Ensuring 4GB Enterprise Swap Space via host mount..."
     docker run --rm --privileged -v /:/host alpine sh -c "if [ ! -f /host/swapfile ]; then echo '[Swap] Creating 4GB swap file...'; dd if=/dev/zero of=/host/swapfile bs=1M count=4096 status=none && chmod 600 /host/swapfile && mkswap /host/swapfile && chroot /host swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /host/etc/fstab; else echo '[Swap] Swapfile exists. Ensuring it is active...'; chroot /host swapon -a || true; fi"
