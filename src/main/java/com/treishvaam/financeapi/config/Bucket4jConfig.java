@@ -33,6 +33,13 @@
  * minutes. This hybrid approach provides credential safety while physically separating Bucket4j's
  * connection lifecycle from Spring Data.
  *
+ * <p>- EDITED (DNS Resolution Hardening - SERVFAIL Fix): • Introduced `ClientResources` bean
+ * explicitly configured with `DnsResolvers.JVM_DEFAULT`. • Injected `ClientResources` into the
+ * isolated `RedisClient` bean. • Why: Netty's default async DNS resolver frequently drops UDP
+ * packets in bridged VirtualBox networking environments under load, causing `UnknownHostException`
+ * (SERVFAIL) and freezing Tomcat context initialization. Forcing the synchronous JVM resolver
+ * completely eliminates this race condition without dropping the distributed rate limiter.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -42,6 +49,9 @@ import io.github.bucket4j.distributed.proxy.ProxyManager;
 import io.github.bucket4j.redis.lettuce.cas.LettuceBasedProxyManager;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisURI;
+import io.lettuce.core.resource.ClientResources;
+import io.lettuce.core.resource.DefaultClientResources;
+import io.lettuce.core.resource.DnsResolvers;
 import java.time.Duration;
 import org.springframework.boot.autoconfigure.data.redis.RedisProperties;
 import org.springframework.context.annotation.Bean;
@@ -51,7 +61,13 @@ import org.springframework.context.annotation.Configuration;
 public class Bucket4jConfig {
 
     @Bean(destroyMethod = "shutdown")
-    public RedisClient bucket4jRedisClient(RedisProperties properties) {
+    public ClientResources lettuceClientResources() {
+        return DefaultClientResources.builder().dnsResolver(DnsResolvers.JVM_DEFAULT).build();
+    }
+
+    @Bean(destroyMethod = "shutdown")
+    public RedisClient bucket4jRedisClient(
+            RedisProperties properties, ClientResources clientResources) {
         RedisURI.Builder uriBuilder =
                 RedisURI.builder().withHost(properties.getHost()).withPort(properties.getPort());
 
@@ -59,7 +75,7 @@ public class Bucket4jConfig {
             uriBuilder.withPassword(properties.getPassword().toCharArray());
         }
 
-        return RedisClient.create(uriBuilder.build());
+        return RedisClient.create(clientResources, uriBuilder.build());
     }
 
     @Bean
