@@ -97,6 +97,11 @@
 #  * • Converted `command` strings to strictly typed YAML arrays in `keycloak`, `minio`, `tunnel`, `permission-fixer`, `loki`, and `promtail`.
 #  * • Why: The legacy '3.8' schema validator rejected modern directives, causing `auto_deploy.sh` to silently fail pre-flight checks and preventing `treishvaam-redis`, `treishvaam-db`, and `treishvaam-rabbitmq` from spinning up (resulting in `java.net.UnknownHostException` / `SERVFAIL` in the backend). Array syntax prevents special characters in Infisical secrets from triggering dangerous shell expansions.
 #  *
+#  * - EDITED (Hotfix - Wazuh Agent Sync):
+#  * • Upgraded `wazuh-agent` image from `4.7.3` (deprecated/not found) to `4.14.5` (LTS).
+#  * • Renamed `WAZUH_MANAGER` to `WAZUH_MANAGER_SERVER` per official Wazuh Docker specifications.
+#  * • Why: The deprecated 4.7.3 image tag caused `docker compose pull` to fatally abort the entire infrastructure pipeline, preventing Redis, MariaDB, and RabbitMQ from deploying, leaving the backend trapped in a `java.net.UnknownHostException (SERVFAIL)` crash loop.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -352,7 +357,7 @@ services:
           memory: 128M
 
   wazuh-agent:
-    image: wazuh/wazuh-agent:4.7.3
+    image: wazuh/wazuh-agent:4.14.5
     container_name: wazuh-agent
     restart: always
     networks:
@@ -360,7 +365,7 @@ services:
     privileged: true
     pid: host
     environment:
-      - WAZUH_MANAGER=127.0.0.1
+      - WAZUH_MANAGER_SERVER=127.0.0.1
     deploy:
       resources:
         limits:
