@@ -114,6 +114,10 @@
 #  * • Updated `redis` healthcheck to authenticate securely via `$$REDISCLI_AUTH`.
 #  * • Why: Docker Compose `secrets` engine was silently failing to mount the keyfile on the Ubuntu host, causing a locked `Dead` nameless container and preventing DB startup. The Redis mapping fixes the final placeholder resolution gap causing NOAUTH crashes.
 #  *
+#  * - EDITED (Database Entrypoint Hardening):
+#  * • Refactored `treishvaam-db` entrypoint from an inline string array to a strict YAML multiline block scalar (`|`).
+#  * • Why: Prevents double-quote and shell-escaping collisions when parsing complex cryptographic keys. Resolves the nameless `Dead` container state during automated deployments.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -142,7 +146,11 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - "mkdir -p /etc/mysql/encryption && printf '%s' \"$$MARIADB_ENCRYPTION_KEY\" | tr -d '\"' | tr -d \"'\" > /etc/mysql/encryption/keyfile && chown mysql:mysql /etc/mysql/encryption/keyfile && exec docker-entrypoint.sh mariadbd"
+      - |
+        mkdir -p /etc/mysql/encryption
+        printf '%s' "$$MARIADB_ENCRYPTION_KEY" | tr -d '"' | tr -d "'" > /etc/mysql/encryption/keyfile
+        chown mysql:mysql /etc/mysql/encryption/keyfile
+        exec docker-entrypoint.sh mariadbd
     volumes:
       - ./data/mariadb:/var/lib/mysql
       - ./config/mariadb/encryption.cnf:/etc/mysql/conf.d/encryption.cnf:ro

@@ -75,6 +75,9 @@
 #     • Removed the `sed` quote-stripper and the final `source "$ENV_FILE"` command from the Infisical export block.
 #     • Restored `export GOMAXPROCS=1`.
 #     • Reason: Docker Compose natively reads `.env` dynamically and strips quotes automatically. Forcing Bash to evaluate it caused a fatal syntax error because the MariaDB TDE string (`1;828FA...`) contains a semicolon, crashing the deploy script before `docker compose up` could execute, resulting in permanently missing database and proxy containers.
+#   - EDITED (Environment Shadowing & Crash Loop Fix):
+#     • Replaced `set -a; source "$ENV_FILE"; set +a` with an isolated `grep`/`cut` extraction for `INFISICAL_PROJECT_ID`.
+#     • Reason: Sourcing the `.env.template` polluted the active Bash shell with empty strings (e.g., `REDIS_PASSWORD=""`). Docker Compose strictly prioritizes the host's active shell environment over the generated `.env` file. This caused the backend to receive an empty Redis password (triggering `NOAUTH HELLO` crashes) and the database to receive an empty encryption key (causing a nameless `Dead` container).
 # ==============================================================================
 
 # ==============================================================================
@@ -172,8 +175,9 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     fi
     cp "$TEMPLATE_FILE" "$ENV_FILE"
     
-    # We only source the template to get INFISICAL_PROJECT_ID natively before fetching secrets
-    set -a; source "$ENV_FILE"; set +a
+    # We extract INFISICAL_PROJECT_ID safely without polluting the bash environment
+    # Shell environment overrides Docker Compose .env files. We must NEVER source the template globally.
+    export INFISICAL_PROJECT_ID=$(grep -E '^INFISICAL_PROJECT_ID=' "$ENV_FILE" | cut -d '=' -f2 | tr -d ' "\'')
     
     echo "[Security] Fetching live secrets from Infisical..."
     echo "" >> "$ENV_FILE"
