@@ -40,6 +40,13 @@
  * (SERVFAIL) and freezing Tomcat context initialization. Forcing the synchronous JVM resolver
  * completely eliminates this race condition without dropping the distributed rate limiter.
  *
+ * <p>- EDITED (Lettuce Authentication Race Condition Fix): • Explicitly injected the Redis password
+ * using `@Value("${spring.data.redis.password}")` alongside `RedisProperties`. • Why:
+ * `RedisProperties` was occasionally resolving before the environment was fully populated, causing
+ * the proxy manager to attempt unauthenticated connections, resulting in a fatal `NOAUTH` startup
+ * crash loop. Explicit `@Value` binding forces Spring to guarantee credential presence before
+ * instantiating the bean.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -53,6 +60,7 @@ import io.lettuce.core.resource.ClientResources;
 import io.lettuce.core.resource.DefaultClientResources;
 import io.lettuce.core.resource.DnsResolvers;
 import java.time.Duration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.data.redis.RedisProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -67,11 +75,15 @@ public class Bucket4jConfig {
 
     @Bean(destroyMethod = "shutdown")
     public RedisClient bucket4jRedisClient(
-            RedisProperties properties, ClientResources clientResources) {
+            RedisProperties properties,
+            @Value("${spring.data.redis.password:${SPRING_REDIS_PASSWORD:}}") String redisPassword,
+            ClientResources clientResources) {
         RedisURI.Builder uriBuilder =
                 RedisURI.builder().withHost(properties.getHost()).withPort(properties.getPort());
 
-        if (properties.getPassword() != null && !properties.getPassword().isEmpty()) {
+        if (redisPassword != null && !redisPassword.isEmpty()) {
+            uriBuilder.withPassword(redisPassword.toCharArray());
+        } else if (properties.getPassword() != null && !properties.getPassword().isEmpty()) {
             uriBuilder.withPassword(properties.getPassword().toCharArray());
         }
 

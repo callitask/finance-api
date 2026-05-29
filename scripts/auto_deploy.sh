@@ -75,6 +75,9 @@
 #     • Injected `export GOMAXPROCS=1` to force single-threaded Docker layer extraction.
 #     • Injected explicit ownership reset for the transient `.env` file via Docker Alpine.
 #     • Reason: Prevents BuildKit from spiking memory to 1.9GB and crashing the GitHub Runner (OOM Kill), and prevents the runner's post-job cleanup from getting trapped in a headless `sudo` password prompt when manipulating credential files touched by root.
+#   - EDITED (Bash Semicolon Crash Resolution):
+#     • Removed the final `source "$ENV_FILE"` command after Infisical hydration.
+#     • Reason: Docker Compose natively reads `.env` dynamically. Forcing Bash to source it caused a fatal syntax error because the MariaDB TDE string (`1;828FA...`) contains a semicolon, which Bash parses as an illegal "End of Command" operator, terminating the script and preventing full secret injection.
 # ==============================================================================
 
 # ==============================================================================
@@ -172,6 +175,7 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     fi
     cp "$TEMPLATE_FILE" "$ENV_FILE"
     
+    # We only source the template to pull the harmless INFISICAL_PROJECT_ID required for the export command.
     set -a; source "$ENV_FILE"; set +a
     
     echo "[Security] Fetching live secrets from Infisical..."
@@ -184,9 +188,7 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
 
     if [ $EXIT_CODE -eq 0 ] && [ -s "$TEMP_SECRETS" ] && ! grep -qE "arrow keys|Select project|login" "$TEMP_SECRETS"; then
         cat "$TEMP_SECRETS" >> "$ENV_FILE"
-        # CRITICAL FIX: Source the environment again AFTER writing the secrets so the active shell executing docker-compose holds them in memory.
-        set -a; source "$ENV_FILE"; set +a
-        echo "  > Secrets injected and sourced successfully."
+        echo "  > Secrets injected successfully. (Skipping Bash source to prevent parsing crashes on special characters)."
         rm "$TEMP_SECRETS"
     else
         echo "CRITICAL: Infisical fetch failed or returned interactive prompt."
