@@ -78,6 +78,9 @@
 #   - EDITED (Environment Shadowing & Crash Loop Fix):
 #     • Replaced `set -a; source "$ENV_FILE"; set +a` with an isolated `grep`/`cut` extraction for `INFISICAL_PROJECT_ID`.
 #     • Reason: Sourcing the `.env.template` polluted the active Bash shell with empty strings (e.g., `REDIS_PASSWORD=""`). Docker Compose strictly prioritizes the host's active shell environment over the generated `.env` file. This caused the backend to receive an empty Redis password (triggering `NOAUTH HELLO` crashes) and the database to receive an empty encryption key (causing a nameless `Dead` container).
+#   - EDITED (Quote Sanitization Restoration):
+#     • Re-introduced `sed -i "s/['\"]//g"` against the temporary Infisical secrets file before appending to `.env`.
+#     • Reason: Infisical wraps secrets in literal quotes. Without stripping them, Docker Compose injects the literal quotes into the container environment. This caused Redis Lettuce to send `'mypassword'` instead of `mypassword`, resulting in fatal `NOAUTH HELLO` exceptions across the backend fleet.
 # ==============================================================================
 
 # ==============================================================================
@@ -188,6 +191,9 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     EXIT_CODE=$?
 
     if [ $EXIT_CODE -eq 0 ] && [ -s "$TEMP_SECRETS" ] && ! grep -qE "arrow keys|Select project|login" "$TEMP_SECRETS"; then
+        # SANITIZE: Strip all literal single and double quotes to prevent Docker Compose interpolation crashes
+        sed -i "s/['\"]//g" "$TEMP_SECRETS"
+        
         cat "$TEMP_SECRETS" >> "$ENV_FILE"
         echo "  > Secrets injected successfully. (Bypassed Bash source to prevent parsing crashes on semicolons)."
         rm "$TEMP_SECRETS"
