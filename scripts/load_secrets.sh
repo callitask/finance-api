@@ -41,6 +41,11 @@
 #  * • Removed `sed "s/['\"]//g"` pipeline completely.
 #  * • Why: Stripping single quotes from the `.env` file exposed passwords containing `#` and `$` directly to Docker Compose's YAML parser, which interpreted them as comments/substitutions, permanently truncating `REDIS_PASSWORD` and causing NOAUTH crashes. Docker Compose natively requires secrets to be quoted to protect special characters.
 #  *
+#  * - EDITED (Dual-Env OS Shadow-Kill & Fail Guard):
+#  * • Implemented temporary file for Infisical export with strict `EXIT_CODE` abort guard.
+#  * • Added targeted boundary `sed` to generate `.env.backend` and dynamic `unset` loop to destroy OS shadow variables.
+#  * • Why: Ensures CI/CD runner empty variables do not override Docker Compose values and protects passwords with internal special characters from truncation.
+#  *
 #  * - DO-NOT-DELETE RULE:
 #  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
 #  * truncated, rewritten, or regenerated.
@@ -60,9 +65,30 @@ echo "📄 Preparing $ENV_FILE..."
 cp $TEMPLATE_FILE $ENV_FILE
 
 echo "📥 Pulling secrets for 'prod' environment..."
-# Export secrets in dotenv format.
-# We no longer pipe through sed. Infisical's single quotes protect special characters like '#' and '$' from Docker Compose parsing truncation.
-infisical export --env=prod --format=dotenv >> $ENV_FILE
+TEMP_SECRETS=$(mktemp)
+infisical export --env=prod --format=dotenv > "$TEMP_SECRETS"
+EXIT_CODE=$?
 
-echo "✅ Secrets loaded successfully into $ENV_FILE."
+if [ $EXIT_CODE -ne 0 ] || [ ! -s "$TEMP_SECRETS" ]; then
+    echo "❌ CRITICAL: Infisical fetch failed. Aborting to protect production."
+    rm -f "$TEMP_SECRETS"
+    exit 1
+fi
+
+# Append quoted secrets to .env (Docker Compose YAML interpolation for infra containers)
+cat "$TEMP_SECRETS" >> "$ENV_FILE"
+
+# Generate .env.backend: strip ONLY surrounding single quotes (safe for special chars)
+sed "s/^\([A-Za-z_][A-Za-z0-9_]*\)='\(.*\)'$/\1=\2/" "$ENV_FILE" > "${ENV_FILE}.backend"
+
+# OS shadow-kill: unset template variables from the active shell before docker compose runs
+while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$line" ]] && continue
+    var_name=$(echo "$line" | cut -d'=' -f1 | tr -d ' ')
+    [[ "$var_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && unset "$var_name"
+done < "$TEMPLATE_FILE"
+
+rm -f "$TEMP_SECRETS"
+echo "✅ Secrets loaded. .env.backend generated. OS shadow overrides neutralised."
 echo "🚀 Ready to start backend: docker compose up -d"

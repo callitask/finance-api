@@ -127,6 +127,10 @@
 #  * • Removed `env_file: .env` entirely from the `backend` service.
 #  * • Why: `echo` natively injects an invisible newline character (`\n`), mutating the exact cryptographic 32-byte payload required by the MariaDB `file_key_management` plugin, triggering `line 0, column 1` corruption rejections. Returning to `printf` guarantees exact bytes. Furthermore, the `backend` was importing literal single quotes due to Docker Engine's `env_file` literal parsing mechanics. By mapping strictly through `environment:`, Docker Compose dynamically interpolates and explicitly strips the Infisical single quotes BEFORE transmitting the clean variables to the JVM, resolving all AES/Redis password misinterpretations.
 #  *
+#  * - EDITED (MariaDB TDE Keyfile Hardening):
+#  * • Refactored `treishvaam-db` entrypoint to use boundary-safe `sed` (`sed "s/^'//;s/'$$//;s/^\"/\"/;s/\"$$//"`) instead of global `tr -d`.
+#  * • Why: Provides container-local failsafe sanitization of `MARIADB_ENCRYPTION_KEY` without corrupting internal special characters, ensuring the keyfile writes byte-perfectly for TDE initialization.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -157,7 +161,8 @@ services:
       - -c
       - |
         mkdir -p /etc/mysql/encryption
-        printf '%s' "$$MARIADB_ENCRYPTION_KEY" | tr -d '"' | tr -d "'" > /etc/mysql/encryption/keyfile
+        CLEAN_KEY=$$(printf '%s' "$$MARIADB_ENCRYPTION_KEY" | sed "s/^'//;s/'\$$//;s/^\"/\"/;s/\"\$$//")
+        printf '%s' "$$CLEAN_KEY" > /etc/mysql/encryption/keyfile
         chown mysql:mysql /etc/mysql/encryption/keyfile
         exec docker-entrypoint.sh mariadbd
     volumes:

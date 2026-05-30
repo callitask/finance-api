@@ -84,6 +84,11 @@
 #   - EDITED (Quote Sanitization Reversal & YAML Protection):
 #     • Removed `sed -i "s/['\"]//g"` completely.
 #     • Reason: Stripping single quotes from the `.env` file exposed passwords containing `#` and `$` directly to Docker Compose's YAML parser, which interpreted them as comments/substitutions, permanently truncating `REDIS_PASSWORD` and causing the `NOAUTH` crashes to persist. Docker Compose natively requires secrets to be quoted to protect special characters. The literal quote injection into Spring Boot will be solved by relying exclusively on compose `environment:` mapping instead of `env_file`.
+#   - EDITED (Dual-Env OS Shadow-Kill):
+#     • Replaced global `sed` quote-stripping with targeted boundary `sed` to generate `.env.backend`.
+#     • Added dynamic `unset` loop against `.env.template` variables to destroy OS-level empty strings.
+#     • Added `.env.backend` to Flash & Wipe destruction.
+#     • Reason: Fixes DB `key id 1 is missing` and Redis `NOAUTH HELLO` crash loops by preventing the GitHub Runner's empty shell variables from overriding Docker Compose injection, while preserving password internal special characters.
 # ==============================================================================
 
 # ==============================================================================
@@ -195,7 +200,7 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
 
     if [ $EXIT_CODE -eq 0 ] && [ -s "$TEMP_SECRETS" ] && ! grep -qE "arrow keys|Select project|login" "$TEMP_SECRETS"; then
         cat "$TEMP_SECRETS" >> "$ENV_FILE"
-        echo "  > Secrets injected successfully. (Bypassed Bash source to prevent parsing crashes on semicolons)."
+        echo "  > Secrets injected successfully."
         rm "$TEMP_SECRETS"
     else
         echo "CRITICAL: Infisical fetch failed or returned interactive prompt."
@@ -205,8 +210,33 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
         exit 1
     fi
 
-    # Reset ownership of .env to ensure the unprivileged runner can wipe it later without invoking a sudo password prompt
-    docker run --rm -v "$(pwd):/workspace" alpine sh -c "chown $(id -u):$(id -g) /workspace/.env 2>/dev/null || true"
+    # --- DUAL-ENV ARCHITECTURE: Generate quote-free .env.backend for Spring Boot JVM ---
+    # The .env file retains Infisical single quotes for Docker Compose YAML interpolation
+    # (protects # and $ in passwords from YAML parser truncation in redis/db containers).
+    # The .env.backend strips ONLY surrounding single quotes using a targeted regex,
+    # safe for passwords containing internal apostrophes, semicolons, and special chars.
+    echo "[Security] Generating quote-free .env.backend for Spring Boot JVM injection..."
+    sed "s/^\([A-Za-z_][A-Za-z0-9_]*\)='\(.*\)'$/\1=\2/" "$ENV_FILE" > "${ENV_FILE}.backend"
+    echo "  > .env.backend generated (surrounding quotes stripped)."
+
+    # --- OS SHADOW-KILL: Unset all template variables from the active shell ---
+    # CRITICAL: Docker Compose prioritises active shell environment over .env file.
+    # The GitHub Actions runner exports empty strings (e.g. REDIS_PASSWORD="") into
+    # its shell environment. These empty strings silently override the .env file,
+    # injecting nulls into every container and causing the NOAUTH and keyfile crashes.
+    # This unset loop permanently destroys those shell overrides before compose runs.
+    echo "[Security] Executing OS shadow-kill: unsetting shell environment overrides..."
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$line" ]] && continue
+        var_name=$(echo "$line" | cut -d'=' -f1 | tr -d ' ')
+        [[ "$var_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] && unset "$var_name"
+    done < "$TEMPLATE_FILE"
+    echo "  > OS shell overrides neutralised."
+
+    # Reset ownership of .env files to ensure the unprivileged runner can wipe them later
+    docker run --rm -v "$(pwd):/workspace" alpine sh -c \
+        "chown $(id -u):$(id -g) /workspace/.env /workspace/.env.backend 2>/dev/null || true"
 
     # --- 5. PERMISSION REPAIR ---
     echo "[System] Folder permissions are now securely orchestrated via Docker Compose Init Container (permission-fixer)."
@@ -249,7 +279,8 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     # E. SECURITY WIPE (Flash & Wipe)
     echo "[Security] Wiping secrets from disk..."
     cp "$TEMPLATE_FILE" "$ENV_FILE"
-    echo "  > SECURE WIPE COMPLETE. .env now contains only Auth Keys."
+    rm -f "${ENV_FILE}.backend"
+    echo "  > SECURE WIPE COMPLETE. .env restored to template. .env.backend destroyed."
     
     docker image prune -f
     
