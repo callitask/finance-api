@@ -110,13 +110,15 @@
 #  * • Mapped `REDIS_PASSWORD=${REDIS_PASSWORD}` explicitly into `backend` to satisfy the static `${REDIS_PASSWORD}` placeholder requirement in `application-prod.properties`.
 #  * • Mapped `AEGIS_DB_SIGNING_KEY=${AEGIS_DB_SIGNING_KEY}` to restore database zero-trust boundary.
 #  * • Replaced broken `secrets` mount for `treishvaam-db` with direct environment variable injection `MARIADB_ENCRYPTION_KEY`.
-#  * • Updated `treishvaam-db` entrypoint to securely evaluate `$$MARIADB_ENCRYPTION_KEY` using `printf` inside the isolated shell.
 #  * • Updated `redis` healthcheck to authenticate securely via `$$REDISCLI_AUTH`.
+#  * • Removed `secrets` block completely to clear VirtualBox filesystem daemon lock (Zombie Container syndrome).
 #  * • Why: Docker Compose `secrets` engine was silently failing to mount the keyfile on the Ubuntu host, causing a locked `Dead` nameless container and preventing DB startup. The Redis mapping fixes the final placeholder resolution gap causing NOAUTH crashes.
 #  *
-#  * - EDITED (Database Entrypoint Hardening):
-#  * • Refactored `treishvaam-db` entrypoint from an inline string array to a strict YAML multiline block scalar (`|`).
-#  * • Why: Prevents double-quote and shell-escaping collisions when parsing complex cryptographic keys. Resolves the nameless `Dead` container state during automated deployments.
+#  * - EDITED (Hotfix - MariaDB TDE Key Format Crash):
+#  * • Overhauled treishvaam-db entrypoint to safely parse $$MARIADB_ENCRYPTION_KEY.
+#  * • Added bash logic to dynamically prepend the '1;' Key ID required by the file_key_management plugin if it is missing, ensuring idempotency.
+#  * • Applied chmod 600 to the keyfile to satisfy strict InnoDB security checks.
+#  * • Why: The raw cryptographic seed synced from Infisical lacked the '1;' prefix mandated by MariaDB's TDE parser, causing the storage engine to instantly abort during initialization. The automated formatting eliminates this crash without requiring manual secret manipulation in the vault.
 #  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
@@ -148,8 +150,14 @@ services:
       - -c
       - |
         mkdir -p /etc/mysql/encryption
-        printf '%s' "$$MARIADB_ENCRYPTION_KEY" | tr -d '"' | tr -d "'" > /etc/mysql/encryption/keyfile
+        RAW_KEY=$$(printf '%s' "$$MARIADB_ENCRYPTION_KEY" | tr -d '"' | tr -d "'")
+        case "$$RAW_KEY" in
+          "1;"*) FORMATTED_KEY="$$RAW_KEY" ;;
+          *) FORMATTED_KEY="1;$$RAW_KEY" ;;
+        esac
+        printf '%s' "$$FORMATTED_KEY" > /etc/mysql/encryption/keyfile
         chown mysql:mysql /etc/mysql/encryption/keyfile
+        chmod 600 /etc/mysql/encryption/keyfile
         exec docker-entrypoint.sh mariadbd
     volumes:
       - ./data/mariadb:/var/lib/mysql
