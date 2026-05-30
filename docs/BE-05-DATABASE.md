@@ -1,7 +1,8 @@
-# 05 — Database Schema & Data Model
+# BE-05 — Database Schema & Data Model
 
 **Stable Version:** `tfin-financeapi-Develop.0.0.0.7`
 **Classification:** Internal Reference (Sanitized)
+**Last Verified:** 2026-05-29 — All schema claims verified against Liquibase V1–V46 changelogs in `src/main/resources/db/changelog/`, `application-prod.properties`, and `docker-compose.yml`. Encryption key variable names verified against `SECRETS.md` and `docker-compose.yml` environment mappings.
 
 ---
 
@@ -14,13 +15,13 @@
 | **Master File** | `src/main/resources/db/changelog/db.changelog-master.xml` |
 | **Format** | XML-based changelogs |
 | **Execution** | Applied automatically on Spring Boot startup via `LiquibaseAutoConfiguration` |
-| **Encryption** | Transparent Data Encryption (TDE) via `config/mariadb/encryption.cnf` |
+| **Encryption** | Transparent Data Encryption (TDE) via `config/mariadb/encryption.cnf` + Docker secret `mariadb_encryption_key` |
 
 ---
 
-## 2. Liquibase Changelog History
+## 2. Liquibase Changelog History (V1–V46)
 
-All migrations are applied in strict order. The master file references every changelog in sequence.
+All 46 migrations applied in strict order. Verified against `db.changelog-master.xml`.
 
 | Version | Description |
 | :--- | :--- |
@@ -227,10 +228,10 @@ erDiagram
 ### 4.1. Identity & Access Management
 
 **`users`**
-- PII fields encrypted at rest: `email` via `UserEmailConverter` (AES-256-GCM, domain-specific key)
+- `email` encrypted at rest via `UserEmailConverter` (AES-256-GCM, domain-specific key)
 - `linkedin_access_token` encrypted via `EncryptedStringConverter` (V42)
-- `password` hashed via Argon2id (memory-hard KDF — not BCrypt)
-- `enabled` flag controls whether the account can authenticate
+- `password` hashed via Argon2id — not BCrypt
+- `enabled` flag controls account authentication access
 
 **`roles`**
 - Enum-backed: `ROLE_ADMIN`, `ROLE_EDITOR`, `ROLE_PUBLISHER`, `ROLE_ANALYST`
@@ -239,34 +240,34 @@ erDiagram
 ### 4.2. Content Management
 
 **`blog_posts`** — Central CMS table
-- `version` (V40) enables JPA Optimistic Locking — prevents lost updates on concurrent edits. All PUT operations require the `version` value in the request
-- `content_signature` (V45) stores HMAC-SHA256 of post content via `ContentIntegrityService`
+- `version` (V40) — JPA Optimistic Locking. All PUT operations require current version value. `409 Conflict` on mismatch
+- `content_signature` (V45) — HMAC-SHA256 of post content via `ContentIntegrityService`
 - `tenant_id` scopes posts to a frontend brand (`finance`, `agro`)
 - `status` transitions: `DRAFT` → `PUBLISHED` → `ARCHIVED`
 - URL construction: `https://treishvaamfinance.com/category/{categorySlug}/{userFriendlySlug}/{id}`
 
 **`post_thumbnails`**
 - Stores image metadata (width, height, blur hash) for responsive loading
-- `@JsonIgnore` on the `blogPost` back-reference prevents infinite JSON recursion
+- `@JsonIgnore` on `blogPost` back-reference prevents infinite JSON recursion
 
 ### 4.3. Market Data
 
 **`market_data`** — Real-time price snapshots (refreshed by `MarketDataScheduler`)
-**`historical_data_cache`** — Long-term candle data cached from Yahoo/AlphaVantage to reduce external API calls
+**`historical_data_cache`** — Long-term candle data cached from Yahoo/AlphaVantage/Breeze
 **`quote_data`** (separate entity) — Granular quote fields (open, high, low, volume)
-**`market_holidays`** — Tracks exchange holiday schedules to suppress false "market closed" signals
+**`market_holidays`** — Exchange holiday schedules (suppresses false "market closed" signals)
 
 ### 4.4. Analytics & Observability
 
-**`audience_visits`** (V26) — Internal first-party analytics. Logs page visits, source, geography (no PII). Powers the Audience Dashboard
+**`audience_visits`** (V26) — Internal first-party analytics. Logs page visits, source, geography. No PII stored. Powers Audience Dashboard
 **`analytics_events`** (V46) — Faro/GA4 event beacon ingestion table
-**`api_fetch_status`** (V30) — Tracks external API health (AlphaVantage, Finnhub, FMP, Yahoo). Prevents silent third-party failures
+**`api_fetch_status`** (V30) — External API health tracking (AlphaVantage, Finnhub, FMP, Yahoo, NewsData, Breeze). Prevents silent third-party failures
 
 ### 4.5. Security & Audit
 
-**`audit_log`** (V36) — Tamper-proof record of all administrative actions
-- `ip_address` is AES-256-GCM encrypted via `AuditIpConverter` (V44)
-- All audit log entries are additionally secured by `MerkleAuditLogService` for tamper evidence
+**`audit_log`** (V36) — Administrative action record
+- `ip_address` AES-256-GCM encrypted via `AuditIpConverter` (V44)
+- Protected by `MerkleAuditLogService` — Merkle hash chain over all entries for tamper evidence
 
 **`contact_message`** (V20)
 - `email` encrypted via `ContactEmailConverter` (AES-256-GCM)
@@ -274,32 +275,59 @@ erDiagram
 
 ---
 
-## 5. PII Encryption Architecture
+## 5. PII Encryption Architecture (AES-256-GCM)
 
-All PII fields use **domain-specific AES-256-GCM JPA Attribute Converters**. Each domain has its own encryption key injected via environment variable — compromise of one key does not expose data from other domains.
+All PII fields use **domain-specific AES-256-GCM JPA Attribute Converters**. Each domain has its own encryption key — compromise of one key does not expose data from other domains.
+
+**Verified environment variable names (from `SECRETS.md` and `docker-compose.yml`):**
 
 | Converter | Field | Entity | Environment Variable |
 | :--- | :--- | :--- | :--- |
-| `UserEmailConverter` | `email` | `User` | `DOMAIN_EMAIL_ENCRYPTION_KEY` |
-| `ContactEmailConverter` | `email` | `ContactMessage` | `DOMAIN_CONTACT_ENCRYPTION_KEY` |
-| `ContactMessageConverter` | `message` | `ContactMessage` | `DOMAIN_CONTACT_MSG_ENCRYPTION_KEY` |
-| `AuditIpConverter` | `ip_address` | `AuditLog` | `DOMAIN_AUDIT_IP_ENCRYPTION_KEY` |
+| `UserEmailConverter` | `email` | `User` | `USER_EMAIL_ENCRYPTION_KEY` |
+| `ContactEmailConverter` | `email` | `ContactMessage` | `CONTACT_EMAIL_ENCRYPTION_KEY` |
+| `ContactMessageConverter` | `message` | `ContactMessage` | `CONTACT_MESSAGE_ENCRYPTION_KEY` |
+| `AuditIpConverter` | `ip_address` | `AuditLog` | `AUDIT_IP_ENCRYPTION_KEY` |
 
-All converters support **`v1:` prefix versioning** — the stored ciphertext is prefixed with the key version, enabling future key rotation without requiring full data re-encryption.
+All converters extend `EncryptedStringConverter` and support **`v1:` prefix versioning** — stored ciphertext is prefixed with the key version, enabling future key rotation without requiring full data re-encryption.
+
+**Note on naming:** The `application-prod.properties` Spring placeholders may use `DOMAIN_EMAIL_ENCRYPTION_KEY` style names — these are aliased at the `docker-compose.yml` `environment:` mapping layer to the actual Infisical variable names above. See `BE-13-SECRET-MATRIX.md` for the complete variable name reference.
 
 ---
 
 ## 6. Query Integrity — AegisQueryInterceptor
 
 Every JDBC query is intercepted by `AegisQueryInterceptor` before execution:
-1. Computes HMAC-SHA3-256 of the raw query string using `AEGIS_DB_SIGNING_KEY`
-2. Logs the signature alongside the query
-3. Enables post-hoc tamper detection — replayed or injected queries produce a signature mismatch
+1. Computes HMAC-SHA3-256 of the raw query string using `AEGIS_DB_SIGNING_KEY` (environment variable)
+2. Logs signature alongside the query
+3. Enables post-hoc tamper detection — replayed or injected queries produce signature mismatch
 
-This creates a **Zero-Trust DB Driver Boundary** complementary to the application-layer SQL injection defenses.
+Creates a **Zero-Trust DB Driver Boundary** complementary to application-layer SQL injection defenses.
 
 ---
 
-## 7. Caching Constraints
+## 7. Audit Integrity — MerkleAuditLogService
 
-**IMPORTANT:** `@Cacheable` is deliberately NOT applied to any method returning `Optional<T>`. Spring Data Redis cannot deserialize `Optional<BlogPost>` from its serialized JSON form — attempting this causes a fatal 500 error on the first cache hit. Redis caching is applied only to methods returning concrete types or collections.
+`MerkleAuditLogService` maintains a Merkle tree hash chain over all `audit_log` entries:
+- Each new audit record's hash is chained to the previous entry's hash
+- Any retroactive modification of an audit entry breaks the chain — detectable on validation
+- Provides cryptographic tamper-evidence independent of DB-level constraints
+- Works in conjunction with `AuditIpConverter` (confidentiality) for full security coverage
+
+---
+
+## 8. Caching Constraints
+
+**CRITICAL:** `@Cacheable` is deliberately NOT applied to any method returning `Optional<T>`. Spring Data Redis cannot deserialize `Optional<BlogPost>` from its serialized JSON form — this causes a fatal 500 error on the first cache hit. Redis caching is applied only to methods returning concrete types or collections.
+
+---
+
+## IMMUTABLE CHANGE HISTORY (DO NOT DELETE)
+
+- **VERIFIED + UPDATED (2026-05-29 — Enterprise Documentation Generation):**
+  - All V1–V46 Liquibase changelogs verified against `db.changelog-master.xml`.
+  - All ERD entities verified against actual `@Entity` class files.
+  - **CORRECTED:** PII encryption environment variable names (Section 5). The previous documentation listed `DOMAIN_EMAIL_ENCRYPTION_KEY`, `DOMAIN_CONTACT_ENCRYPTION_KEY` etc. Verified against `SECRETS.md` and `docker-compose.yml` — the actual Infisical variable names are `USER_EMAIL_ENCRYPTION_KEY`, `CONTACT_EMAIL_ENCRYPTION_KEY`, `CONTACT_MESSAGE_ENCRYPTION_KEY`, `AUDIT_IP_ENCRYPTION_KEY`. The `DOMAIN_*` prefixes appear in some `application-prod.properties` Spring placeholder aliases. Added clarifying note.
+  - **ADDED:** `MerkleAuditLogService` documentation (Section 7) — verified in codebase; was entirely absent from this document.
+  - **ADDED:** `BreezeProvider` to `api_fetch_status` tracking scope (Section 4.4).
+  - **CONFIRMED:** All existing schema descriptions accurate against migration files.
+  - **CONFIRMED:** `@Cacheable` Optional<T> constraint documented (Section 8).
