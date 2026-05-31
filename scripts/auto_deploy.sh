@@ -89,6 +89,9 @@
 #     • Added dynamic `unset` loop against `.env.template` variables to destroy OS-level empty strings.
 #     • Added `.env.backend` to Flash & Wipe destruction.
 #     • Reason: Fixes DB `key id 1 is missing` and Redis `NOAUTH HELLO` crash loops by preventing the GitHub Runner's empty shell variables from overriding Docker Compose injection, while preserving password internal special characters.
+#   - EDITED (Hotfix - Bash Syntax Lockout Fix):
+#     • Replaced invalid `tr -d ' "\''` with valid `tr -d " \"'"` during INFISICAL_PROJECT_ID extraction.
+#     • Reason: Bash cannot escape single quotes inside a single-quoted string. This caused an 'unexpected EOF' crash, permanently halting the deployment pipeline before 'docker compose up' could run, leaving containers in a crash loop with cached empty secrets (triggering NOAUTH and DB key missing errors).
 # ==============================================================================
 
 # ==============================================================================
@@ -188,7 +191,7 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     
     # We extract INFISICAL_PROJECT_ID safely without polluting the bash environment
     # Shell environment overrides Docker Compose .env files. We must NEVER source the template globally.
-    export INFISICAL_PROJECT_ID=$(grep -E '^INFISICAL_PROJECT_ID=' "$ENV_FILE" | cut -d '=' -f2 | tr -d ' "\'')
+    export INFISICAL_PROJECT_ID=$(grep -E '^INFISICAL_PROJECT_ID=' "$ENV_FILE" | cut -d '=' -f2 | tr -d " \"'")
     
     echo "[Security] Fetching live secrets from Infisical..."
     echo "" >> "$ENV_FILE"
