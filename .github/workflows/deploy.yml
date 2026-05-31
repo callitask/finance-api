@@ -18,12 +18,12 @@
 #  * - Must not exhaust runner memory (OOM killer prevention).
 #  *
 #  * Change Intent:
-#  * - Resolve Exit Code 137 (OOM Killer) by capping Maven heap size and removing aggressive multi-threading.
-#  * - Fix multi-line secret mangling in GPG verification.
+#  * - Resolve Execution Context desync (stale scripts) and docker compose teardown warnings.
 #  *
 #  * Future AI Guidance:
 #  * - Do not re-introduce `-T 1C` unless the self-hosted runner is confirmed to have >8GB RAM.
 #  * - Always maintain `MAVEN_OPTS` memory boundaries.
+#  * - Always hydrate secrets BEFORE running ANY docker-compose command, including stop/down.
 #  *
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
 #  * - EDITED:
@@ -57,6 +57,12 @@
 #  * • Injected `bash scripts/load_secrets.sh` before container boot, and `cp .env.template .env` after.
 #  * • Added `--build` flag to `docker compose up`.
 #  * • Why: Resolves the "error from registry: denied" and missing variable warnings by ensuring the CI runner dynamically fetches production secrets via Infisical and reconstructs the Docker image locally without relying on external GitHub Container Registries.
+#  *
+#  * - EDITED (Execution Sync & Missing Env Warnings Fix):
+#  * • Injected `cp -r scripts/* /opt/treishvaam/scripts/` and `cp docker-compose.yml /opt/treishvaam/`.
+#  * • Re-ordered `bash scripts/load_secrets.sh` to execute BEFORE `docker compose stop backend`.
+#  * • Why: The Git Runner was executing stale scripts because the updated `scripts/` directory wasn't copied to the host execution path. Furthermore, running `docker compose stop` against a wiped `.env` caused massive "variable is not set" YAML parser warnings.
+#  * • Date: Current Phase
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -170,15 +176,20 @@ jobs:
         echo "--> Copying new WAR file..."
         cp target/finance-api.war /opt/treishvaam/backend-app.war
 
+        echo "--> Syncing deployment scripts and infrastructure configs..."
+        mkdir -p /opt/treishvaam/scripts
+        cp -r scripts/* /opt/treishvaam/scripts/
+        cp docker-compose.yml /opt/treishvaam/
+
         echo "--> Restarting Backend..."
         cd /opt/treishvaam
         
-        # Robust Container Restart
-        docker compose stop backend || true
-        docker compose rm -f -s -v backend || true
-        
         echo "--> [SECURITY] Hydrating Secrets via Infisical..."
         bash scripts/load_secrets.sh
+        
+        # Robust Container Restart (Now fully hydrated)
+        docker compose stop backend || true
+        docker compose rm -f -s -v backend || true
         
         echo "--> [DOCKER] Building Local Base Image & Recreating Container..."
         docker compose up -d --build --force-recreate --no-deps backend
