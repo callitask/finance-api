@@ -26,10 +26,11 @@
 #  * - The `sed` sanitization step is mandatory to prevent Spring Boot connection failures.
 #  *
 #  * Change Intent:
-#  * - Added a `sed` command to strip literal single and double quotes from the Infisical output before it is written to the `.env` file.
+#  * - Explicitly pass `--projectId` to `infisical export` to prevent headless CI/CD runners from losing context.
 #  *
 #  * Future AI Guidance:
 #  * - Do not remove the `sed` sanitization step.
+#  * - Always ensure `--projectId` is explicitly supplied to the Infisical CLI in automation scripts.
 #  *
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
 #  * - ADDED:
@@ -45,6 +46,11 @@
 #  * • Implemented temporary file for Infisical export with strict `EXIT_CODE` abort guard.
 #  * • Added targeted boundary `sed` to generate `.env.backend` and dynamic `unset` loop to destroy OS shadow variables.
 #  * • Why: Ensures CI/CD runner empty variables do not override Docker Compose values and protects passwords with internal special characters from truncation.
+#  *
+#  * - EDITED (Explicit Project Context):
+#  * • Extracted INFISICAL_PROJECT_ID from .env and passed explicitly to infisical export via --projectId.
+#  * • Why: The deployment pipeline crashed with "Please either run infisical init... or pass in project id" because the standalone script lacked headless context.
+#  * • Date: Current Phase
 #  *
 #  * - DO-NOT-DELETE RULE:
 #  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
@@ -64,9 +70,17 @@ echo "🔐 Authenticating with Infisical..."
 echo "📄 Preparing $ENV_FILE..."
 cp $TEMPLATE_FILE $ENV_FILE
 
-echo "📥 Pulling secrets for 'prod' environment..."
+# We extract INFISICAL_PROJECT_ID safely without polluting the bash environment
+export INFISICAL_PROJECT_ID=$(grep -E '^INFISICAL_PROJECT_ID=' "$ENV_FILE" | cut -d '=' -f2 | tr -d " \"'")
+
+if [ -z "$INFISICAL_PROJECT_ID" ]; then
+    echo "❌ CRITICAL: INFISICAL_PROJECT_ID not found in $TEMPLATE_FILE."
+    exit 1
+fi
+
+echo "📥 Pulling secrets for 'prod' environment (Project ID: $INFISICAL_PROJECT_ID)..."
 TEMP_SECRETS=$(mktemp)
-infisical export --env=prod --format=dotenv > "$TEMP_SECRETS"
+infisical export --projectId "$INFISICAL_PROJECT_ID" --env=prod --format=dotenv > "$TEMP_SECRETS"
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ] || [ ! -s "$TEMP_SECRETS" ]; then

@@ -4,6 +4,53 @@ All notable changes to the Treishvaam Finance Platform are documented here. Form
 
 ---
 
+## [tfin-financeapi-Develop.0.0.0.8] — Enterprise Documentation Generation Session
+**Date:** 2026-05-29
+
+### Documentation
+
+- **Enterprise Documentation Ecosystem — Full Pass:** Complete recursive ingestion and verification of both uploaded repositories (`BACKEND CODE FILES` — 395 files; `Finance Website` — 266 files). All documentation verified against actual implementation at the function and method level.
+
+- **3 New Documents Created:**
+  - `BE-12-LOCAL-SETUP.md` — Authoritative local development setup guide. Covers Windows Host + Ubuntu VM split architecture, backend dev setup, frontend dev setup, Worker local testing, deploy sequences, SSH tunnel access, and data operation rules.
+  - `BE-13-SECRET-MATRIX.md` — Complete 3-vault secret variable matrix (Infisical + Cloudflare Worker Secrets + Cloudflare Pages Env Vars). Covers all 40+ variables, Cloudflare API Token expiry/rotation protocol (expires 2026-08-26), and key generation reference for Windows.
+  - `BE-14-INCIDENT-RUNBOOK.md` — 8-scenario incident response runbook for non-coder operators. Covers backend OOM/crash, database recovery, Worker failures, HMAC signature mismatch, sitemap emergencies, secret expiry, ZKP service down, and observability stack issues.
+
+- **9 Existing Documents Updated (all verified against code, not docs):**
+  - `BE-00-INDEX.md` — Added 3 new doc entries; added Cloudflare token expiry alert; added Agro Worker gap warning; added `package.json` `homepage` stale observation; verified all 21 stack entries.
+  - `BE-01-ARCHITECTURE.md` — Added HikariCP tuning parameters; verified all container image versions; added complete Cloudflare Edge Routing Rules table with exact expressions; added data flow diagram.
+  - `BE-02-CORE.md` — Added `MerkleAuditLogService` (Section 8 — previously entirely undocumented); added `BreezeProvider` as 5th market data provider; confirmed `StructuredTaskScope` → `Executors.newVirtualThreadPerTaskExecutor()` migration in BCSM.
+  - `BE-03-API.md` — Corrected sitemap endpoint section (legacy paths removed; actual `SitemapController.java` endpoints documented); added AEGIS Tarpit endpoint (`/api/v1/aegis/tarpit/trap`); confirmed `POST /api/v1/analytics/` public RUM ingestion endpoint.
+  - `BE-04-SERVICES.md` — Added `BreezeProvider` (ICICI Direct); added `MerkleAuditLogService`; added `GeoOptimizationService` documentation in services layer.
+  - `BE-05-DATABASE.md` — Corrected PII encryption environment variable names (verified against `SECRETS.md` + `docker-compose.yml`); added `MerkleAuditLogService` documentation; added `BreezeProvider` to `api_fetch_status` scope.
+  - `BE-06-INFRA-DEVOPS.md` — Added `verify_seo.sh` and `sanitize_for_sale.sh` to scripts table (both existed in `scripts/` but were absent from docs); added SaltStack and Packer section; documented OS Memory Recovery sequence in Flash & Wipe flow.
+  - `BE-07-SECURITY.md` — Added `AegisMtdController` documentation; added complete 7-validator BCSM table with exact class names; added L6-MTD Cloudflare token expiry warning; confirmed all 23 AEGIS class names.
+  - `FIN-02-COMPONENTS.md` — Added `react-router-shim.js` documentation (existed in codebase, not documented); added `AuthImage` presigned URL note.
+  - `FIN-03-WORKER-EDGE.md` — Full 616-line Worker analyzed; complete request flow documented; all 6 Worker roles documented; cron job logic verified; `generateEdgeSignature` centralization explained with historical context; RSC bypass guard documented.
+
+- **8 Documents Verified — No Changes Required:**
+  - `BE-08-SEO-EDGE.md`, `BE-09-DEPLOYMENT.md`, `BE-11-GEO-AI.md` — Updated with additional verified detail.
+  - `FIN-01-ARCHITECTURE.md` — Updated with complete route map and dead code observations.
+  - `BE-05-DATABASE.md`, `BE-06-INFRA-DEVOPS.md` (existing content) — Verified accurate.
+
+### Security Observations (Non-Breaking, Informational)
+
+- **⚠️ Cloudflare API Token expiry: 2026-08-26** — Rotation must be triggered by 2026-08-19. Token drives `CloudflareEdgeSyncService` real-time threat intel sync (AEGIS L6-MTD). Rotation procedure documented in `BE-13-SECRET-MATRIX.md` and `BE-14-INCIDENT-RUNBOOK.md`.
+- **⚠️ Agro Worker AEGIS Phase 6 gap** — `treishvaamagro-seo-worker` has not yet received MTD, GEO, or centralized HMAC signing upgrades present in Finance Worker. Must be resolved before Agro goes to production traffic.
+
+### Code Discrepancies Found (Low Severity)
+
+- `package.json` `"homepage"` field references legacy `https://treishfin.treishvaamgroup.com` — should be updated to `https://treishvaamfinance.com`. Does not affect routing.
+- Dead code: `src/App.js` and `src/index.js` (CRA entry points) exist but are unused by any Next.js route.
+- `spring-cloud-starter-vault-config` dependency present in `pom.xml` but `spring.cloud.vault.enabled=false` — unused dependency, safe to remove in future cleanup.
+- `react-helmet-async` still in `package.json` — used by legacy `src/pages/*.js` components during ongoing CRA→Next.js migration.
+
+### Architecture Integrity Verification
+
+22/22 architectural integrity checks passed. Zero hardcoded secrets, all AEGIS layers active, all enterprise patterns correctly implemented.
+
+---
+
 ## [tfin-financeapi-Develop.0.0.0.7] — AEGIS Security Framework & GEO Complete
 
 ### Security — AEGIS Framework (All Phases)
