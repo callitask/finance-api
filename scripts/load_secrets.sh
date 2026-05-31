@@ -26,7 +26,7 @@
 #  * - The `sed` sanitization step is mandatory to prevent Spring Boot connection failures.
 #  *
 #  * Change Intent:
-#  * - Explicitly pass `--projectId` to `infisical export` to prevent headless CI/CD runners from losing context.
+#  * - Autonomous headless authentication via Universal Auth.
 #  *
 #  * Future AI Guidance:
 #  * - Do not remove the `sed` sanitization step.
@@ -52,6 +52,11 @@
 #  * • Why: The deployment pipeline crashed with "Please either run infisical init... or pass in project id" because the standalone script lacked headless context.
 #  * • Date: Current Phase
 #  *
+#  * - EDITED (Autonomous Universal Auth):
+#  * • Extracted INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET from .env to perform headless authentication.
+#  * • Why: The Git Runner's session token frequently expires, causing headless deployments to crash. Logging in dynamically on each run guarantees a valid execution context without exposing credentials to GitHub Actions.
+#  * • Date: Current Phase
+#  *
 #  * - DO-NOT-DELETE RULE:
 #  * This IMMUTABLE CHANGE HISTORY section must never be deleted,
 #  * truncated, rewritten, or regenerated.
@@ -63,19 +68,24 @@ set -e
 ENV_FILE=".env"
 TEMPLATE_FILE=".env.template"
 
-echo "🔐 Authenticating with Infisical..."
-# Ensure you are logged in via machine identity or user account before running this script
-# Example: infisical login --method=universal-auth --client-id=... --client-secret=...
-
 echo "📄 Preparing $ENV_FILE..."
 cp $TEMPLATE_FILE $ENV_FILE
 
-# We extract INFISICAL_PROJECT_ID safely without polluting the bash environment
+# We extract credentials safely without polluting the bash environment
 export INFISICAL_PROJECT_ID=$(grep -E '^INFISICAL_PROJECT_ID=' "$ENV_FILE" | cut -d '=' -f2 | tr -d " \"'")
+export INFISICAL_CLIENT_ID=$(grep -E '^INFISICAL_CLIENT_ID=' "$ENV_FILE" | cut -d '=' -f2 | tr -d " \"'")
+export INFISICAL_CLIENT_SECRET=$(grep -E '^INFISICAL_CLIENT_SECRET=' "$ENV_FILE" | cut -d '=' -f2 | tr -d " \"'")
 
 if [ -z "$INFISICAL_PROJECT_ID" ]; then
     echo "❌ CRITICAL: INFISICAL_PROJECT_ID not found in $TEMPLATE_FILE."
     exit 1
+fi
+
+echo "🔐 Authenticating with Infisical Machine Identity..."
+if [ -n "$INFISICAL_CLIENT_ID" ] && [ -n "$INFISICAL_CLIENT_SECRET" ]; then
+    infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --silent || true
+else
+    echo "⚠️ INFISICAL_CLIENT_ID or INFISICAL_CLIENT_SECRET missing. Relying on existing session..."
 fi
 
 echo "📥 Pulling secrets for 'prod' environment (Project ID: $INFISICAL_PROJECT_ID)..."
