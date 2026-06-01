@@ -18,12 +18,13 @@
 #  * - Must not exhaust runner memory (OOM killer prevention).
 #  *
 #  * Change Intent:
-#  * - Resolve Execution Context desync (stale scripts) and docker compose teardown warnings.
+#  * - Decouple Flash & Wipe into an `always()` step to guarantee zero-trust cleanup on pipeline failure.
 #  *
 #  * Future AI Guidance:
 #  * - Do not re-introduce `-T 1C` unless the self-hosted runner is confirmed to have >8GB RAM.
 #  * - Always maintain `MAVEN_OPTS` memory boundaries.
 #  * - Always hydrate secrets BEFORE running ANY docker-compose command, including stop/down.
+#  * - Flash & Wipe MUST remain in an `if: always()` step to prevent secret leakage during crashes.
 #  *
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
 #  * - EDITED:
@@ -62,6 +63,10 @@
 #  * • Injected `cp -r scripts/* /opt/treishvaam/scripts/` and `cp docker-compose.yml /opt/treishvaam/`.
 #  * • Re-ordered `bash scripts/load_secrets.sh` to execute BEFORE `docker compose stop backend`.
 #  * • Why: The Git Runner was executing stale scripts because the updated `scripts/` directory wasn't copied to the host execution path. Furthermore, running `docker compose stop` against a wiped `.env` caused massive "variable is not set" YAML parser warnings.
+#  *
+#  * - EDITED (Guaranteed Flash & Wipe):
+#  * • Moved `cp .env.template .env` to a dedicated step with `if: always()`.
+#  * • Why: Previous pipeline crashes halted execution before the cleanup step was reached, leaving secrets exposed on the VM disk. Decoupling ensures the environment is scrubbed even if the build fails.
 #  * • Date: Current Phase
 #  */
 
@@ -194,11 +199,14 @@ jobs:
         echo "--> [DOCKER] Building Local Base Image & Recreating Container..."
         docker compose up -d --build --force-recreate --no-deps backend
         
-        echo "--> [SECURITY] Executing Flash & Wipe (Securing .env)..."
-        cp .env.template .env
-        
         echo "--> Pruning unused Docker images..."
         docker image prune -f
+
+    - name: Secure Flash & Wipe (Guaranteed Cleanup)
+      if: always()
+      run: |
+        echo "--> [SECURITY] Executing Flash & Wipe (Securing .env)..."
+        cp /opt/treishvaam/.env.template /opt/treishvaam/.env || true
 
     - name: Verify Deployment
       run: |
