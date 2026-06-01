@@ -50,6 +50,9 @@
 #   - EDITED (Boundary Quote Extraction):
 #     • Replaced the destructive global quote stripper (`sed "s/['\"]//g"`) with a precise boundary extractor (`sed -E "s/^([^=]+)=['\"](.*)['\"]$/\1=\2/"`).
 #     • Reason: Global stripping was destroying Redis and Database passwords that contained internal `#` or `$` characters, exposing them to the YAML parser as comments and triggering widespread NOAUTH crash loops. The regex solely removes outer Infisical quotes.
+#   - EDITED (Dependency Deadlock Resolution):
+#     • Restored `docker compose down --remove-orphans` immediately prior to the global rebuild step.
+#     • Reason: Fixed a dependency deadlock where `docker compose up --force-recreate` would hang infinitely and abort without executing if a required service (like treishvaam-db) crashed and failed its healthcheck, leaving downstream containers stuck in a stale state.
 # ==============================================================================
 
 # ==============================================================================
@@ -200,6 +203,7 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
 
     # --- 6. SMART EFFICIENT GLOBAL REBUILD ---
     echo "[Docker] Executing Global Rebuild & Force-Recreate for ALL containers..."
+    docker compose down --remove-orphans
     docker compose up -d --build --force-recreate
     
     echo "[System] Stabilizing containers (Waiting 10s)..."
