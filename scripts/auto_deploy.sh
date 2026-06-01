@@ -64,6 +64,9 @@
 #     • Removed global `docker compose stop` which triggered catastrophic VM I/O spikes (simultaneous heap dumping of 17 containers) that locked the network interface and killed the GitHub Runner.
 #     • Injected a precise `docker rm -f` command targeting exclusively `restarting` or `dead` containers.
 #     • Reason: Surgically removes only the crashed services blocking the dependency tree, avoiding massive system shock, preserving SSH connections, and keeping the CI/CD runner online.
+#   - EDITED (CI/CD Decoupling & CPU Starvation Fix):
+#     • Removed `--build` flag from `docker compose up`.
+#     • Reason: Fulfilling the Enterprise Separation of Concerns principle. GitHub Actions (CI) now exclusively compiles the `.war` artifact. The server deployment script (CD) mounts the pre-built `.war` and simply recreates the containers in seconds. This eliminates the 400% CPU spike that previously crashed the VM network interface and killed the GitHub Runner.
 # ==============================================================================
 
 # ==============================================================================
@@ -229,8 +232,8 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ] || [ "
         echo "  > No crashed dependencies found. Proceeding cleanly."
     fi
     
-    echo "[Docker] Executing Sequential Rebuild & Force-Recreate for ALL containers..."
-    docker compose up -d --build --force-recreate
+    echo "[Docker] Executing Sequential Recreate for ALL containers (Using CI Artifacts)..."
+    docker compose up -d --force-recreate
     
     echo "[System] Stabilizing containers (Waiting 10s)..."
     sleep 10
