@@ -57,6 +57,9 @@
 #     • Added `--force` argument to bypass `[ "$LOCAL" != "$REMOTE" ]` check for manual/CI overrides.
 #     • Refactored Infisical quote extraction to use a sequential `sed -E "s/='(.*)'$/=\1/" | sed -E 's/="(.*)"$/=\1/"` pipeline.
 #     • Reason: Single-pass regex failed on GNU sed, leaving literal quotes in `.env` which poisoned the MariaDB password and caused infinite crash loops.
+#   - EDITED (Network-Preserving Teardown & SIGHUP Prevention):
+#     • Replaced 'docker compose down' with 'docker compose stop && docker compose rm -f -s -v'.
+#     • Reason: 'down' destroys the treish_net bridge, causing host iptables flushing and VirtualBox IP collisions which sever SSH connections and trigger SIGHUP script terminations mid-deployment. The new approach wipes container state to resolve deadlocks but preserves the network infrastructure perfectly intact.
 # ==============================================================================
 
 # ==============================================================================
@@ -213,8 +216,11 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ] || [ "
     export DOCKER_BUILDKIT=1
 
     # --- 6. SMART EFFICIENT GLOBAL REBUILD ---
+    echo "[Docker] Executing Network-Preserving Container Teardown..."
+    docker compose stop
+    docker compose rm -f -s -v
+    
     echo "[Docker] Executing Global Rebuild & Force-Recreate for ALL containers..."
-    docker compose down --remove-orphans
     docker compose up -d --build --force-recreate
     
     echo "[System] Stabilizing containers (Waiting 10s)..."
