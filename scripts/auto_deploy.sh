@@ -53,6 +53,10 @@
 #   - EDITED (Dependency Deadlock Resolution):
 #     • Restored `docker compose down --remove-orphans` immediately prior to the global rebuild step.
 #     • Reason: Fixed a dependency deadlock where `docker compose up --force-recreate` would hang infinitely and abort without executing if a required service (like treishvaam-db) crashed and failed its healthcheck, leaving downstream containers stuck in a stale state.
+#   - EDITED (Force Execution & Strict Quote Extraction):
+#     • Added `--force` argument to bypass `[ "$LOCAL" != "$REMOTE" ]` check for manual/CI overrides.
+#     • Refactored Infisical quote extraction to use a sequential `sed -E "s/='(.*)'$/=\1/" | sed -E 's/="(.*)"$/=\1/"` pipeline.
+#     • Reason: Single-pass regex failed on GNU sed, leaving literal quotes in `.env` which poisoned the MariaDB password and caused infinite crash loops.
 # ==============================================================================
 
 # ==============================================================================
@@ -87,6 +91,13 @@ fi
 echo $$ > "$LOCKFILE"
 trap 'rm -f "$LOCKFILE"' EXIT
 
+# --- 0.1 FORCE DEPLOY EVALUATION ---
+FORCE_DEPLOY=0
+if [ "$1" == "--force" ]; then
+    FORCE_DEPLOY=1
+    echo "[System] --force flag detected. Bypassing Git branch difference checks."
+fi
+
 # List of branches to monitor for deployment
 MONITORED_BRANCHES=("main" "staging" "develop")
 
@@ -115,9 +126,9 @@ LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse "origin/$TARGET_BRANCH")
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
+if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ] || [ "$FORCE_DEPLOY" -eq 1 ]; then
     echo "================================================================"
-    echo "[$(date)] 🚀 New activity detected. Winning Branch: [$TARGET_BRANCH]"
+    echo "[$(date)] 🚀 Deployment Triggered. Winning Branch: [$TARGET_BRANCH]"
     echo "================================================================"
     
     # --- 3. SELF-HEALING UPDATE ---
@@ -160,9 +171,9 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     EXIT_CODE=$?
 
     if [ $EXIT_CODE -eq 0 ] && [ -s "$TEMP_SECRETS" ] && ! grep -qE "arrow keys|Select project|login" "$TEMP_SECRETS"; then
-        # CRITICAL FIX: Eradicate \r line endings and strictly extract bounding quotes, preserving internal passwords
-        cat "$TEMP_SECRETS" | sed 's/\r//g' | sed -E "s/^([^=]+)=['\"](.*)['\"]$/\1=\2/" >> "$ENV_FILE"
-        echo "  > Secrets injected and sanitized (\r and bounding quotes removed)."
+        # CRITICAL FIX: Double-pass precise sed removal. Extracts exact payload bounded by either single or double quotes.
+        cat "$TEMP_SECRETS" | sed 's/\r//g' | sed -E "s/='(.*)'$/=\1/" | sed -E 's/="(.*)"$/=\1/' >> "$ENV_FILE"
+        echo "  > Secrets injected and sanitized (bounding quotes safely extracted)."
         rm "$TEMP_SECRETS"
     else
         echo "CRITICAL: Infisical fetch failed or returned interactive prompt."
