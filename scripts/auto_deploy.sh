@@ -60,6 +60,10 @@
 #   - EDITED (Network-Preserving Teardown & SIGHUP Prevention):
 #     • Replaced 'docker compose down' with 'docker compose stop && docker compose rm -f -s -v'.
 #     • Reason: 'down' destroys the treish_net bridge, causing host iptables flushing and VirtualBox IP collisions which sever SSH connections and trigger SIGHUP script terminations mid-deployment. The new approach wipes container state to resolve deadlocks but preserves the network infrastructure perfectly intact.
+#   - EDITED (Surgical Deadlock Breaker & I/O Panic Prevention):
+#     • Removed global `docker compose stop` which triggered catastrophic VM I/O spikes (simultaneous heap dumping of 17 containers) that locked the network interface and killed the GitHub Runner.
+#     • Injected a precise `docker rm -f` command targeting exclusively `restarting` or `dead` containers.
+#     • Reason: Surgically removes only the crashed services blocking the dependency tree, avoiding massive system shock, preserving SSH connections, and keeping the CI/CD runner online.
 # ==============================================================================
 
 # ==============================================================================
@@ -216,11 +220,16 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ] || [ "
     export DOCKER_BUILDKIT=1
 
     # --- 6. SMART EFFICIENT GLOBAL REBUILD ---
-    echo "[Docker] Executing Network-Preserving Container Teardown..."
-    docker compose stop
-    docker compose rm -f -s -v
+    echo "[Docker] Executing Surgical Deadlock Breaker..."
+    CRASHED_CONTAINERS=$(docker ps -q -f "status=restarting" -f "status=dead" -f "status=exited")
+    if [ ! -z "$CRASHED_CONTAINERS" ]; then
+        echo "  > Removing stuck containers to clear dependency lock: $CRASHED_CONTAINERS"
+        docker rm -f $CRASHED_CONTAINERS
+    else
+        echo "  > No crashed dependencies found. Proceeding cleanly."
+    fi
     
-    echo "[Docker] Executing Global Rebuild & Force-Recreate for ALL containers..."
+    echo "[Docker] Executing Sequential Rebuild & Force-Recreate for ALL containers..."
     docker compose up -d --build --force-recreate
     
     echo "[System] Stabilizing containers (Waiting 10s)..."
