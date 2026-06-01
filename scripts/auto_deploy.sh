@@ -47,6 +47,9 @@
 #     • Replaced targeted backend-only `docker compose up` with a global `docker compose up -d --build --force-recreate`.
 #     • Injected `sed 's/\r//g'` and `sed "s/['\"]//g"` directly into the `TEMP_SECRETS` parsing pipeline.
 #     • Reason: Fulfilling mandate for "smart, efficient" updates where every push forces a global rebuild of all containers (resetting the 8-hour stale uptime). Stripping `\r` permanently resolves the MariaDB `file_key_management` plugin crash at `line 0, column 1` caused by invisible Windows line-endings in the Infisical export.
+#   - EDITED (Boundary Quote Extraction):
+#     • Replaced the destructive global quote stripper (`sed "s/['\"]//g"`) with a precise boundary extractor (`sed -E "s/^([^=]+)=['\"](.*)['\"]$/\1=\2/"`).
+#     • Reason: Global stripping was destroying Redis and Database passwords that contained internal `#` or `$` characters, exposing them to the YAML parser as comments and triggering widespread NOAUTH crash loops. The regex solely removes outer Infisical quotes.
 # ==============================================================================
 
 # ==============================================================================
@@ -154,9 +157,9 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     EXIT_CODE=$?
 
     if [ $EXIT_CODE -eq 0 ] && [ -s "$TEMP_SECRETS" ] && ! grep -qE "arrow keys|Select project|login" "$TEMP_SECRETS"; then
-        # CRITICAL FIX: Eradicate invisible \r line endings and all quotes before injecting into environment
-        cat "$TEMP_SECRETS" | sed 's/\r//g' | sed "s/['\"]//g" >> "$ENV_FILE"
-        echo "  > Secrets injected and sanitized (\r and quotes removed)."
+        # CRITICAL FIX: Eradicate \r line endings and strictly extract bounding quotes, preserving internal passwords
+        cat "$TEMP_SECRETS" | sed 's/\r//g' | sed -E "s/^([^=]+)=['\"](.*)['\"]$/\1=\2/" >> "$ENV_FILE"
+        echo "  > Secrets injected and sanitized (\r and bounding quotes removed)."
         rm "$TEMP_SECRETS"
     else
         echo "CRITICAL: Infisical fetch failed or returned interactive prompt."

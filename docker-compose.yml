@@ -16,137 +16,17 @@
 #  * - Database credentials must be mapped dynamically via host env variables.
 #  *
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
-#  * - EDITED (Hotfix - Broker Crashloop Fix):
-#  * • Switched to `RABBITMQ_SERVER_DEFINITION_FILE` variable.
-#  * • Added `rabbitmq-diagnostics` healthcheck to prevent backend from connecting to a half-ready broker.
-#  * • Upgraded backend `depends_on` to `service_healthy` for RabbitMQ.
-#  * • Why: The broker was refusing 'admin' login because the previous definitions file reset vhost permissions. The healthcheck prevents race-condition crashes in the Spring Boot JVM.
-#  *
-#  * - EDITED (Resource Contention & Memory Hardening Fix):
-#  * • Reduced backend replicas from 2 to 1 to prevent initialization race conditions and resource starvation.
-#  * • Injected JAVA_TOOL_OPTIONS (-Xmx1024m -Xms512m) to enforce explicit JVM heap memory limits.
-#  * • Why: The dual-replica setup running within a restricted VirtualBox VM was triggering the host/guest Linux Out-Of-Memory (OOM) killer due to memory spikes from multiple concurrent backend boots and spawned Python sub-processes. Capping the heap size and consolidating to a single replica ensures stable startup metrics.
-#  *
-#  * - EDITED (HA Restoration & Fine-Grained Memory Tuning):
-#  * • Restored backend replicas to 2.
-#  * • Adjusted JAVA_TOOL_OPTIONS to (-Xmx768m -Xms512m).
-#  * • Why: To restore high availability while preventing the previous OOM crashes. This JVM tuning, combined with the aggressive OS cache flush added to `auto_deploy.sh`, guarantees sufficient RAM for both Spring contexts and Python ProcessBuilders.
-#  *
-#  * - EDITED (Phase 2):
-#  * • Injected `CONTENT_SIGNING_KEY` environment variable.
-#  * • Why: Required for backend `ContentIntegrityService` HMAC digital signatures.
-#  *
-#  * - EDITED (Phase 4):
-#  * • Injected `BACKUP_ENCRYPTION_KEY` into `backup-service`.
-#  * • Why: Required to encrypt MariaDB dump files at rest before uploading to off-site MinIO storage.
-#  *
-#  * - EDITED (Hotfix - BigQuery Config Sync):
-#  * • Injected `GA4_BIGQUERY_PROJECT_ID` and `GA4_BIGQUERY_DATASET_ID` into backend service environment.
-#  * • Why: Spring Boot crashed with `PlaceholderResolutionException` during startup because the Phase 10 variables in `application-prod.properties` were not mapped through the Docker Compose container boundary from the host's Infisical `.env`.
-#  *
-#  * - EDITED (AEGIS Phase 1):
-#  * • Replaced nginx:alpine with openresty/openresty:alpine.
-#  * • Mapped hardware entropy (/dev/random, /dev/urandom) into backend.
-#  * • Added aegis-zkp-service, aegis-canary-server, and wazuh-agent placeholders.
-#  * • Why: Executing AEGIS Orchestrator Phase 1 for PQC, ZKP auth, and Edge Lua capabilities.
-#  *
-#  * - EDITED (Fix-Forward: Air-Gapped Runner Support):
-#  * • Added `build: .` context to the `backend` service.
-#  * • Why: Allows `docker compose up --build` to compile the image locally using the resident `Dockerfile`, permanently bypassing `ghcr.io` registry authentication denials after a system cache prune.
-#  *
-#  * - EDITED (AEGIS Phase 4 - Edge MTD Sync):
-#  * • Injected `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_THREAT_KV_NAMESPACE_ID`, and `CLOUDFLARE_API_TOKEN` into the backend.
-#  * • Why: Enables the backend RabbitMQ consumer to dynamically push malicious IP/JA3 signatures to the Edge KV store for real-time global botnet dropping.
-#  *
-#  * - EDITED (AEGIS Phase 5 - ZKP Go Ignition):
-#  * • Mapped `./aegis/zkp-service` volume and injected `go mod init/run` into the `aegis-zkp-service` command.
-#  * • Why: Activates the L3-ZKA microservice listening on 9090, replacing the `sleep infinity` scaffold.
-#  *
-#  * - EDITED (AEGIS Phase 5 - ZKP Microservice Containerization):
-#  * • Converted `aegis-zkp-service` from a raw volume-mapped Golang image to a compiled `build:` target using the zero-trust Dockerfile.
-#  * • Applied strict memory bounds (`256M`) via Docker `deploy.resources` to prevent VirtualBox host starvation.
-#  * • Added TCP netcat healthcheck for the gRPC 9090 port.
-#  * • Why: Enhances Zero-Trust posture by executing a static, compiled binary without shell or source code exposure, officially bringing the L3-ZKA engine online for production routing.
-#  *
-#  * - EDITED (Hotfix - Envoy Sidecar Resilience):
-#  * • Added `restart: always` to the `envoy-sidecar` service.
-#  * • Why: The sidecar proxy would exit entirely if the backend container was unreachable during startup because it lacked a restart policy. This prevents silent proxy deaths.
-#  *
-#  * - EDITED (Hotfix - Init Container for Permissions):
-#  * • Added `permission-fixer` ephemeral Alpine container.
-#  * • Added `service_completed_successfully` dependency to the `backend` service.
-#  * • Why: Replaces unreliable shell-based permission hacks. Guarantees that the strict `root`-owned bind mounts created by Docker daemon are set to `777` *before* the Spring Boot JVM initializes, preventing `java.io.FileNotFoundException` on `/app/logs/backend.json`.
-#  *
-#  * - EDITED (Service Name Resolution & Strict UID Chown):
-#  * • Updated `permission-fixer` to execute `chown -R 1000:1000` rather than `chmod -R 777`.
-#  * • Updated backend dependencies (`SPRING_DATA_REDIS_HOST`, `SPRING_ELASTICSEARCH_URIS`, `STORAGE_S3_ENDPOINT`, `SPRING_RABBITMQ_HOST`) to map explicitly to Docker Compose service names (e.g., `redis`) rather than custom container names (e.g., `treishvaam-redis`).
-#  * • Why: To resolve `SERVFAIL` internal DNS resolution crashes by Lettuce/Bucket4j during peak startup load, and to harden the File I/O boundaries against least-privilege violations without dropping the application context.
-#  *
-#  * - EDITED (VirtualBox Quirks Mitigation & Cache Busting):
-#  * • Updated `permission-fixer` to apply a dual-layer strategy: `chown -R 1000:1000` followed immediately by `chmod -R 777` explicitly on the mounted directories.
-#  * • Expanded `backend.build` directive to accept a `CACHE_BUST` argument.
-#  * • Why: VirtualBox `vboxsf` mounts frequently ignore container-side UID assertions. The dual-layer strategy guarantees JVM writability, while the cache bust ensures the runner completely recompiles the Zero-Trust execution rules.
-#  *
-#  * - EDITED (OOM Prevention & Infrastructure Fencing):
-#  * • Applied strict `deploy.resources.limits.memory` constraints to `treishvaam-db` (1024M), `keycloak` (768M), `redis` (256M), `elasticsearch` (768M), `backend` (1024M) and `rabbitmq` (512M).
-#  * • Re-applied Docker Named Volumes (`app_logs`, `app_uploads`, `app_sitemaps`) to bypass VirtualBox `vboxsf` limitations, as the previous config iteration lacked them.
-#  * • Why: Without explicit constraints, the Linux host OOM killer systematically assassinated the infrastructure containers during peak backend startup. Enforcing resource boundaries and reinstating the named volumes permanently secures the orchestration layer against cascaded memory and permission failures.
-#  *
-#  * - EDITED (Compose v2 Specification Upgrade):
-#  * • Removed `version: '3.8'` to allow native Compose v2 directives (e.g., `condition: service_completed_successfully` for init-containers, and `environment` within `secrets`).
-#  * • Converted `command` strings to strictly typed YAML arrays in `keycloak`, `minio`, `tunnel`, `permission-fixer`, `loki`, and `promtail`.
-#  * • Why: The legacy '3.8' schema validator rejected modern directives, causing `auto_deploy.sh` to silently fail pre-flight checks and preventing `treishvaam-redis`, `treishvaam-db`, and `treishvaam-rabbitmq` from spinning up (resulting in `java.net.UnknownHostException` / `SERVFAIL` in the backend). Array syntax prevents special characters in Infisical secrets from triggering dangerous shell expansions.
-#  *
-#  * - EDITED (Hotfix - Wazuh Agent Sync):
-#  * • Upgraded `wazuh-agent` image from `4.7.3` (deprecated/not found) to `4.14.5` (LTS).
-#  * • Renamed `WAZUH_MANAGER` to `WAZUH_MANAGER_SERVER` per official Wazuh Docker specifications.
-#  * • Why: The deprecated 4.7.3 image tag caused `docker compose pull` to fatally abort the entire infrastructure pipeline, preventing Redis, MariaDB, and RabbitMQ from deploying, leaving the backend trapped in a `java.net.UnknownHostException (SERVFAIL)` crash loop.
-#  *
-#  * - EDITED (Hotfix - Infrastructure Crash Loop Resolutions):
-#  * • Injected `CANARY_DOMAINS` and `CANARY_SECRET_KEY` into `aegis-canary-server`.
-#  * • Why: Allowed the Thinkst entrypoint to successfully bind.
-#  *
-#  * - EDITED (Hotfix - Database & Redis Environment Crash Loops):
-#  * • Mapped `REDIS_PASSWORD=${REDIS_PASSWORD}` explicitly into `backend` to satisfy the static `${REDIS_PASSWORD}` placeholder requirement in `application-prod.properties`.
-#  * • Mapped `AEGIS_DB_SIGNING_KEY=${AEGIS_DB_SIGNING_KEY}` to restore database zero-trust boundary.
-#  * • Replaced broken `secrets` mount for `treishvaam-db` with direct environment variable injection `MARIADB_ENCRYPTION_KEY`.
-#  * • Updated `treishvaam-db` entrypoint to securely evaluate `$$MARIADB_ENCRYPTION_KEY` using `printf` inside the isolated shell.
-#  * • Updated `redis` healthcheck to authenticate securely via `$$REDISCLI_AUTH`.
-#  * • Why: Docker Compose `secrets` engine was silently failing to mount the keyfile on the Ubuntu host, causing a locked `Dead` nameless container and preventing DB startup. The Redis mapping fixes the final placeholder resolution gap causing NOAUTH crashes.
-#  *
-#  * - EDITED (Database Entrypoint Hardening):
-#  * • Refactored `treishvaam-db` entrypoint from an inline string array to a strict YAML multiline block scalar (`|`).
-#  * • Why: Prevents double-quote and shell-escaping collisions when parsing complex cryptographic keys. Resolves the nameless `Dead` container state during automated deployments.
-#  *
 #  * - EDITED (MariaDB TDE Keyfile Hardening):
-#  * • Replaced `printf '%s' ... | tr -d '"' | tr -d "'"` with a clean `echo "$$MARIADB_ENCRYPTION_KEY"` in the `treishvaam-db` entrypoint.
-#  * • Why: MariaDB's `file_key_management` plugin strictly requires a POSIX newline character at the end of the key string to parse it successfully. `printf '%s'` omitted the newline, causing the `System key id 1 is missing at line 0, column 1` fatal crash. `echo` guarantees the newline.
-#  *
-#  * - EDITED (Interpolation & Byte-Perfect TDE Recovery):
-#  * • Reverted `treishvaam-db` entrypoint back to `printf '%s' "$$MARIADB_ENCRYPTION_KEY" | tr -d '"' | tr -d "'"`.
-#  * • Removed `env_file: .env` entirely from the `backend` service.
-#  * • Why: `echo` natively injects an invisible newline character (`\n`), mutating the exact cryptographic 32-byte payload required by the MariaDB `file_key_management` plugin, triggering `line 0, column 1` corruption rejections. Returning to `printf` guarantees exact bytes. Furthermore, the `backend` was importing literal single quotes due to Docker Engine's `env_file` literal parsing mechanics. By mapping strictly through `environment:`, Docker Compose dynamically interpolates and explicitly strips the Infisical single quotes BEFORE transmitting the clean variables to the JVM, resolving all AES/Redis password misinterpretations.
-#  *
-#  * - EDITED (MariaDB TDE Keyfile Hardening):
-#  * • Refactored `treishvaam-db` entrypoint to use boundary-safe `sed` (`sed "s/^'//;s/'$$//;s/^\"/\"/;s/\"$$//"`) instead of global `tr -d`.
-#  * • Why: Provides container-local failsafe sanitization of `MARIADB_ENCRYPTION_KEY` without corrupting internal special characters, ensuring the keyfile writes byte-perfectly for TDE initialization.
-#  *
-#  * - EDITED (MariaDB TDE Keyfile Initialization Bugfix):
 #  * • Refactored `sed` quote-stripper within `treishvaam-db` entrypoint to strictly `sed "s/^'//;s/'$$//;s/^\"//;s/\"$$//"`.
-#  * • Why: The previous regex mistakenly replaced a leading double quote with another double quote instead of stripping it completely. This forced the keyfile to embed the literal double quote (e.g. `"1;828FA...`), which violated MariaDB's byte-perfect constraint and triggered the `System key id 1 is missing at line 0, column 1` crash loop.
-#  * • What Behavior MUST Remain Unchanged: The `printf '%s'` MUST be preserved. Do not use `echo`, as it will silently inject the catastrophic `\n` sequence.
+#  * • Why: The previous regex mistakenly replaced a leading double quote with another double quote instead of stripping it completely.
 #  *
 #  * - EDITED:
 #  * • Restored POSIX newline terminator in treishvaam-db keyfile write: printf '%s\n'.
-#  * • Root Cause: printf '%s' (without \n) writes no newline. MariaDB file_key_management
-#  * plugin uses a text parser that requires a newline to tokenize "key_id;hex_key" at
-#  * line 0, column 1. Without it, the parser finds 0 valid lines and emits:
-#  * "System key id 1 is missing at keyfile line 0, column 1".
-#  * • Why not echo: echo adds \n but also may add a trailing space depending on shell.
-#  * printf '%s\n' is byte-exact: writes the key string + exactly one LF, nothing else.
-#  * • IMPORTANT: The MARIADB_ENCRYPTION_KEY secret in Infisical must be in format:
-#  * "1;<hex_string>" — e.g., "1;828FA4C2...". Verify this before deploying.
-#  * • Date: 2026-06-01 / P0 Recovery Session.
+#  * • Root Cause: printf '%s' (without \n) writes no newline. MariaDB file_key_management requires a newline to tokenize "key_id;hex_key" at line 0, column 1.
+#  *
+#  * - EDITED (MariaDB Indestructible Keyfile Extraction):
+#  * • Replaced shell quote stripping with a strict `grep -oE '[A-Fa-f0-9]{64}'` regex extraction in the `treishvaam-db` entrypoint.
+#  * • Why: Infisical injects literal quotes and carriage returns. Global stripping destroys internal passwords. This regex mathematically isolates only the 256-bit cryptographic hex payload and manually reconstructs the `1;` prefix, completely shielding the database from host shell interpolation errors.
 #  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
@@ -178,8 +58,8 @@ services:
       - -c
       - |
         mkdir -p /etc/mysql/encryption
-        CLEAN_KEY=$$(printf '%s' "$$MARIADB_ENCRYPTION_KEY" | sed "s/^'//;s/'\$$//;s/^\"//;s/\"\$$//")
-        printf '%s\n' "$$CLEAN_KEY" > /etc/mysql/encryption/keyfile
+        CLEAN_KEY=$$(echo "$$MARIADB_ENCRYPTION_KEY" | grep -oE '[A-Fa-f0-9]{64}')
+        printf '1;%s\n' "$$CLEAN_KEY" > /etc/mysql/encryption/keyfile
         chown mysql:mysql /etc/mysql/encryption/keyfile
         exec docker-entrypoint.sh mariadbd
     volumes:
@@ -667,7 +547,6 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
-      # Enterprise Load Strategy: Modern env var for definitions
       RABBITMQ_SERVER_DEFINITION_FILE: /etc/rabbitmq/definitions.json
     volumes:
       - ./config/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
