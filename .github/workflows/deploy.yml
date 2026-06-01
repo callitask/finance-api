@@ -9,7 +9,7 @@
 #  * - Executes Maven build on a self-hosted runner and deploys the WAR file.
 #  *
 #  * Critical Dependencies:
-#  * - Backend: Compiles `finance-api.war` and restarts the `backend` Docker container.
+#  * - Backend: Compiles `finance-api.war` and delegates deployment to `auto_deploy.sh`.
 #  *
 #  * Security Constraints:
 #  * - Self-hosted runner environment constraints (memory limits).
@@ -67,7 +67,11 @@
 #  * - EDITED (Guaranteed Flash & Wipe):
 #  * • Moved `cp .env.template .env` to a dedicated step with `if: always()`.
 #  * • Why: Previous pipeline crashes halted execution before the cleanup step was reached, leaving secrets exposed on the VM disk. Decoupling ensures the environment is scrubbed even if the build fails.
-#  * • Date: Current Phase
+#  *
+#  * - EDITED (Unified CI/CD Pipeline):
+#  * • Removed localized `docker compose` commands (`stop`, `rm`, `up --no-deps`) from the Deploy step.
+#  * • Replaced with direct invocation of `./scripts/auto_deploy.sh --force`.
+#  * • Why: Fixed the "Double Deployment Collision" where the Git Runner was partially restarting only the backend on stale configurations, leaving the rest of the 17-container stack out of sync. `auto_deploy.sh` is now the Single Source of Truth for Continuous Deployment.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -177,7 +181,6 @@ jobs:
 
     - name: Deploy to Application Folder
       run: |
-        echo "--> Stopping Background Services to free RAM..."
         echo "--> Copying new WAR file..."
         cp target/finance-api.war /opt/treishvaam/backend-app.war
 
@@ -186,21 +189,12 @@ jobs:
         cp -r scripts/* /opt/treishvaam/scripts/
         cp docker-compose.yml /opt/treishvaam/
 
-        echo "--> Restarting Backend..."
+        echo "--> Triggering Enterprise Watchdog (Global Stack Refresh)..."
         cd /opt/treishvaam
+        chmod +x scripts/auto_deploy.sh
         
-        echo "--> [SECURITY] Hydrating Secrets via Infisical..."
-        bash scripts/load_secrets.sh
-        
-        # Robust Container Restart (Now fully hydrated)
-        docker compose stop backend || true
-        docker compose rm -f -s -v backend || true
-        
-        echo "--> [DOCKER] Building Local Base Image & Recreating Container..."
-        docker compose up -d --build --force-recreate --no-deps backend
-        
-        echo "--> Pruning unused Docker images..."
-        docker image prune -f
+        # Execute the unified orchestrator to safely recreate ALL containers
+        ./scripts/auto_deploy.sh --force
 
     - name: Secure Flash & Wipe (Guaranteed Cleanup)
       if: always()
