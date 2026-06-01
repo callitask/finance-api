@@ -136,6 +136,18 @@
 #  * • Why: The previous regex mistakenly replaced a leading double quote with another double quote instead of stripping it completely. This forced the keyfile to embed the literal double quote (e.g. `"1;828FA...`), which violated MariaDB's byte-perfect constraint and triggered the `System key id 1 is missing at line 0, column 1` crash loop.
 #  * • What Behavior MUST Remain Unchanged: The `printf '%s'` MUST be preserved. Do not use `echo`, as it will silently inject the catastrophic `\n` sequence.
 #  *
+#  * - EDITED:
+#  * • Restored POSIX newline terminator in treishvaam-db keyfile write: printf '%s\n'.
+#  * • Root Cause: printf '%s' (without \n) writes no newline. MariaDB file_key_management
+#  * plugin uses a text parser that requires a newline to tokenize "key_id;hex_key" at
+#  * line 0, column 1. Without it, the parser finds 0 valid lines and emits:
+#  * "System key id 1 is missing at keyfile line 0, column 1".
+#  * • Why not echo: echo adds \n but also may add a trailing space depending on shell.
+#  * printf '%s\n' is byte-exact: writes the key string + exactly one LF, nothing else.
+#  * • IMPORTANT: The MARIADB_ENCRYPTION_KEY secret in Infisical must be in format:
+#  * "1;<hex_string>" — e.g., "1;828FA4C2...". Verify this before deploying.
+#  * • Date: 2026-06-01 / P0 Recovery Session.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -167,7 +179,7 @@ services:
       - |
         mkdir -p /etc/mysql/encryption
         CLEAN_KEY=$$(printf '%s' "$$MARIADB_ENCRYPTION_KEY" | sed "s/^'//;s/'\$$//;s/^\"//;s/\"\$$//")
-        printf '%s' "$$CLEAN_KEY" > /etc/mysql/encryption/keyfile
+        printf '%s\n' "$$CLEAN_KEY" > /etc/mysql/encryption/keyfile
         chown mysql:mysql /etc/mysql/encryption/keyfile
         exec docker-entrypoint.sh mariadbd
     volumes:
