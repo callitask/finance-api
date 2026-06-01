@@ -9,22 +9,24 @@
 #  * - Executes Maven build on a self-hosted runner and deploys the WAR file.
 #  *
 #  * Critical Dependencies:
-#  * - Backend: Compiles `finance-api.war` and delegates deployment to `auto_deploy.sh`.
+#  * - Backend: Compiles `finance-api.war` and delegates deployment asynchronously to `auto_deploy.sh`.
 #  *
 #  * Security Constraints:
 #  * - Self-hosted runner environment constraints (memory limits).
 #  *
 #  * Non-Negotiables:
 #  * - Must not exhaust runner memory (OOM killer prevention).
+#  * - CI runner must safely detach from CD deployment to survive I/O storms.
 #  *
 #  * Change Intent:
-#  * - Decouple Flash & Wipe into an `always()` step to guarantee zero-trust cleanup on pipeline failure.
+#  * - Implemented Fire-and-Forget (nohup) orchestration.
 #  *
 #  * Future AI Guidance:
 #  * - Do not re-introduce `-T 1C` unless the self-hosted runner is confirmed to have >8GB RAM.
 #  * - Always maintain `MAVEN_OPTS` memory boundaries.
 #  * - Always hydrate secrets BEFORE running ANY docker-compose command, including stop/down.
 #  * - Flash & Wipe MUST remain in an `if: always()` step to prevent secret leakage during crashes.
+#  * - NEVER make the runner wait synchronously for `docker-compose up` to finish, as VirtualBox I/O spikes will drop the runner connection and kill the deployment.
 #  *
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
 #  * - EDITED:
@@ -72,6 +74,11 @@
 #  * • Removed localized `docker compose` commands (`stop`, `rm`, `up --no-deps`) from the Deploy step.
 #  * • Replaced with direct invocation of `./scripts/auto_deploy.sh --force`.
 #  * • Why: Fixed the "Double Deployment Collision" where the Git Runner was partially restarting only the backend on stale configurations, leaving the rest of the 17-container stack out of sync. `auto_deploy.sh` is now the Single Source of Truth for Continuous Deployment.
+#  *
+#  * - EDITED (Asynchronous Fire-and-Forget Orchestration):
+#  * • Modified `./scripts/auto_deploy.sh --force` to execute via `nohup ... &`.
+#  * • Removed the synchronous `sleep 15` Verify Deployment step.
+#  * • Why: Shutting down 17 enterprise containers simultaneously creates a VirtualBox I/O storm that temporarily locks the network interface. When the runner executes synchronously, this network lock severs its connection to GitHub, causing a fatal SIGKILL mid-deployment that orphans containers (e.g., deleting the DB but dying before rebuilding it). Asynchronous detachment insulates the CI pipeline from the CD infrastructure shock.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -189,26 +196,16 @@ jobs:
         cp -r scripts/* /opt/treishvaam/scripts/
         cp docker-compose.yml /opt/treishvaam/
 
-        echo "--> Triggering Enterprise Watchdog (Global Stack Refresh)..."
+        echo "--> Triggering Enterprise Watchdog (Global Stack Refresh) asynchronously..."
         cd /opt/treishvaam
         chmod +x scripts/auto_deploy.sh
         
-        # Execute the unified orchestrator to safely recreate ALL containers
-        ./scripts/auto_deploy.sh --force
+        # Execute detached (Fire and Forget) to protect the CI runner from I/O network lockups
+        nohup ./scripts/auto_deploy.sh --force > /opt/treishvaam/deploy_pipeline.log 2>&1 &
+        echo "--> Watchdog detached successfully. The server will safely reboot the stack in the background."
 
     - name: Secure Flash & Wipe (Guaranteed Cleanup)
       if: always()
       run: |
         echo "--> [SECURITY] Executing Flash & Wipe (Securing .env)..."
         cp /opt/treishvaam/.env.template /opt/treishvaam/.env || true
-
-    - name: Verify Deployment
-      run: |
-        echo "Waiting for Backend to initialize..."
-        sleep 15
-        if docker ps | grep -q treishvaam-backend; then
-          echo "✅ Backend Container is Running with version form branch: ${{ github.ref_name }}"
-        else
-          echo "❌ Backend Container failed to start"
-          exit 1
-        fi
