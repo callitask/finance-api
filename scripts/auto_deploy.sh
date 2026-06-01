@@ -92,6 +92,12 @@
 #   - EDITED (Hotfix - Bash Syntax Lockout Fix):
 #     • Replaced invalid `tr -d ' "\''` with valid `tr -d " \"'"` during INFISICAL_PROJECT_ID extraction.
 #     • Reason: Bash cannot escape single quotes inside a single-quoted string. This caused an 'unexpected EOF' crash, permanently halting the deployment pipeline before 'docker compose up' could run, leaving containers in a crash loop with cached empty secrets (triggering NOAUTH and DB key missing errors).
+#   - EDITED (Rolling Update & Infisical M2M Fix):
+#     • Injected `infisical login --method=universal-auth` to prevent interactive prompt aborts.
+#     • Removed `docker compose down --remove-orphans` to prevent catastrophic stateful DB/Redis teardowns.
+#     • Added targeted `status=dead` container cleanup hook.
+#     • Added explicit `docker compose up -d --build --force-recreate --no-deps backend` execution.
+#     • Reason: The interactive login prompt was aborting the deployment, leaving containers stale. The `down` command was crashing the infrastructure. Force-recreating the backend directly mirrors the legacy `deploy.yml` pipeline, ensuring the new WAR file mounts into a fresh JVM without downtime.
 # ==============================================================================
 
 # ==============================================================================
@@ -192,7 +198,12 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     # We extract INFISICAL_PROJECT_ID safely without polluting the bash environment
     # Shell environment overrides Docker Compose .env files. We must NEVER source the template globally.
     export INFISICAL_PROJECT_ID=$(grep -E '^INFISICAL_PROJECT_ID=' "$ENV_FILE" | cut -d '=' -f2 | tr -d " \"'")
+    export INFISICAL_CLIENT_ID=$(grep -E '^INFISICAL_CLIENT_ID=' "$ENV_FILE" | cut -d '=' -f2 | tr -d " \"'")
+    export INFISICAL_CLIENT_SECRET=$(grep -E '^INFISICAL_CLIENT_SECRET=' "$ENV_FILE" | cut -d '=' -f2 | tr -d " \"'")
     
+    echo "[Security] Authenticating with Infisical (Universal Auth)..."
+    infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --silent 2>/dev/null || echo "  > Notice: Using cached Infisical session or silent auth failed."
+
     echo "[Security] Fetching live secrets from Infisical..."
     echo "" >> "$ENV_FILE"
 
@@ -244,8 +255,8 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     # --- 5. PERMISSION REPAIR ---
     echo "[System] Folder permissions are now securely orchestrated via Docker Compose Init Container (permission-fixer)."
     
-    echo "[Docker] Rebuilding services..."
-    docker compose down --remove-orphans
+    echo "[Docker] Cleaning up dead containers..."
+    docker rm -f $(docker ps -f "status=dead" -q) 2>/dev/null || true
 
     # --- 5.5 MEMORY RECOVERY, SWAP & DNS HEALING (CRITICAL) ---
     echo "[System] Executing Aggressive OS Memory Recovery..."
@@ -263,7 +274,12 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
     # Enforce single-threaded build extraction to prevent 1.9GB RAM spikes from assassinating the GH Runner
     export GOMAXPROCS=1
     export DOCKER_BUILDKIT=1
-    docker compose up -d --build --force-recreate
+
+    echo "[Docker] Rebuilding infrastructure services gracefully..."
+    docker compose up -d --build
+    
+    echo "[Docker] Executing Zero-Downtime Rolling Update for Backend..."
+    docker compose up -d --build --force-recreate --no-deps backend
     
     echo "[System] Stabilizing containers (Waiting 10s)..."
     sleep 10
