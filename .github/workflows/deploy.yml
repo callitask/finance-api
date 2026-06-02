@@ -19,7 +19,7 @@
 #  * - CI runner must safely detach from CD deployment to survive I/O storms.
 #  *
 #  * Change Intent:
-#  * - Implemented Fire-and-Forget (nohup) orchestration and Event-Driven push model.
+#  * - Resolved Node 20 deprecation warnings and fixed Gitleaks schema syntax.
 #  *
 #  * Future AI Guidance:
 #  * - Do not re-introduce `-T 1C` unless the self-hosted runner is confirmed to have >8GB RAM.
@@ -83,6 +83,10 @@
 #  * - EDITED (Event-Driven Push Architecture):
 #  * • Transitioned execution model to surgical idempotency. 
 #  * • Confirmed asynchronous handoff to auto_deploy.sh to prevent VirtualBox network starvation and gracefully handle configuration synchronization.
+#  *
+#  * - EDITED (Node 24 Deprecation & Gitleaks Fix):
+#  * • Injected `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` globally to future-proof against GitHub's Node 20 deprecation.
+#  * • Stripped invalid `with: args:` block from Gitleaks action to conform to v2 schema requirements.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -93,6 +97,10 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '0 2 * * 0' # Run weekly on Sunday at 02:00 AM UTC for regular dependency scanning
+
+env:
+  # Force GitHub marketplace actions to utilize the Node 24 runtime to resolve deprecation warnings
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
   group: production-deployment
@@ -170,8 +178,6 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-      with:
-        args: --redact --verbose
 
     - name: Set up JDK 21
       uses: actions/setup-java@v4

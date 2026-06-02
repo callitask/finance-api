@@ -73,6 +73,9 @@
 #   - EDITED (Deadlock Mitigation Upgrade):
 #     • Replaced the `docker run alpine chown` container hook with a zero-dependency host OS level `sudo chown` check. 
 #     • Reason: Eliminates container dependency engine blocks under heavy infrastructure state changes, stabilizing runtime permissions flawlessly.
+#   - EDITED (Smart Auxiliary Compilation):
+#     • Re-introduced `--build` flag to `docker compose up -d`.
+#     • Reason: Because `--force-recreate` is removed, `--build` allows Docker to selectively recompile non-Java containers (like Go ZKP or Python scripts) ONLY if their source files have changed, guaranteeing no stale execution without causing stack downtime.
 # ==============================================================================
 
 # ==============================================================================
@@ -249,7 +252,7 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ] || [ "
     fi
     
     echo "[Docker] Applying state-driven idempotency (Infrastructure)..."
-    docker compose up -d --remove-orphans
+    docker compose up -d --build --remove-orphans
     
     echo "[Docker] Surgically cycling core application services to consume updated artifacts..."
     docker compose restart backend nginx
