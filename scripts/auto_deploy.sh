@@ -70,6 +70,9 @@
 #   - EDITED (Event-Driven Architecture):
 #     • Removed broad --force-recreate to prevent DB/Keycloak reboot storms.
 #     • Implemented surgical restart for backend and nginx to pick up bind-mounted artifact changes.
+#   - EDITED (Deadlock Mitigation Upgrade):
+#     • Replaced the `docker run alpine chown` container hook with a zero-dependency host OS level `sudo chown` check. 
+#     • Reason: Eliminates container dependency engine blocks under heavy infrastructure state changes, stabilizing runtime permissions flawlessly.
 # ==============================================================================
 
 # ==============================================================================
@@ -116,7 +119,8 @@ MONITORED_BRANCHES=("main" "staging" "develop")
 
 # --- 0.5 PRE-FLIGHT PERMISSION FIX (CRITICAL) ---
 echo "[System] Fixing Git tracking permissions safely..."
-docker run --rm -v "$(pwd):/workspace" alpine sh -c "chown -R $(id -u):$(id -g) /workspace/.git /workspace/scripts /workspace/docker-compose.yml 2>/dev/null || true"
+# Refactored to native host execution to prevent Docker storage driver dependency blockages
+sudo chown -R $(id -u):$(id -g) .git scripts docker-compose.yml 2>/dev/null || true
 
 # --- 1. BRANCH INTELLIGENCE ---
 git fetch --all
@@ -204,21 +208,30 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ] || [ "
     done < "$TEMPLATE_FILE"
     echo "  > OS shell overrides neutralised."
 
-    docker run --rm -v "$(pwd):/workspace" alpine sh -c "chown $(id -u):$(id -g) /workspace/.env 2>/dev/null || true"
+    sudo chown $(id -u):$(id -g) .env 2>/dev/null || true
     
     echo "[Docker] Cleaning up dead containers..."
     docker rm -f $(docker ps -f "status=dead" -q) 2>/dev/null || true
 
     # --- 5. MEMORY RECOVERY, SWAP & DNS HEALING ---
     echo "[System] Executing Aggressive OS Memory Recovery..."
-    docker run --rm --privileged alpine sh -c "sync && echo 3 > /proc/sys/vm/drop_caches"
+    sudo sync && echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null
     
     echo "[System] Disabling host IPv6 to prevent Registry Pull Timeouts..."
-    docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -n -i sysctl -w net.ipv6.conf.all.disable_ipv6=1
-    docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -n -i sysctl -w net.ipv6.conf.default.disable_ipv6=1
+    sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1 > /dev/null
+    sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1 > /dev/null
 
-    echo "[System] Ensuring 4GB Enterprise Swap Space via host mount..."
-    docker run --rm --privileged -v /:/host alpine sh -c "if [ ! -f /host/swapfile ]; then echo '[Swap] Creating 4GB swap file...'; dd if=/dev/zero of=/host/swapfile bs=1M count=4096 status=none && chmod 600 /host/swapfile && mkswap /host/swapfile && chroot /host swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /host/etc/fstab; else echo '[Swap] Active.'; chroot /host swapon -a || true; fi"
+    # Ensure 4GB Enterprise Swap Space natively on Host OS
+    if [ ! -f /swapfile ]; then
+        echo "[Swap] Creating 4GB swap file..."
+        sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 status=none
+        sudo chmod 600 /swapfile
+        sudo mkswap /swapfile > /dev/null
+        sudo swapon /swapfile
+        echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab > /dev/null
+    else
+        sudo swapon -a || true
+    fi
 
     docker builder prune --filter until=168h -f
 
