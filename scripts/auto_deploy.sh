@@ -21,7 +21,7 @@
 #   - .env file is transient.
 #
 # Non-Negotiables:
-#   - Must run every minute via cron.
+#   - Now strictly Event-Driven (Triggered purely via GitHub Actions, not Cron).
 #
 # IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
 #   - ADDED:
@@ -67,6 +67,9 @@
 #   - EDITED (CI/CD Decoupling & CPU Starvation Fix):
 #     • Removed `--build` flag from `docker compose up`.
 #     • Reason: Fulfilling the Enterprise Separation of Concerns principle. GitHub Actions (CI) now exclusively compiles the `.war` artifact. The server deployment script (CD) mounts the pre-built `.war` and simply recreates the containers in seconds. This eliminates the 400% CPU spike that previously crashed the VM network interface and killed the GitHub Runner.
+#   - EDITED (Event-Driven Architecture):
+#     • Removed broad --force-recreate to prevent DB/Keycloak reboot storms.
+#     • Implemented surgical restart for backend and nginx to pick up bind-mounted artifact changes.
 # ==============================================================================
 
 # ==============================================================================
@@ -232,8 +235,11 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ] || [ "
         echo "  > No crashed dependencies found. Proceeding cleanly."
     fi
     
-    echo "[Docker] Executing Sequential Recreate for ALL containers (Using CI Artifacts)..."
-    docker compose up -d --force-recreate
+    echo "[Docker] Applying state-driven idempotency (Infrastructure)..."
+    docker compose up -d --remove-orphans
+    
+    echo "[Docker] Surgically cycling core application services to consume updated artifacts..."
+    docker compose restart backend nginx
     
     echo "[System] Stabilizing containers (Waiting 10s)..."
     sleep 10

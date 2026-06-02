@@ -19,7 +19,7 @@
 #  * - CI runner must safely detach from CD deployment to survive I/O storms.
 #  *
 #  * Change Intent:
-#  * - Implemented Fire-and-Forget (nohup) orchestration.
+#  * - Implemented Fire-and-Forget (nohup) orchestration and Event-Driven push model.
 #  *
 #  * Future AI Guidance:
 #  * - Do not re-introduce `-T 1C` unless the self-hosted runner is confirmed to have >8GB RAM.
@@ -79,6 +79,10 @@
 #  * • Modified `./scripts/auto_deploy.sh --force` to execute via `nohup ... &`.
 #  * • Removed the synchronous `sleep 15` Verify Deployment step.
 #  * • Why: Shutting down 17 enterprise containers simultaneously creates a VirtualBox I/O storm that temporarily locks the network interface. When the runner executes synchronously, this network lock severs its connection to GitHub, causing a fatal SIGKILL mid-deployment that orphans containers (e.g., deleting the DB but dying before rebuilding it). Asynchronous detachment insulates the CI pipeline from the CD infrastructure shock.
+#  *
+#  * - EDITED (Event-Driven Push Architecture):
+#  * • Transitioned execution model to surgical idempotency. 
+#  * • Confirmed asynchronous handoff to auto_deploy.sh to prevent VirtualBox network starvation and gracefully handle configuration synchronization.
 #  */
 
 name: Treishvaam Enterprise Deploy
