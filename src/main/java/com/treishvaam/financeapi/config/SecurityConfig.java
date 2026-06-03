@@ -70,7 +70,13 @@
  * `AegisEdgeValidationFilter` as a `FilterRegistrationBean` with precedence HIGHER than CORS. •
  * Added `/api/public/geo/**`, `/llms.txt`, `/ai-feed.md` to public endpoints for Generative Engine
  * Optimization. • Why: Strictly prevents direct-IP scanner bypasses; drops traffic without a
- * Cloudflare Edge signature.
+ * Cloudflare Edge signature. *
+ *
+ * <p>- EDITED (Security Filter Chain Boot Crash Fix): • Reversed the declaration order of
+ * `.addFilterBefore()` custom injections. • Why: Fixed `IllegalArgumentException: The Filter class
+ * AegisMainFilter does not have a registered order`. Spring Security evaluates top-to-bottom and
+ * requires the target class to already exist in the registry. Chaining them bottom-up against
+ * `UsernamePasswordAuthenticationFilter` correctly maps the dependency tree.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
@@ -271,15 +277,18 @@ public class SecurityConfig {
                                         jwt ->
                                                 jwt.jwtAuthenticationConverter(
                                                         jwtAuthenticationConverter())))
-                .addFilterBefore(
-                        aegisDeceptionFilter, AegisMainFilter.class) // L4-ADA DECEPTION INTERCEPTOR
-                .addFilterBefore(
-                        aegisMainFilter, InternalSecretFilter.class) // INJECTED AEGIS MASTER FILTER
+                // FIXED: Bottom-up registration anchoring against
+                // UsernamePasswordAuthenticationFilter
                 .addFilterBefore(
                         aegisZkpAdminFilter, UsernamePasswordAuthenticationFilter.class) // L3-ZKA
                 .addFilterBefore(inputSanitizationFilter, AegisZkpAdminFilter.class)
                 .addFilterBefore(rateLimitingFilter, InputSanitizationFilter.class)
-                .addFilterBefore(internalSecretFilter, RateLimitingFilter.class);
+                .addFilterBefore(internalSecretFilter, RateLimitingFilter.class)
+                .addFilterBefore(
+                        aegisMainFilter, InternalSecretFilter.class) // INJECTED AEGIS MASTER FILTER
+                .addFilterBefore(
+                        aegisDeceptionFilter,
+                        AegisMainFilter.class); // L4-ADA DECEPTION INTERCEPTOR
 
         return http.build();
     }
