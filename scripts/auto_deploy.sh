@@ -76,6 +76,9 @@
 #   - EDITED (Smart Auxiliary Compilation):
 #     • Re-introduced `--build` flag to `docker compose up -d`.
 #     • Reason: Because `--force-recreate` is removed, `--build` allows Docker to selectively recompile non-Java containers (like Go ZKP or Python scripts) ONLY if their source files have changed, guaranteeing no stale execution without causing stack downtime.
+#   - EDITED (Surgical Deadlock Breaker Enhancement):
+#     • Injected `-f "status=created"` into the CRASHED_CONTAINERS query.
+#     • Reason: Fixed a critical pipeline failure where the VirtualBox Docker daemon stranded a container in the `Created` state indefinitely. The previous watchdog ignored this state, permanently blocking the deployment pipeline.
 # ==============================================================================
 
 # ==============================================================================
@@ -243,7 +246,7 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ] || [ "
 
     # --- 6. SMART EFFICIENT GLOBAL REBUILD ---
     echo "[Docker] Executing Surgical Deadlock Breaker..."
-    CRASHED_CONTAINERS=$(docker ps -q -f "status=restarting" -f "status=dead" -f "status=exited")
+    CRASHED_CONTAINERS=$(docker ps -q -f "status=restarting" -f "status=dead" -f "status=exited" -f "status=created")
     if [ ! -z "$CRASHED_CONTAINERS" ]; then
         echo "  > Removing stuck containers to clear dependency lock: $CRASHED_CONTAINERS"
         docker rm -f $CRASHED_CONTAINERS
