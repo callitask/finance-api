@@ -21,11 +21,12 @@ Developer Windows Host Machine
 Ubuntu VirtualBox VM (vboxuser@192.168.29.111 or 192.168.56.101)
 ├── Docker Engine
 ├── All containers (MariaDB, Redis, Elasticsearch, MinIO, RabbitMQ, etc.)
-├── docker compose commands         ← Run here ONLY
-└── auto_deploy.sh watchdog         ← Runs here automatically via cron
+├── TREISHVAAM-PROD-RUNNER (systemd service)  ← Receives GitHub Actions triggers
+├── docker compose commands         ← Run here ONLY (by auto_deploy.sh)
+└── auto_deploy.sh watchdog         ← Triggered by GitHub Actions (event-driven; NO cron)
 ```
 
-**RULE:** Never run `git` commands on the Ubuntu VM. Never run `docker` commands on the Windows Host unless Docker Desktop is installed separately for local dev only.
+**RULE:** Never run `git` commands on the Ubuntu VM. Never run `docker` commands on the Windows Host unless Docker Desktop is installed separately for local dev only. The Ubuntu VM cron-based polling model has been permanently abolished — `auto_deploy.sh` runs exclusively when triggered by GitHub Actions via `nohup ./scripts/auto_deploy.sh --force &`. Do NOT run `scripts/init_automation.sh` — it is deprecated and will re-install the removed cron job.
 
 ---
 
@@ -61,7 +62,7 @@ git config --global user.signingkey <YOUR_KEY_ID>
 | **Docker Compose v2** | Service orchestration | Use `docker compose` (v2 syntax), NOT `docker-compose` (v1) |
 | **Infisical CLI** | Secret injection at deploy time | Installed and authenticated via Machine Identity |
 | **Python 3.x** | Market data updater | Used by `scripts/market_data_updater.py` |
-| **Git** | Code pull by watchdog | Used by `auto_deploy.sh` only |
+| **Git** | Code sync by watchdog | Used by `auto_deploy.sh` only (triggered by GitHub Actions — not cron) |
 
 ---
 
@@ -200,7 +201,7 @@ git checkout develop
 git add .
 git commit -m "feat: <description>"   # Commit will be GPG-signed automatically
 git push origin develop
-# → GitHub Actions triggers → self-hosted runner builds → auto_deploy.sh watchdog picks up → containers restart
+# → GitHub Actions triggers → GPG verify → Gitleaks → Maven build → copy WAR → nohup auto_deploy.sh → containers restart
 ```
 
 ### Finance Frontend (Next.js only — no Worker change)
@@ -302,3 +303,9 @@ Before implementing any modification, verify internally:
   - Created `BE-12-LOCAL-SETUP.md` from scratch.
   - Why: This document was entirely absent from the repository. The setup procedures were scattered across `README.md`, `SECRETS.md`, `BE-06-INFRA-DEVOPS.md`, and `BE-09-DEPLOYMENT.md`. A single authoritative local setup guide is a critical enterprise gap for onboarding and AI session continuity.
   - Source of truth: `docker-compose.yml`, `auto_deploy.sh`, `load_secrets.sh`, `application-dev.properties`, `.env.dev.example`, `deploy.yml`, `package.json`, `wrangler.toml`.
+
+- **EDITED (2026-06-03 — CI/CD Architectural Overhaul Documentation):**
+  - Architecture split diagram updated: removed "← Runs here automatically via cron" comment; replaced with "← Triggered by GitHub Actions (event-driven; NO cron)". Added `TREISHVAAM-PROD-RUNNER (systemd service)` to Ubuntu VM node. Added explicit RULE about not running `init_automation.sh`.
+  - Ubuntu VM tools table: updated `auto_deploy.sh` description from "pull by watchdog" to "triggered by GitHub Actions — not cron".
+  - Backend deploy flow comment updated to reflect actual pipeline steps (GPG → Gitleaks → Maven → nohup).
+  - **STRATEGIC PIVOT NOTE:** `scripts/init_automation.sh` is DEPRECATED. Future AI must never instruct the user to run it — it installs the permanently abolished cron job.

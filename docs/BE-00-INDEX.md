@@ -1,8 +1,8 @@
 # Treishvaam Finance Platform — Master Documentation Index
 
-**Stable Version:** `tfin-financeapi-Develop.0.0.0.7`
+**Stable Version:** `tfin-financeapi-Develop.0.0.0.9`
 **Security Status:** AEGIS Active · Fort Knox Security Suite Enabled · 
-**Last Updated:** 2026-05-29
+**Last Updated:** 2026-06-03
 **Classification:** Internal Architectural Reference (Sanitized — No Credentials, No Keys, No Internal IPs)
 
 ---
@@ -125,6 +125,10 @@ All layers verified in code. All run exclusively on Java 21 Virtual Threads.
 ## Critical Operational Notes
 
 **⚠️ Cloudflare API Token Expiry:** The production Cloudflare API Token expires on **2026-08-26**. Rotation must be triggered no later than **2026-08-19** using `scripts/rotate_secrets.sh`. The token is scoped to IPs `192.168.29.111` and `192.168.56.101` only.
+
+**⚠️ `scripts/init_automation.sh` — DEPRECATED (DO NOT EXECUTE):** This script installs the `auto_deploy.sh` cron job that was permanently abolished as part of the CI/CD architectural overhaul. Running it will revert the deployment model to the broken blind-polling architecture. The script is retained in the repo for historical reference only. The deployment watchdog is now triggered exclusively by GitHub Actions.
+
+**⚠️ TREISHVAAM-PROD-RUNNER systemd service required:** The GitHub Actions self-hosted runner must be installed as a `systemd` service on the Ubuntu VM. If the VM reboots and the runner is not running as a service, all CI/CD deployments will silently queue and never execute. See `BE-09-DEPLOYMENT.md` Section 3.5 for the runner health check and recovery procedure.
 
 **⚠️ package.json homepage stale:** `package.json` `"homepage"` field still references `https://treishfin.treishvaamgroup.com` (legacy subdomain). This does not affect routing but should be updated to `https://treishvaamfinance.com`.
 

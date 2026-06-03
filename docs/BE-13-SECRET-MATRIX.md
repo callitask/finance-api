@@ -23,12 +23,18 @@ All secrets are routed to exactly one vault based on their consumer. **Never cro
 Secrets never persist unencrypted on disk longer than required:
 
 1. `auto_deploy.sh` authenticates with Infisical via **Machine Identity Token** (Universal Auth — no human password)
-2. `infisical export` writes all secrets to a temporary `.env` file, piped through `sed "s/['\"]//g"` to strip literal quotes (HikariCP crash prevention)
-3. `docker compose up -d` reads `.env` via `env_file:` directive — all containers receive their variables in-memory
-4. After startup, the `.env` is **sanitised** (high-value secret values removed)
-5. Containers retain secrets exclusively in their in-memory environment
+2. `infisical export` writes secrets to a temporary file; **double-pass boundary sed** then appends to `.env`:
+   ```bash
+   cat TEMP_SECRETS | sed 's/\r//g' | sed -E "s/='(.*)'$/=\1/" | sed -E 's/="(.*)"$/=\1/'
+   ```
+   This surgically removes only the surrounding Infisical-added wrapper quotes (single or double) while leaving all internal password characters — including `#`, `$`, and special chars — completely intact.
+3. OS shadow-kill loop `unset`s all template variable names from the active shell to prevent runner environment overrides
+4. `docker compose up -d --build --remove-orphans` reads `.env` via `env_file:` directive, followed by `docker compose restart backend nginx`
+5. After startup, the `.env` is **sanitised** (`cp .env.template .env`); containers retain secrets exclusively in their in-memory environment
 
-**NEVER:** Commit `.env` to git. NEVER wrap `.env` values in single or double quotes.
+**NEVER:** Commit `.env` to git. NEVER wrap `.env` values in single or double quotes — Docker Compose's YAML parser will receive literal quotes on values, and the `#` inside some passwords will be misread as a comment terminator.
+
+**⚠️ Why NOT `sed "s/['\"]//g"` (global strip):** This approach — used in the older `load_secrets.sh` and earlier versions of `auto_deploy.sh` — removes ALL quote characters including those embedded inside passwords. A password like `abc#123` becomes silently truncated to `abc` when `#` is exposed unquoted, triggering Redis `NOAUTH` and MariaDB authentication failures. The boundary-only extractor is the current production-correct approach in `auto_deploy.sh`. `load_secrets.sh` (manual emergency script) retains its own safe variant.
 
 ---
 
@@ -197,3 +203,7 @@ When a new feature requires a new secret:
   - Created `BE-13-SECRET-MATRIX.md` from scratch.
   - Why: `SECRETS.md` in the repository exists but is partially complete — it documents variable names for sections 1–4 but does not include the Cloudflare API Token expiry/rotation protocol, the key generation reference, or the new-secret provisioning protocol. This document consolidates and completes the full secret architecture.
   - Source of truth: `SECRETS.md`, `docker-compose.yml`, `application-prod.properties`, `wrangler.toml`, `auto_deploy.sh`, `rotate_secrets.sh`, `Rules_of_Engagement.pdf`.
+
+- **EDITED (2026-06-03 — CI/CD Architectural Overhaul Documentation):**
+  - **Flash & Wipe section rewritten**: Updated to reflect `auto_deploy.sh`'s actual double-pass boundary sed injection (not global `s/['\"]//g` strip). Documented why global strip caused Redis/MariaDB NOAUTH crashes. Clarified that `load_secrets.sh` is a separate manual-only script not called by `auto_deploy.sh`. Updated `docker compose` command to `docker compose up -d --build --remove-orphans` + `restart backend nginx`.
+  - **STRATEGIC PIVOT NOTE:** The global `sed "s/['\"]//g"` approach documented in `load_secrets.sh` IMMUTABLE HISTORY remains valid for that specific script (which generates a `.env.backend` variant). However, `auto_deploy.sh` now uses the safer boundary-only extractor as its production-correct approach. Future AI must never revert `auto_deploy.sh` to the global strip — the crash history proves it breaks Redis and MariaDB passwords.

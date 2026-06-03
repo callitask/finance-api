@@ -129,9 +129,9 @@ All scripts are in `scripts/` and `backup/` directories.
 
 | Script | Purpose | Run Location |
 | :--- | :--- | :--- |
-| `auto_deploy.sh` | Watchdog: compares branch timestamps, pulls changes, calls `load_secrets.sh`, runs OS memory recovery, runs `docker compose up -d` | Ubuntu VM (cron/git runner) |
-| `init_automation.sh` | One-time initialization of the automated deployment loop | Ubuntu VM |
-| `load_secrets.sh` | Authenticates with Infisical (Universal Auth), exports secrets to temp `.env` via `sed "s/['\"]//g"` (HikariCP crash prevention), wipes after container startup | Ubuntu VM (called by `auto_deploy.sh`) |
+| `auto_deploy.sh` | Server orchestration watchdog: receives `--force` trigger from GitHub Actions, compares branch timestamps, pulls changes, injects secrets inline via Infisical (double-pass boundary sed), runs OS memory recovery (drop_caches + IPv6 disable + swap management), surgically removes dead containers, runs `docker compose up -d --build --remove-orphans`, then `docker compose restart backend nginx`, then security wipe | Ubuntu VM (triggered exclusively by GitHub Actions — **cron abolished**) |
+| `init_automation.sh` | **⚠️ DEPRECATED — DO NOT EXECUTE.** Previously registered `auto_deploy.sh` as a cron job (every minute). The cron polling model was permanently abolished. Running this script will re-install the removed cron, reverting to the broken polling model. Retained for historical reference only. | Ubuntu VM (deprecated) |
+| `load_secrets.sh` | Standalone manual secret injection script: authenticates with Infisical (Universal Auth), exports secrets to `.env` via boundary-only sed (protects internal `#`/`$` in passwords), generates `.env.backend` variant, OS shadow-kill loop. For **manual emergency use only** — `auto_deploy.sh` performs its own inline secret injection and does not call this script | Ubuntu VM (manual use only) |
 | `rotate_secrets.sh` | Zero-downtime key rotation: generates new JWT + internal API keys via `openssl rand`, updates `.env`, Docker Compose rolling restart | Ubuntu VM |
 | `backup/backup.sh` | MariaDB dump + MinIO `docker cp` + Redis BGSAVE. AES-encrypts with `BACKUP_ENCRYPTION_KEY` | Ubuntu VM (backup-service container) |
 | `backup/restore.sh` | Pulls from S3, decrypts, restores MariaDB + MinIO + Redis | Ubuntu VM |
@@ -150,28 +150,41 @@ Automates Ubuntu VM initial provisioning:
 - Configures UFW firewall (only ports 22, 80, 443 open)
 - Sets up automatic OS security updates (`unattended-upgrades`)
 - Creates application directory structure
-- Configures cron entries for the auto-deploy watchdog
+- **Note:** Cron-based auto-deploy registration is intentionally omitted from the current provisioning playbook. Deployment triggering is handled exclusively by GitHub Actions. The self-hosted runner (`TREISHVAAM-PROD-RUNNER`) must be manually installed as a `systemd` service using `./svc.sh install && ./svc.sh start` after provisioning.
 
 ---
 
 ## 6. CI/CD Pipeline (`deploy.yml`)
 
 **File:** `.github/workflows/deploy.yml`
-**Triggers:** Push to `develop`, `staging`, or `main`
+**Triggers:** Push to `develop`, `staging`, or `main`; `workflow_dispatch`
 
-### Synchronous Build + Deploy Job
+**Global env:** `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true`
+**Concurrency gate:** `group: production-deployment, cancel-in-progress: true`
+
+### Synchronous Build + Deploy Job (`build-and-deploy`)
+
+Runs on every push. Steps verified against actual `deploy.yml`:
 
 ```
-1. Checkout code
-2. Set up Java 21 (Temurin) + Maven cache
-3. Gitleaks secret scan              ← BLOCKS on any credential detection
-4. git verify-commit HEAD            ← BLOCKS on unsigned commits
-5. mvn test                          ← Unit tests
-6. mvn clean package                 ← Build WAR artifact
-7. mvn spotless:check                ← Code formatting gate
-8. SCP artifact to Ubuntu VM
-9. Signal Watchdog (auto_deploy.sh)
+1. Checkout (fetch-depth: 0 — full history for GPG verification)
+2. GPG Commit Signature Verification   ← BLOCKS on unsigned commits
+3. Pre-Flight Cleanup                  ← sudo rm -f /tmp/gitleaks.tmp (self-healing runner state)
+4. Gitleaks Secret Scan               ← BLOCKS on any credential detection
+5. Set up JDK 21 (Temurin) + Maven cache
+6. Log Deployment Branch
+7. Maven Build: ./mvnw clean package -DskipTests -B  (MAVEN_OPTS="-Xmx1024m")
+8. Deploy to Application Folder:
+   - cp target/finance-api.war /opt/treishvaam/backend-app.war
+   - cp -r scripts/* /opt/treishvaam/scripts/
+   - cp docker-compose.yml /opt/treishvaam/
+   - nohup ./scripts/auto_deploy.sh --force > deploy_pipeline.log 2>&1 &  ← ASYNC FIRE-AND-FORGET
+9. Guaranteed Flash & Wipe (if: always())  ← cp .env.template .env  (runs even on failure)
 ```
+
+**⚠️ Self-hosted runner note:** The runner executes on the same Ubuntu VM as Docker. "Deploy to Application Folder" uses local `cp` commands — NOT `scp` over the network. This is why the runner must be installed as a `systemd` service directly on the VM.
+
+**⚠️ Why `nohup` (step 8):** Synchronous Docker Compose operations during step 8 would trigger a VM I/O storm that severs the runner's GitHub TCP connection, causing fatal pipeline abortion mid-deployment. The `nohup` detachment insulates CI from CD infrastructure shock. Monitor server-side progress via: `sudo tail -f /opt/treishvaam/deploy_pipeline.log`
 
 ### Separate OWASP Cron Job (`dependency-security-scan`)
 
@@ -183,11 +196,14 @@ Automates Ubuntu VM initial provisioning:
 
 | Constraint | Enforcement |
 | :--- | :--- |
-| GPG commit signing | `git verify-commit HEAD` — unsigned commits → pipeline blocked |
-| Secret scanning | Gitleaks on every push |
-| Code formatting | `mvn spotless:check` — unformatted code → pipeline blocked |
+| GPG commit signing | `git verify-commit HEAD` — unsigned commits → pipeline blocked (runs FIRST, before Gitleaks) |
+| Secret scanning | Gitleaks on every push; pre-flight temp file cleanup prevents self-hosted runner state pollution |
+| Code formatting | `mvn spotless:apply` is a **developer-side pre-commit step**, NOT part of the CI pipeline |
+| Tests | `-DskipTests` is used in CI for speed; tests are run locally by the developer before push |
 | `package-lock.json` sync | Must always be committed alongside `package.json` — CF Pages uses `npm ci`, desync crashes Edge build |
 | OWASP check | Isolated cron job only — never in synchronous deploy path |
+| Node 24 | `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` globally — prevents Node 20 deprecation lockouts |
+| Pipeline concurrency | `cancel-in-progress: true` — newer push cancels in-progress older run cleanly |
 
 ### `.gitleaks.toml`
 
@@ -265,23 +281,35 @@ Then access locally:
 ```
 Infisical Cloud (source of truth for all backend secrets)
       │
-      ▼ (auto_deploy.sh on each deployment)
-load_secrets.sh
+      ▼ (auto_deploy.sh on each deployment — inline, not via load_secrets.sh)
+Secret Injection:
    └── infisical login --method=universal-auth (Machine Identity Token)
-   └── infisical export | sed "s/['\"]//g" > .env   ← strips literal quotes (HikariCP fix)
+   └── infisical export --projectId ... --env prod --format dotenv → TEMP_SECRETS
+   └── DOUBLE-PASS BOUNDARY EXTRACTOR (critical):
+       cat TEMP_SECRETS | sed 's/\r//g' | sed -E "s/='(.*)'$/=\1/" | sed -E 's/="(.*)"$/=\1/' >> .env
+       (removes only surrounding Infisical-added quotes; preserves internal # and $ in passwords)
+   └── OS shadow-kill: unset all template variable names from active shell
       │
       ▼
 OS Memory Recovery (before docker compose up)
-   └── sudo sync && sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
-   └── docker builder prune -f
+   └── sudo sync && echo 3 | sudo tee /proc/sys/vm/drop_caches
+   └── sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+   └── Swap: provision/activate 4GB /swapfile
+   └── docker builder prune --filter until=168h -f
       │
       ▼
-docker compose up -d (reads .env via env_file: + environment: mapping)
+docker compose up -d --build --remove-orphans  (reads .env via env_file: + environment: mapping)
+docker compose restart backend nginx            (surgical application service cycle)
       │
       ▼
-.env sanitized — high-value secret values wiped from disk
+.env sanitized — cp .env.template .env
 Containers retain secrets exclusively in-memory
 ```
+
+**⚠️ Why double-pass boundary sed (not global `s/['\"]//g`):**
+The original global strip removed ALL quote characters from the entire `.env`, including quotes that were part of passwords containing `#` or `$`. Docker Compose's YAML parser then interpreted the unquoted `#` as a comment terminator, silently truncating `REDIS_PASSWORD` at that character and causing widespread `NOAUTH` crash loops. The boundary-only approach (`sed -E "s/='(.*)'$/=\1/"`) surgically removes only the surrounding Infisical-added wrapper quotes while leaving internal password content completely intact.
+
+**`load_secrets.sh` vs `auto_deploy.sh` injection:** `auto_deploy.sh` performs its own complete inline secret injection and does NOT call `load_secrets.sh`. `load_secrets.sh` is a standalone script for **manual emergency use** only (e.g., re-injecting secrets after a crash without triggering a full deployment).
 
 **Secret routing rules:**
 - **Backend secrets** (DB keys, encryption keys, API tokens) → **Infisical** → `.env` → Docker Compose `environment:`
@@ -308,3 +336,10 @@ Containers retain secrets exclusively in-memory
   - **ADDED:** SaltStack and Packer section (Section 11) — both exist in codebase but were undocumented.
   - **CONFIRMED:** `sed "s/['\"]//g"` in `load_secrets.sh` is present and intentional — documented as permanent HikariCP crash prevention fix.
   - No existing architectural claims changed.
+
+- **EDITED (2026-06-03 — CI/CD Architectural Overhaul Documentation):**
+  - **Section 4 Scripts Table:** `auto_deploy.sh` trigger corrected from "cron/git runner" to "triggered exclusively by GitHub Actions — cron abolished". `init_automation.sh` marked DEPRECATED with explicit warning not to execute. `load_secrets.sh` description updated to clarify it is for manual emergency use; `auto_deploy.sh` performs its own inline injection.
+  - **Section 5 Ansible:** Removed "Configures cron entries for the auto-deploy watchdog". Replaced with note that cron is abolished and runner must be manually installed as systemd service.
+  - **Section 6 CI/CD Pipeline:** Completely rewritten to match actual `deploy.yml`. Steps corrected (GPG first, then Gitleaks, no mvn test/spotless in CI, local cp not SCP, nohup async handoff, Flash & Wipe guaranteed cleanup). Constraints table updated (spotless is pre-commit developer-side, not CI; Node 24 global env and concurrency gate added).
+  - **Section 10 Flash & Wipe:** Flow diagram updated to show inline injection (not load_secrets.sh call), double-pass boundary sed (not global strip), IPv6 disable, swap management, `--build --remove-orphans` and `restart backend nginx`. Documented why global strip caused NOAUTH crashes.
+  - **STRATEGIC PIVOT NOTE:** The `sed "s/['\"]//g"` global strip documented in the previous IMMUTABLE HISTORY entry applies to `load_secrets.sh` (still present there) but was replaced in `auto_deploy.sh` by the safer double-pass boundary extractor. Both scripts are valid but serve different contexts.

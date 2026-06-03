@@ -4,6 +4,86 @@ All notable changes to the Treishvaam Finance Platform are documented here. Form
 
 ---
 
+## [tfin-financeapi-Develop.0.0.0.9] — CI/CD Architectural Overhaul & Infrastructure Stabilization
+**Date:** 2026-06-03
+
+### CI/CD Architecture — Critical Upgrade (Fortune 500 Event-Driven Model)
+
+- **Abolition of Blind Polling (Cron Permanently Removed):**
+  The 60-second `crontab` loop for `auto_deploy.sh` was **permanently removed** from the Ubuntu VM. The server no longer blindly tears down containers while GitHub Actions is mid-compilation. This eliminated the race condition that caused backend restart loops, database corruption, and "Double Deployment Collision" where two parallel deployment engines fought over the same containers simultaneously.
+  - `scripts/init_automation.sh` is now **DEPRECATED** — do not execute it. Running it will re-install the removed cron job and revert to the broken polling model. The script is retained for historical reference only.
+
+- **Event-Driven Asynchronous Handoff (Fire-and-Forget):**
+  The CI pipeline now exclusively triggers the CD pipeline via a single detached command:
+  ```bash
+  nohup ./scripts/auto_deploy.sh --force > /opt/treishvaam/deploy_pipeline.log 2>&1 &
+  ```
+  This architecture insulates the GitHub Actions runner from the VirtualBox I/O storm caused by simultaneously shutting down and restarting 17+ enterprise containers. The runner safely detaches and reports success the moment the handoff is issued — the actual container orchestration continues asynchronously on the server.
+
+- **Surgical Idempotency (Smart Builds — Zero Stale Restarts):**
+  Removed the destructive `--force-recreate` flag from `docker compose up`. The system now uses `docker compose up -d --build --remove-orphans` followed by `docker compose restart backend nginx`. Docker natively hashes current containers against new artifacts and only restarts what has changed, while stateful services (MariaDB, Keycloak, Redis) remain completely untouched — achieving true zero-downtime.
+
+- **Deadlock Annihilation (Host-Native Permission Repair):**
+  Replaced the Docker-based `docker run alpine chown` permission-fix mechanism with a zero-dependency, native OS-level `sudo chown` call:
+  ```bash
+  sudo chown -R $(id -u):$(id -g) .git scripts docker-compose.yml
+  ```
+  Under heavy I/O, the prior approach deadlocked the Docker storage daemon because it spawned a new Alpine container at the worst possible moment (during concurrent container rebuilds), creating a circular dependency. The native OS approach is instantaneous and immune to Docker storage driver hangs.
+
+- **Surgical Deadlock Breaker:**
+  Added `docker rm -f` targeting exclusively `restarting`, `dead`, and `exited` containers before the global `docker compose up`. This clears stale container entries blocking the dependency tree without causing catastrophic mass-shutdown of the entire 17-container stack.
+
+- **IPv6 Disable (Registry Pull Reliability):**
+  `auto_deploy.sh` now disables IPv6 at runtime via `sysctl`:
+  ```bash
+  sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+  ```
+  This prevents Docker image pulls from timing out on the Ubuntu VM's IPv6 stack, which intermittently fails to reach container registries.
+
+- **Enterprise Swap Management (4 GB — OOM Prevention):**
+  `auto_deploy.sh` now automatically provisions and activates a persistent 4 GB swap file at `/swapfile` on first run (via `dd`, `mkswap`, `swapon`, and `/etc/fstab` registration). This provides a stable memory safety net for the dual-replica Spring Boot JVM boot storm that previously triggered Exit Code 137 OOM kills.
+
+### Infrastructure — Runner Upgrade
+
+- **Zombie Runner Eradication & TREISHVAAM-PROD-RUNNER (systemd):**
+  The previous GitHub Actions runner instance became comatose during network lockups, leaving dead TCP sockets that permanently blocked new runner registrations. The root cause was that the legacy runner configuration (`.runner`, `.credentials`) was cached with a GitHub-internal tombstone. Resolution:
+  1. Forcefully cleared runner caches via GitHub CLI removal and `rm -rf`
+  2. Registered a new, uniquely-named runner: `TREISHVAAM-PROD-RUNNER`
+  3. Installed the runner as a permanent `systemd` service (`svc.sh install + svc.sh start`)
+  The runner now survives Ubuntu VM reboots automatically.
+
+- **Clock Drift Resolution (NTP via systemd-timesyncd):**
+  The VirtualBox VM was suffering severe clock drift — running up to 24 hours behind actual atomic time. GitHub's OAuth2 token generation validates the runner's clock; a token generated in the "past" is cryptographically rejected. This caused runner authentication to fail silently. Resolution:
+  1. Forcibly synchronized the VM clock via HTTP header time-extraction bypass
+  2. Permanently enabled NTP via `systemd-timesyncd` with `timedatectl set-ntp true`
+  This prevents future runner auth lockouts from clock drift.
+
+### CI/CD Pipeline — Corrections & Hardening (`deploy.yml`)
+
+- **Node 24 Deprecation Future-Proofing:**
+  Injected `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as a global environment variable in `deploy.yml`. This forces all GitHub marketplace actions (`checkout@v4`, `setup-java@v4`) to execute on the secure Node 24 runtime, bypassing GitHub's Node 20 deprecation lockout warnings that were accumulating in the runner log.
+
+- **Gitleaks Schema Compliance (v2):**
+  The Gitleaks action block was failing silent syntax validation due to a deprecated `with: args:` parameter schema from the v1 API. The invalid block was stripped. The action now runs with v2-compliant schema, ensuring the CI pipeline remains protected against credential leakage without schema-breaking parameters.
+
+- **Pre-Flight Self-Healing Cleanup:**
+  Added `sudo rm -f /tmp/gitleaks.tmp || true` before the Gitleaks action. Self-hosted runners retain filesystem state between runs. A previously aborted pipeline left a locked temporary file, causing the Gitleaks downloader to crash on the next run. This step provides idempotent self-healing.
+
+- **Pipeline Concurrency Gate:**
+  Added `concurrency: group: production-deployment, cancel-in-progress: true`. This prevents two simultaneous CI runs from racing to deploy — the newer push automatically cancels the in-progress older run cleanly.
+
+- **Corrected MAVEN_OPTS Boundary:**
+  Enforced `MAVEN_OPTS="-Xmx1024m"` and `-DskipTests` on the Maven build step. The self-hosted runner (shared with the Ubuntu VM) has limited RAM; uncapped JVM heap caused the Maven build itself to OOM-kill before even reaching the Docker phase.
+
+### Deployment Log Monitoring
+  
+The asynchronous server-side deployment can be monitored in real-time via:
+```bash
+sudo tail -f /opt/treishvaam/deploy_pipeline.log
+```
+
+---
+
 ## [tfin-financeapi-Develop.0.0.0.8] — Enterprise Documentation Generation Session
 **Date:** 2026-05-29
 
