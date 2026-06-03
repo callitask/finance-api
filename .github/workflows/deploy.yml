@@ -87,6 +87,10 @@
 #  * - EDITED (Node 24 Deprecation & Gitleaks Fix):
 #  * • Injected `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` globally to future-proof against GitHub's Node 20 deprecation.
 #  * • Stripped invalid `with: args:` block from Gitleaks action to conform to v2 schema requirements.
+#  *
+#  * - EDITED (Process Decoupling & Zombie Prevention):
+#  * • Unset `RUNNER_TRACKING_ID` during the asynchronous execution of `auto_deploy.sh`.
+#  * • Why: Blinds the GitHub Actions native cleanup step. Previously, the runner was ruthlessly assassinating the deployment script mid-execution (specifically during Infisical secret injection), which left the backend containers trapped in a restart loop with blank environment variables.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -210,7 +214,9 @@ jobs:
         cd /opt/treishvaam
         chmod +x scripts/auto_deploy.sh
         
-        # Execute detached (Fire and Forget) to protect the CI runner from I/O network lockups
+        # Unset tracking ID to blind GitHub Actions' cleanup process
+        # This prevents the runner from assassinating the background script during post-job cleanup
+        export RUNNER_TRACKING_ID=""
         nohup ./scripts/auto_deploy.sh --force > /opt/treishvaam/deploy_pipeline.log 2>&1 &
         echo "--> Watchdog detached successfully. The server will safely reboot the stack in the background."
 
