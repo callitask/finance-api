@@ -79,6 +79,9 @@
 #   - EDITED (Surgical Deadlock Breaker Enhancement):
 #     • Injected `-f "status=created"` into the CRASHED_CONTAINERS query.
 #     • Reason: Fixed a critical pipeline failure where the VirtualBox Docker daemon stranded a container in the `Created` state indefinitely. The previous watchdog ignored this state, permanently blocking the deployment pipeline.
+#   - EDITED (Non-Interactive Sudo Safety):
+#     • Injected `-n` (non-interactive) flag into all `sudo` calls (`chown`, `sysctl`, `swap`, `drop_caches`).
+#     • Reason: Prevents the deployment watchdog from hanging indefinitely waiting for a TTY password prompt when executed in the background via GitHub Actions `nohup`. Ensures fail-fast behavior that allows the Infisical Flash & Wipe cycle to continue.
 # ==============================================================================
 
 # ==============================================================================
@@ -126,7 +129,7 @@ MONITORED_BRANCHES=("main" "staging" "develop")
 # --- 0.5 PRE-FLIGHT PERMISSION FIX (CRITICAL) ---
 echo "[System] Fixing Git tracking permissions safely..."
 # Refactored to native host execution to prevent Docker storage driver dependency blockages
-sudo chown -R $(id -u):$(id -g) .git scripts docker-compose.yml 2>/dev/null || true
+sudo -n chown -R $(id -u):$(id -g) .git scripts docker-compose.yml 2>/dev/null || true
 
 # --- 1. BRANCH INTELLIGENCE ---
 git fetch --all
@@ -214,29 +217,29 @@ if [ "$LOCAL" != "$REMOTE" ] || [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ] || [ "
     done < "$TEMPLATE_FILE"
     echo "  > OS shell overrides neutralised."
 
-    sudo chown $(id -u):$(id -g) .env 2>/dev/null || true
+    sudo -n chown $(id -u):$(id -g) .env 2>/dev/null || true
     
     echo "[Docker] Cleaning up dead containers..."
     docker rm -f $(docker ps -f "status=dead" -q) 2>/dev/null || true
 
     # --- 5. MEMORY RECOVERY, SWAP & DNS HEALING ---
     echo "[System] Executing Aggressive OS Memory Recovery..."
-    sudo sync && echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null
+    sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
     
     echo "[System] Disabling host IPv6 to prevent Registry Pull Timeouts..."
-    sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1 > /dev/null
-    sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1 > /dev/null
+    sudo -n sysctl -w net.ipv6.conf.all.disable_ipv6=1 > /dev/null
+    sudo -n sysctl -w net.ipv6.conf.default.disable_ipv6=1 > /dev/null
 
     # Ensure 4GB Enterprise Swap Space natively on Host OS
     if [ ! -f /swapfile ]; then
         echo "[Swap] Creating 4GB swap file..."
-        sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 status=none
-        sudo chmod 600 /swapfile
-        sudo mkswap /swapfile > /dev/null
-        sudo swapon /swapfile
-        echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab > /dev/null
+        sudo -n dd if=/dev/zero of=/swapfile bs=1M count=4096 status=none
+        sudo -n chmod 600 /swapfile
+        sudo -n mkswap /swapfile > /dev/null
+        sudo -n swapon /swapfile
+        echo '/swapfile none swap sw 0 0' | sudo -n tee -a /etc/fstab > /dev/null
     else
-        sudo swapon -a || true
+        sudo -n swapon -a || true
     fi
 
     docker builder prune --filter until=168h -f
