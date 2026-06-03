@@ -72,8 +72,13 @@
 #   - EDITED (Non-Interactive Sudo Safety):
 #     • Injected `-n` (non-interactive) flag into all `sudo` calls.
 #   - EDITED (Absolute CI/CD Decoupling):
-#     • Completely eradicated legacy Git operations (`fetch`, `checkout`, `reset`). 
-#     • Reason: GitHub Actions already delivers the artifact payloads natively. Background Git fetch operations were hanging indefinitely waiting for headless authentication, blocking the Infisical secret injection.
+#     • Completely eradicated legacy Git operations (`fetch`, `checkout`, `reset`).
+#   - EDITED (Elasticsearch Kernel Immunization):
+#     • Injected `sudo -n sysctl -w vm.max_map_count=262144`. 
+#     • Reason: A VM reboot wiped the kernel memory mapping. Elasticsearch requires 262144 minimum to boot. Without this, it silently crashed, causing the backend to enter an infinite UnknownHostException restart loop.
+#   - EDITED (State-Safe Deadlock Breaker):
+#     • Wrapped the `docker rm -f` deadlock breaker in a loop with `|| true`.
+#     • Reason: Passing a bulk list of containers where one was a phantom/transient ID caused Docker to throw "No such container" and abort the entire deployment pipeline midway.
 # ==============================================================================
 
 # ==============================================================================
@@ -167,6 +172,10 @@ docker rm -f $(docker ps -f "status=dead" -q) 2>/dev/null || true
 echo "[System] Executing Aggressive OS Memory Recovery..."
 sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
 
+# CRITICAL FIX: Ensure Elasticsearch has enough memory mapped to boot successfully
+echo "[System] Enforcing Kernel Limits for Elasticsearch..."
+sudo -n sysctl -w vm.max_map_count=262144 > /dev/null
+
 echo "[System] Disabling host IPv6 to prevent Registry Pull Timeouts..."
 sudo -n sysctl -w net.ipv6.conf.all.disable_ipv6=1 > /dev/null
 sudo -n sysctl -w net.ipv6.conf.default.disable_ipv6=1 > /dev/null
@@ -189,11 +198,14 @@ export GOMAXPROCS=1
 export DOCKER_BUILDKIT=1
 
 # --- 3. SMART EFFICIENT GLOBAL REBUILD ---
-echo "[Docker] Executing Surgical Deadlock Breaker..."
+echo "[Docker] Executing State-Safe Deadlock Breaker..."
 CRASHED_CONTAINERS=$(docker ps -q -f "status=restarting" -f "status=dead" -f "status=exited" -f "status=created")
 if [ ! -z "$CRASHED_CONTAINERS" ]; then
-    echo "  > Removing stuck containers to clear dependency lock: $CRASHED_CONTAINERS"
-    docker rm -f $CRASHED_CONTAINERS
+    echo "  > Safely clearing crashed containers to release dependency lock..."
+    # Iterating ensures that if one container throws "No such container", the script does not abort.
+    for container in $CRASHED_CONTAINERS; do
+        docker rm -f "$container" 2>/dev/null || true
+    done
 else
     echo "  > No crashed dependencies found. Proceeding cleanly."
 fi
