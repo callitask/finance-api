@@ -84,6 +84,12 @@
  * Next.js SSR fetch cycle was requesting exact root paths, triggering 401 Unauthorized errors which
  * cascaded into 500 Internal Server Errors on the frontend.
  *
+ * <p>- EDITED (Stop Spring Boot Error Masking): • Added `"/error"` to `permitAll()` paths. • Why:
+ * Spring Boot intercepts 403/429 errors from AEGIS and forwards them to /error. Without
+ * permitAll(), Spring Security intercepts this forward and rewrites the status to 401 Unauthorized,
+ * masking the true origin and crashing the Next.js SSR engine which expects the actual raw status
+ * code.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -190,7 +196,10 @@ public class SecurityConfig {
                                                 "/actuator/health",
                                                 "/api/v1/health",
                                                 "/api/v1/health/**",
-                                                "/api/v1/monitoring/ingest")
+                                                "/api/v1/monitoring/ingest",
+                                                "/error") // Allow Spring Boot to forward internal
+                                        // error pages without overwriting status
+                                        // codes
                                         .permitAll()
 
                                         // 1.5 Actuator Catch-all (Secure)
@@ -343,7 +352,9 @@ public class SecurityConfig {
                         "X-Aegis-Biometric-Hash",
                         "X-Aegis-Biometric-Raw",
                         "X-Aegis-Edge-Signature",
-                        "X-Aegis-Edge-Timestamp"));
+                        "X-Aegis-Edge-Timestamp",
+                        "X-Aegis-Client-IP")); // Explicitly allow the new custom IP injection
+        // header
 
         configuration.setExposedHeaders(
                 Arrays.asList(

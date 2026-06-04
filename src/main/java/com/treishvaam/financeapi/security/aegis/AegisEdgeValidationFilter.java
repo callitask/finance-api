@@ -37,6 +37,13 @@ package com.treishvaam.financeapi.security.aegis;
  * The Cloudflare Edge Worker generates the HMAC-SHA-512 signature using CF-Connecting-IP. Nginx/Lua
  * X-Real-IP extraction introduces IPv6 formatting drift, breaking the constant-time mathematical
  * verification and causing a flood of 403 Forbidden errors.
+ *
+ * <p>- EDITED (Cloudflare Spoofing Prevention): • Updated extractClientIp() to prioritize
+ * X-Aegis-Client-IP as the absolute source of truth. • Why: Tomcat must perform HMAC verification
+ * using the exact IP mathematically sealed into the signature by the Cloudflare Worker.
+ * Cloudflare's core network enforces spoofing protection and overwrites CF-Connecting-IP on
+ * outbound fetches from the Worker, causing IPv6 network drift and false 403s. The custom header
+ * creates an immutable bridge.
  */
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -172,8 +179,13 @@ public class AegisEdgeValidationFilter extends OncePerRequestFilter {
     }
 
     private String extractClientIp(HttpServletRequest request) {
-        // AI-CONTEXT: Prioritize CF-Connecting-IP to perfectly match the Edge Worker's HMAC
-        // signature seed.
+        // AI-CONTEXT: Prioritize X-Aegis-Client-IP injected by the Edge Worker to survive CF
+        // outbound IP spoofing overwrites.
+        String aegisClientIp = request.getHeader("X-Aegis-Client-IP");
+        if (aegisClientIp != null && !aegisClientIp.isEmpty()) {
+            return aegisClientIp;
+        }
+
         String cfConnectingIp = request.getHeader("CF-Connecting-IP");
         if (cfConnectingIp != null && !cfConnectingIp.isEmpty()) {
             return cfConnectingIp;
