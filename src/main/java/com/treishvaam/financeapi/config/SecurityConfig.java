@@ -90,6 +90,14 @@
  * masking the true origin and crashing the Next.js SSR engine which expects the actual raw status
  * code.
  *
+ * <p>- EDITED (Zero-Trust IP Normalization & Integer Underflow Fix): • Replaced the underflowing
+ * `Ordered.HIGHEST_PRECEDENCE - 10` filter registration with a strict mathematical sequence
+ * explicitly injecting `AegisIpResolutionFilter`. • Sequence: EdgeValidation (Highest) ->
+ * IpResolution (+1) -> CorsFilter (+2). • Why: The underflow pushed cryptographic validation to the
+ * very end of the chain, breaking the Zero-Trust perimeter. The exact sequence prevents 127.0.0.1
+ * spoofing bypasses while correctly feeding downstream rate-limiters the true user IP instead of
+ * the Cloudflare node.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -101,6 +109,7 @@ import com.treishvaam.financeapi.security.KeycloakRealmRoleConverter;
 import com.treishvaam.financeapi.security.RateLimitingFilter;
 import com.treishvaam.financeapi.security.aegis.AegisDeceptionFilter;
 import com.treishvaam.financeapi.security.aegis.AegisEdgeValidationFilter;
+import com.treishvaam.financeapi.security.aegis.AegisIpResolutionFilter;
 import com.treishvaam.financeapi.security.aegis.AegisMainFilter;
 import com.treishvaam.financeapi.security.aegis.AegisZkpAdminFilter;
 import java.util.Arrays;
@@ -140,6 +149,7 @@ public class SecurityConfig {
     private final AegisZkpAdminFilter aegisZkpAdminFilter;
     private final AegisDeceptionFilter aegisDeceptionFilter;
     private final AegisEdgeValidationFilter aegisEdgeValidationFilter;
+    private final AegisIpResolutionFilter aegisIpResolutionFilter;
 
     @Value("#{'${cors.allowed-origins}'.split(',')}")
     private List<String> allowedOrigins;
@@ -151,7 +161,8 @@ public class SecurityConfig {
             AegisMainFilter aegisMainFilter,
             AegisZkpAdminFilter aegisZkpAdminFilter,
             AegisDeceptionFilter aegisDeceptionFilter,
-            AegisEdgeValidationFilter aegisEdgeValidationFilter) {
+            AegisEdgeValidationFilter aegisEdgeValidationFilter,
+            AegisIpResolutionFilter aegisIpResolutionFilter) {
         this.rateLimitingFilter = rateLimitingFilter;
         this.internalSecretFilter = internalSecretFilter;
         this.inputSanitizationFilter = inputSanitizationFilter;
@@ -159,6 +170,7 @@ public class SecurityConfig {
         this.aegisZkpAdminFilter = aegisZkpAdminFilter;
         this.aegisDeceptionFilter = aegisDeceptionFilter;
         this.aegisEdgeValidationFilter = aegisEdgeValidationFilter;
+        this.aegisIpResolutionFilter = aegisIpResolutionFilter;
     }
 
     @Bean
@@ -166,13 +178,22 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    // REGISTERS EDGE VALIDATION AT ABSOLUTE HIGHEST PRECEDENCE (BEFORE CORS)
+    // LAYER 1: STRICT CRYPTOGRAPHIC ORIGIN VERIFICATION (Absolute First)
     @Bean
     public FilterRegistrationBean<AegisEdgeValidationFilter>
             aegisEdgeValidationFilterRegistration() {
         FilterRegistrationBean<AegisEdgeValidationFilter> bean =
                 new FilterRegistrationBean<>(aegisEdgeValidationFilter);
-        bean.setOrder(Ordered.HIGHEST_PRECEDENCE - 10); // Ensures it runs before globalCorsFilter
+        bean.setOrder(Ordered.HIGHEST_PRECEDENCE); // Mathematical baseline. NO UNDERFLOW.
+        return bean;
+    }
+
+    // LAYER 2: GLOBAL IP NORMALIZATION (Executes ONLY after Cryptographic Proof is accepted)
+    @Bean
+    public FilterRegistrationBean<AegisIpResolutionFilter> aegisIpResolutionFilterRegistration() {
+        FilterRegistrationBean<AegisIpResolutionFilter> bean =
+                new FilterRegistrationBean<>(aegisIpResolutionFilter);
+        bean.setOrder(Ordered.HIGHEST_PRECEDENCE + 1); // Ensures downstream sees the true client IP
         return bean;
     }
 
@@ -318,6 +339,7 @@ public class SecurityConfig {
         return http.build();
     }
 
+    // LAYER 3: PREFLIGHT HANDLING
     @Bean
     public FilterRegistrationBean<CorsFilter> globalCorsFilter() {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
@@ -369,7 +391,7 @@ public class SecurityConfig {
 
         FilterRegistrationBean<CorsFilter> bean =
                 new FilterRegistrationBean<>(new CorsFilter(source));
-        bean.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        bean.setOrder(Ordered.HIGHEST_PRECEDENCE + 2); // Correctly offset behind IP normalizer
         return bean;
     }
 

@@ -18,6 +18,14 @@ package com.treishvaam.financeapi.security.aegis;
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Initial creation. • Why: The frontend was
  * POSTing telemetry data, but no explicit Controller mapping existed, causing Spring Boot to throw
  * a NoResourceFoundException which cascaded into a 500 error on the frontend.
+ *
+ * <p>- EDITED: • Updated response from empty body to returning a valid JSON object `{"status":
+ * "ok"}`. • Why: Next.js fetch API strictly expects parsable JSON responses for backend
+ * integration. Returning an empty `ResponseEntity.accepted().build()` caused JSON.parse exceptions
+ * during the hydration cycle.
+ *
+ * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
+ * rewritten, or regenerated. Future AI must append only.
  */
 import java.util.Map;
 import org.slf4j.Logger;
@@ -35,7 +43,7 @@ public class AegisTelemetryController {
     private static final Logger log = LoggerFactory.getLogger(AegisTelemetryController.class);
 
     @PostMapping("/telemetry")
-    public ResponseEntity<Void> receiveTelemetry(
+    public ResponseEntity<Map<String, String>> receiveTelemetry(
             @RequestBody(required = false) Map<String, Object> payload) {
         // The actual biometric hash extraction and Shannon entropy validation occurs in the
         // AegisMainFilter and L5-BIE engine upstream in the security chain.
@@ -43,6 +51,6 @@ public class AegisTelemetryController {
         // errors.
         log.debug("AEGIS L5-BIE: Telemetry beacon successfully absorbed from frontend.");
 
-        return ResponseEntity.accepted().build();
+        return ResponseEntity.accepted().body(Map.of("status", "ok"));
     }
 }
