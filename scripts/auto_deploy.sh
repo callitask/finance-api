@@ -29,6 +29,10 @@
 #     • Strategy Attempted: `docker compose rm -f -s -v` to clear deadlocked ghost containers.
 #     • Failure Mode: The `-s` flag halted all healthy containers (DB, Redis), collapsing the Docker bridge network and flushing iptables, severing the remote engineer's SSH connection mid-deployment.
 #     • Future AI Warning: NEVER shut down the entire container stack natively or via Compose. Always enforce surgical, non-disruptive rolling updates (`--no-deps backend nginx`).
+#
+#   - EDITED (Envoy Sidecar Orchestration):
+#     • Added `envoy-sidecar` and `aegis-canary-server` to the surgical application deployment command (`docker compose up -d --force-recreate --no-deps backend nginx envoy-sidecar aegis-canary-server`).
+#     • Why: Envoy depends on the backend replicas. By forcefully recreating it alongside the backend, we ensure it correctly discovers the new replica IP addresses and remains permanently live, rather than dropping out of the process tree.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -114,8 +118,8 @@ echo "[Docker] Applying state-driven idempotency (Infrastructure)..."
 docker compose up -d --build --remove-orphans
 
 echo "[Docker] Surgically cycling application tier to consume updated artifacts & secrets..."
-# Force recreate backend and proxy to pick up fresh .env variables, without touching DB/Network
-docker compose up -d --force-recreate --no-deps backend nginx
+# Force recreate backend, proxy, sidecars, and deception tokens to bind them securely to fresh replicas
+docker compose up -d --force-recreate --no-deps backend nginx envoy-sidecar aegis-canary-server
 
 echo "[System] Stabilizing application layer (Waiting 10s)..."
 sleep 10

@@ -32,6 +32,11 @@ package com.treishvaam.financeapi.security.aegis;
  * AegisEdgeValidationFilter. • Enforces HMAC-SHA-512 edge signature validation and 300s TTL. •
  * Added internal network and actuator bypass logic. • Date/Phase: 2026-05-24 / Phase 6 (Zero-Trust
  * Loop Closure)
+ *
+ * <p>- EDITED: • Updated extractClientIp() to prioritize CF-Connecting-IP over X-Real-IP. • Why:
+ * The Cloudflare Edge Worker generates the HMAC-SHA-512 signature using CF-Connecting-IP. Nginx/Lua
+ * X-Real-IP extraction introduces IPv6 formatting drift, breaking the constant-time mathematical
+ * verification and causing a flood of 403 Forbidden errors.
  */
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -167,6 +172,13 @@ public class AegisEdgeValidationFilter extends OncePerRequestFilter {
     }
 
     private String extractClientIp(HttpServletRequest request) {
+        // AI-CONTEXT: Prioritize CF-Connecting-IP to perfectly match the Edge Worker's HMAC
+        // signature seed.
+        String cfConnectingIp = request.getHeader("CF-Connecting-IP");
+        if (cfConnectingIp != null && !cfConnectingIp.isEmpty()) {
+            return cfConnectingIp;
+        }
+
         // Must match OpenResty $real_client_ip logic from Phase 1
         String xRealIp = request.getHeader("X-Real-IP");
         if (xRealIp != null && !xRealIp.isEmpty()) {

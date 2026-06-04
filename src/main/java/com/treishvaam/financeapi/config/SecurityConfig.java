@@ -78,6 +78,12 @@
  * requires the target class to already exist in the registry. Chaining them bottom-up against
  * `UsernamePasswordAuthenticationFilter` correctly maps the dependency tree.
  *
+ * <p>- EDITED: • Expanded all public `.requestMatchers()` that use wildcards (`/**`) to explicitly
+ * declare their exact root paths (e.g., `/api/v1/posts`, `/api/v1/categories`). • Why: Spring Boot
+ * 3 / Spring Security 6 strict path matching natively rejects trailing-slash mismatches. The
+ * Next.js SSR fetch cycle was requesting exact root paths, triggering 401 Unauthorized errors which
+ * cascaded into 500 Internal Server Errors on the frontend.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -182,6 +188,7 @@ public class SecurityConfig {
                                         // 1. System, Health & Monitoring (Public)
                                         .requestMatchers(
                                                 "/actuator/health",
+                                                "/api/v1/health",
                                                 "/api/v1/health/**",
                                                 "/api/v1/monitoring/ingest")
                                         .permitAll()
@@ -193,24 +200,32 @@ public class SecurityConfig {
                                         // 2. Static Assets, SEO & GEO (Public)
                                         .requestMatchers(
                                                 HttpMethod.GET,
+                                                "/api/v1/uploads",
                                                 "/api/v1/uploads/**",
                                                 "/sitemap.xml",
                                                 "/sitemap-news.xml",
                                                 "/feed.xml",
+                                                "/sitemaps",
                                                 "/sitemaps/**",
                                                 "/favicon.ico",
                                                 "/llms.txt",
                                                 "/ai-feed.md",
+                                                "/api/public",
                                                 "/api/public/**") // Includes GEO endpoints
                                         .permitAll()
 
                                         // 3. Public API Read Access
                                         .requestMatchers(
                                                 HttpMethod.GET,
+                                                "/api/v1/posts",
                                                 "/api/v1/posts/**",
+                                                "/api/v1/categories",
                                                 "/api/v1/categories/**",
+                                                "/api/v1/market",
                                                 "/api/v1/market/**",
+                                                "/api/v1/news",
                                                 "/api/v1/news/**",
+                                                "/api/v1/search",
                                                 "/api/v1/search/**",
                                                 "/api/v1/logo")
                                         .permitAll()
@@ -221,13 +236,14 @@ public class SecurityConfig {
                                         .permitAll()
 
                                         // 5. Contact Form (Public Write)
-                                        .requestMatchers("/api/v1/contact/**")
+                                        .requestMatchers("/api/v1/contact", "/api/v1/contact/**")
                                         .permitAll()
 
                                         // PHASE 5: Allow Public Analytics & AEGIS Telemetry Beacons
                                         // (POST ONLY)
                                         .requestMatchers(
                                                 HttpMethod.POST,
+                                                "/api/v1/analytics",
                                                 "/api/v1/analytics/**",
                                                 "/api/v1/aegis/telemetry")
                                         .permitAll()
