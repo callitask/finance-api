@@ -79,6 +79,16 @@
 #   - EDITED (State-Safe Deadlock Breaker):
 #     • Wrapped the `docker rm -f` deadlock breaker in a loop with `|| true`.
 #     • Reason: Passing a bulk list of containers where one was a phantom/transient ID caused Docker to throw "No such container" and abort the entire deployment pipeline midway.
+#   - EDITED (Compose-Native State Healing & Ghost Container Fix):
+#     • Replaced the brute-force `docker ps` and `docker rm -f` deadlock breaker with a compose-native `docker compose rm -f -s -v || true`.
+#     • Replaced the step 1 `docker rm -f` with a safe `docker container prune -f`.
+#     • Why: The brute-force loop corrupted the internal compose state tree by removing containers out of band, causing ghost container errors (e.g., Elasticsearch missing) that silently blocked rebuilds.
+#
+#   - STRATEGIC PIVOTS & FAILED ATTEMPTS (CRITICAL FOR FUTURE AI):
+#     • Strategy Attempted: Iterating over `CRASHED_CONTAINERS` via `docker rm -f` to break dependency deadlocks.
+#     • Failure Mode: Corrupted docker-compose state, leaving "No such container" ghosts that prevented `docker compose up` from reconstructing missing core services like Elasticsearch.
+#     • Date/Phase: 2026-06-04
+#     • Future AI Warning: NEVER use `docker rm -f` to manage compose-managed containers. Always use `docker compose rm` or `docker container prune` to preserve the state tree.
 # ==============================================================================
 
 # ==============================================================================
@@ -165,8 +175,8 @@ echo "  > OS shell overrides neutralised."
 
 sudo -n chown $(id -u):$(id -g) .env 2>/dev/null || true
 
-echo "[Docker] Cleaning up dead containers..."
-docker rm -f $(docker ps -f "status=dead" -q) 2>/dev/null || true
+echo "[Docker] Cleaning up dead containers safely..."
+docker container prune -f 2>/dev/null || true
 
 # --- 2. MEMORY RECOVERY, SWAP & DNS HEALING ---
 echo "[System] Executing Aggressive OS Memory Recovery..."
@@ -198,17 +208,9 @@ export GOMAXPROCS=1
 export DOCKER_BUILDKIT=1
 
 # --- 3. SMART EFFICIENT GLOBAL REBUILD ---
-echo "[Docker] Executing State-Safe Deadlock Breaker..."
-CRASHED_CONTAINERS=$(docker ps -q -f "status=restarting" -f "status=dead" -f "status=exited" -f "status=created")
-if [ ! -z "$CRASHED_CONTAINERS" ]; then
-    echo "  > Safely clearing crashed containers to release dependency lock..."
-    # Iterating ensures that if one container throws "No such container", the script does not abort.
-    for container in $CRASHED_CONTAINERS; do
-        docker rm -f "$container" 2>/dev/null || true
-    done
-else
-    echo "  > No crashed dependencies found. Proceeding cleanly."
-fi
+echo "[Docker] Executing Compose-Native State Healing..."
+# Force compose to resolve and purge corrupted ghost state safely
+docker compose rm -f -s -v || true
 
 echo "[Docker] Applying state-driven idempotency (Infrastructure)..."
 docker compose up -d --build --remove-orphans
