@@ -44,6 +44,13 @@ package com.treishvaam.financeapi.security.aegis;
  * Cloudflare's core network enforces spoofing protection and overwrites CF-Connecting-IP on
  * outbound fetches from the Worker, causing IPv6 network drift and false 403s. The custom header
  * creates an immutable bridge.
+ *
+ * <p>- EDITED (Cryptographic Delimiter Bug Fix): • Changed payloadToSign reconstruction to include
+ * colon ":" delimiters. • Why: The Cloudflare Worker seals the HMAC payload using colons
+ * `path:timestamp:ip`. The backend was concatenating them directly `pathtimestampip`, meaning the
+ * cryptographic math would permanently fail. Adding the colons perfectly aligns the verification
+ * string with the Edge signature, resolving the 403 Forbidden loop and stopping the AEGIS Deception
+ * Engine from falsely trapping legitimate traffic.
  */
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -130,7 +137,10 @@ public class AegisEdgeValidationFilter extends OncePerRequestFilter {
         // 4. Reconstruct and Validate HMAC-SHA-512 Signature
         String clientIp = extractClientIp(request);
         String uri = request.getRequestURI();
-        String payloadToSign = uri + providedTimestamp + clientIp;
+
+        // CRITICAL FIX: Include colon delimiters to perfectly match the Cloudflare Worker's
+        // signature payload format
+        String payloadToSign = uri + ":" + providedTimestamp + ":" + clientIp;
 
         if (!isSignatureValid(payloadToSign, providedSignature)) {
             logger.error("AEGIS BLOCK: Cryptographic Signature Mismatch from IP: {}", clientIp);
