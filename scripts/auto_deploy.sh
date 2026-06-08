@@ -37,6 +37,10 @@
 #   - EDITED (Canary Deception Restoration & Enterprise Domain Isolation):
 #     • Restored `aegis-canary-server` to the surgical application update target.
 #     • The container no longer crashes because the underlying Redis namespace conflict was resolved natively in compose.
+#
+#   - EDITED (Compose Namespace Collision Breaker):
+#     • Added a precise detection block before infrastructure convergence to check if `treishvaam-redis` is cryptographically bound to the legacy `redis` service label.
+#     • Surgically removes the ghost container if detected, breaking the `Conflict` error during `docker compose up` while preserving persistent data mapped to `./data/redis`.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -116,6 +120,14 @@ export DOCKER_BUILDKIT=1
 echo "[Docker] Executing Non-Disruptive State Healing..."
 # Remove dead/exited containers natively WITHOUT stopping running ones (preserves SSH network bridge)
 docker compose rm -f -v || true
+
+# [NEW] Precise Collision Detection
+echo "[Docker] Executing service namespace collision breaker..."
+REDIS_SERVICE=$(docker inspect treishvaam-redis --format '{{ index .Config.Labels "com.docker.compose.service" }}' 2>/dev/null || echo "none")
+if [ "$REDIS_SERVICE" = "redis" ]; then
+    echo "  > Legacy service binding detected on treishvaam-redis. Surgically removing ghost container to unblock migration..."
+    docker rm -f treishvaam-redis 2>/dev/null || true
+fi
 
 echo "[Docker] Applying state-driven idempotency (Infrastructure)..."
 # Brings up missing containers (e.g. Elasticsearch, the new canary Redis) but ignores healthy ones
