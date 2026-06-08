@@ -34,9 +34,9 @@
 #     • Added `envoy-sidecar` and `aegis-canary-server` to the surgical application deployment command (`docker compose up -d --force-recreate --no-deps backend nginx envoy-sidecar aegis-canary-server`).
 #     • Why: Envoy depends on the backend replicas. By forcefully recreating it alongside the backend, we ensure it correctly discovers the new replica IP addresses and remains permanently live, rather than dropping out of the process tree.
 #
-#   - EDITED (Deployment Target Alignment):
-#     • Removed deprecated `aegis-canary-server` from the `docker compose up` command.
-#     • Why: The standalone container was removed from `docker-compose.yml` during the native L4-ADA Canary Service integration. Calling a missing service caused Engine B to abort the deployment entirely.
+#   - EDITED (Canary Deception Restoration & Enterprise Domain Isolation):
+#     • Restored `aegis-canary-server` to the surgical application update target.
+#     • The container no longer crashes because the underlying Redis namespace conflict was resolved natively in compose.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -118,12 +118,12 @@ echo "[Docker] Executing Non-Disruptive State Healing..."
 docker compose rm -f -v || true
 
 echo "[Docker] Applying state-driven idempotency (Infrastructure)..."
-# Brings up missing containers (e.g. Elasticsearch) but ignores healthy ones (MariaDB, Redis)
+# Brings up missing containers (e.g. Elasticsearch, the new canary Redis) but ignores healthy ones
 docker compose up -d --build --remove-orphans
 
 echo "[Docker] Surgically cycling application tier to consume updated artifacts & secrets..."
-# Force recreate backend, proxy, and sidecars to bind them securely to fresh replicas (deception is now handled natively)
-docker compose up -d --force-recreate --no-deps backend nginx envoy-sidecar
+# Force recreate backend, proxy, sidecars, and canary server securely to fresh replicas
+docker compose up -d --force-recreate --no-deps backend nginx envoy-sidecar aegis-canary-server
 
 echo "[System] Stabilizing application layer (Waiting 10s)..."
 sleep 10

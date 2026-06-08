@@ -8,7 +8,7 @@
 #  * - Manages internal networking, service discovery, and container lifecycles.
 #  *
 #  * Critical Dependencies:
-#  * - Backend: relies on treishvaam-db, redis, elasticsearch, rabbitmq, keycloak, and permission-fixer.
+#  * - Backend: relies on treishvaam-db, treishvaam-redis, elasticsearch, rabbitmq, keycloak, and permission-fixer.
 #  * - RabbitMQ: Must be healthy (not just started) for backend to boot successfully.
 #  *
 #  * Security Constraints:
@@ -22,8 +22,10 @@
 #  * - EDITED (Zero-Trust Edge Secret Injection):
 #  * • Added `- AEGIS_EDGE_SECRET=${AEGIS_EDGE_SECRET}` to the backend service environment variables.
 #  *
-#  * - EDITED (CanaryTokens Stability Fix):
-#  * • Removed `aegis-canary-server`. Thinkst permanently disabled standalone container execution. L4-ADA fake tokens are handled natively in memory by `CanaryTokenService` instead.
+#  * - EDITED (Enterprise Canary Domain Isolation):
+#  * • Renamed the main application Redis service from `redis` to `treishvaam-redis`.
+#  * • Provisioned a dedicated, isolated `redis` service specifically for `aegis-canary-server` to satisfy upstream hardcoded unauthenticated dependencies without compromising main DB security.
+#  * • Restored `aegis-canary-server` to active status.
 #  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
@@ -128,7 +130,7 @@ services:
       keycloak-db:
         condition: service_healthy
 
-  redis:
+  treishvaam-redis:
     image: redis:7-alpine
     container_name: treishvaam-redis
     restart: always
@@ -177,6 +179,36 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: aegis-canary-redis
+    restart: always
+    networks:
+      - treish_net
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  aegis-canary-server:
+    image: thinkst/canarytokens:latest
+    container_name: aegis-canary-server
+    restart: always
+    networks:
+      - treish_net
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    depends_on:
+      redis:
+        condition: service_healthy
 
   minio:
     image: minio/minio
@@ -332,9 +364,9 @@ services:
       - CLOUDFLARE_THREAT_KV_NAMESPACE_ID=${CLOUDFLARE_THREAT_KV_NAMESPACE_ID}
       - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
       - SPRING_PROFILES_ACTIVE=prod
-      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_HOST=treishvaam-redis
       - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
-      - SPRING_REDIS_HOST=redis
+      - SPRING_REDIS_HOST=treishvaam-redis
       - SPRING_REDIS_PASSWORD=${REDIS_PASSWORD}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - SPRING_ELASTICSEARCH_URIS=http://elasticsearch:9200
@@ -376,7 +408,7 @@ services:
     depends_on:
       treishvaam-db:
         condition: service_healthy
-      redis:
+      treishvaam-redis:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
