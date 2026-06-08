@@ -36,6 +36,9 @@
 #  * • Replaced `curl -f` with `wget --quiet --tries=1 --spider` for the `nginx` container healthcheck.
 #  * • Why: The OpenResty Alpine image does not include the `curl` binary natively, causing the container to permanently read as unhealthy despite functioning perfectly.
 #  *
+#  * - EDITED (CanaryTokens Stability Fix):
+#  * • Pinned the `aegis-canary-server` image to `thinkst/canarytokens:v2023.1.2` to resolve the standalone container crash loop caused by upstream dropping standalone support.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -286,7 +289,7 @@ services:
       retries: 5
 
   aegis-canary-server:
-    image: thinkst/canarytokens:latest
+    image: thinkst/canarytokens:v2023.1.2
     container_name: aegis-canary-server
     restart: always
     networks:

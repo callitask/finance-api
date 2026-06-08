@@ -22,6 +22,11 @@
  * bypassed the standard web `TenantInterceptor`. Enforcing the tenant context prevents the fatal
  * exception, while the `try-catch` ensures any seeding failure does not bring down the entire JVM.
  *
+ * <p>- EDITED (Unique Constraint Suppression): • Added an inner try-catch for
+ * `DataIntegrityViolationException` when saving the admin user. • Why: If the admin email changes
+ * in the `.env` but the username 'admin' already exists in the DB, it threw a noisy stack trace on
+ * every boot. It now skips gracefully.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -39,6 +44,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.context.annotation.Profile;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
@@ -85,22 +91,32 @@ public class DataInitializer implements CommandLineRunner {
             }
 
             if (userRepository.findByEmail(adminEmail).isEmpty()) {
-                User adminUser =
-                        new User(adminUsername, adminEmail, passwordEncoder.encode(adminPassword));
+                try {
+                    User adminUser =
+                            new User(
+                                    adminUsername,
+                                    adminEmail,
+                                    passwordEncoder.encode(adminPassword));
 
-                Set<Role> roles = new HashSet<>();
-                Role adminRole =
-                        roleRepository
-                                .findByName(ERole.ROLE_ADMIN)
-                                .orElseThrow(
-                                        () ->
-                                                new RuntimeException(
-                                                        "Error: Admin role is not found."));
-                roles.add(adminRole);
+                    Set<Role> roles = new HashSet<>();
+                    Role adminRole =
+                            roleRepository
+                                    .findByName(ERole.ROLE_ADMIN)
+                                    .orElseThrow(
+                                            () ->
+                                                    new RuntimeException(
+                                                            "Error: Admin role is not found."));
+                    roles.add(adminRole);
 
-                adminUser.setRoles(roles);
-                userRepository.save(adminUser);
-                System.out.println("Admin user created successfully with ADMIN role!");
+                    adminUser.setRoles(roles);
+                    userRepository.save(adminUser);
+                    System.out.println("Admin user created successfully with ADMIN role!");
+                } catch (DataIntegrityViolationException e) {
+                    System.out.println(
+                            "Admin user '"
+                                    + adminUsername
+                                    + "' already exists (username constraint). Skipping seeding.");
+                }
             }
         } catch (Exception e) {
             System.err.println("DataInitializer seeding failed: " + e.getMessage());
