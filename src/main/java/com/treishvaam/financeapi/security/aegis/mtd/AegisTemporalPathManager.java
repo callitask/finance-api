@@ -8,7 +8,8 @@
  * (e.g., /api/v1/data-node/7f3a). - Exposes resolution methods for Nginx/Cloudflare workers.
  *
  * <p>Critical Dependencies: - AegisEntropyManager (for generating truly random temporal suffixes).
- * - AegisPqcJwtService (for signing the manifest JSON before distributing to CF Workers).
+ * - AegisPqcJwtService (for signing the manifest JSON before distributing to CF Workers). -
+ * CloudflareEdgeSyncService (for actively pushing manifest state to Edge KV).
  *
  * <p>Security Constraints: - SEO-critical routes (/sitemap.xml, /blog/*, /market/*) MUST be
  * explicitly excluded from temporal rotation to preserve search engine integrity.
@@ -21,7 +22,11 @@
  * push mechanism directly in this class's `rotateManifest()` method.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Core map generation logic. • SEO
- * exclusion lists. • Phase 1/2 Orchestration Batch.
+ * exclusion lists. • Phase 1/2 Orchestration Batch. - EDITED (MTD Sync & Prefix Fix): • ADDED
+ * `cloudflareEdgeSyncService.pushManifestToCloudflareKv(rawJson)` to `rotateManifest()` to close
+ * the Airgap and actively sync state to the Edge worker. • FIXED `resolveCanonicalPath()` to use
+ * `.startsWith()` and `.replaceFirst()` instead of exact string matching, resolving the post-login
+ * infinite deception loop.
  */
 package com.treishvaam.financeapi.security.aegis.mtd;
 
@@ -60,6 +65,7 @@ public class AegisTemporalPathManager {
 
     private final AegisEntropyManager entropyManager;
     private final AegisPqcJwtService pqcJwtService;
+    private final CloudflareEdgeSyncService cloudflareEdgeSyncService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Map: Canonical -> Temporal
@@ -70,9 +76,12 @@ public class AegisTemporalPathManager {
     private String signedManifestJson = "";
 
     public AegisTemporalPathManager(
-            AegisEntropyManager entropyManager, AegisPqcJwtService pqcJwtService) {
+            AegisEntropyManager entropyManager,
+            AegisPqcJwtService pqcJwtService,
+            CloudflareEdgeSyncService cloudflareEdgeSyncService) {
         this.entropyManager = entropyManager;
         this.pqcJwtService = pqcJwtService;
+        this.cloudflareEdgeSyncService = cloudflareEdgeSyncService;
     }
 
     @PostConstruct
@@ -102,6 +111,9 @@ public class AegisTemporalPathManager {
             // Envelope it in a PQC signature to prevent Man-in-the-Middle manifest poisoning
             this.signedManifestJson = pqcJwtService.issueHybridToken(rawJson, "SYSTEM", "MANIFEST");
 
+            // Push actively to Cloudflare Edge KV
+            cloudflareEdgeSyncService.pushManifestToCloudflareKv(rawJson);
+
             log.info("AEGIS L2-PPO: Manifest rotation complete. Secured with ML-DSA-87.");
         } catch (Exception e) {
             log.error("AEGIS L2-PPO: Failed to build signed manifest!", e);
@@ -116,9 +128,13 @@ public class AegisTemporalPathManager {
             }
         }
 
-        // If it's a temporal path, resolve to canonical
-        if (reverseLookup.containsKey(requestUri)) {
-            return reverseLookup.get(requestUri);
+        // If it's a temporal path, resolve to canonical using prefix matching
+        for (Map.Entry<String, String> entry : reverseLookup.entrySet()) {
+            String temporalPrefix = entry.getKey();
+            String canonicalTarget = entry.getValue();
+            if (requestUri.startsWith(temporalPrefix)) {
+                return requestUri.replaceFirst(temporalPrefix, canonicalTarget);
+            }
         }
 
         // If it's trying to access a canonical path directly when it should be obfuscated

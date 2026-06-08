@@ -32,7 +32,8 @@ import org.springframework.stereotype.Service;
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED (AEGIS Phase 4): • Initial creation of
  * Cloudflare KV Sync. • Implemented in-memory `localBlockCache` to deduplicate API writes and
  * protect Free Tier billing quotas. • Configured Java 21 Virtual Threads for non-blocking outbound
- * HTTP requests.
+ * HTTP requests. - EDITED (MTD Sync Addition): • Added `pushManifestToCloudflareKv` to distribute
+ * the daily MTD manifest json directly to the Edge.
  */
 @Service
 public class CloudflareEdgeSyncService {
@@ -84,6 +85,52 @@ public class CloudflareEdgeSyncService {
                 pushToCloudflareKv("aegis:block:ja3:" + ja3, reason);
                 localBlockCache.put("ja3:" + ja3, now.plusSeconds(BLOCK_DURATION_SECONDS));
             }
+        }
+    }
+
+    public void pushManifestToCloudflareKv(String manifestJson) {
+        if (apiToken == null || apiToken.isBlank()) {
+            logger.warn("Cloudflare API Token not configured. Manifest sync skipped.");
+            return;
+        }
+
+        try {
+            String url =
+                    String.format(
+                            "https://api.cloudflare.com/client/v4/accounts/%s/storage/kv/namespaces/%s/values/aegis:mtd:manifest",
+                            accountId, namespaceId);
+
+            HttpRequest request =
+                    HttpRequest.newBuilder()
+                            .uri(URI.create(url))
+                            .timeout(Duration.ofSeconds(10))
+                            .header("Authorization", "Bearer " + apiToken)
+                            .header("Content-Type", "application/json")
+                            .PUT(HttpRequest.BodyPublishers.ofString(manifestJson))
+                            .build();
+
+            httpClient
+                    .sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(
+                            response -> {
+                                if (response.statusCode() == 200) {
+                                    logger.info(
+                                            "AEGIS Edge Sync: Successfully pushed MTD Manifest to Cloudflare KV");
+                                } else {
+                                    logger.error(
+                                            "AEGIS Edge Sync Manifest Push Failed: HTTP {} - {}",
+                                            response.statusCode(),
+                                            response.body());
+                                }
+                            })
+                    .exceptionally(
+                            ex -> {
+                                logger.error("AEGIS Edge Sync Exception for manifest", ex);
+                                return null;
+                            });
+
+        } catch (Exception e) {
+            logger.error("Failed to construct Cloudflare KV manifest push request", e);
         }
     }
 
