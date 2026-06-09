@@ -30,8 +30,10 @@
 #  * - EDITED (Canary Server Restoration Completion):
 #  * • Injected the missing mandatory validation environment variables (`CANARY_DOMAINS`, `CANARY_PUBLIC_DOMAIN`, `CANARY_NXDOMAINS`) to `aegis-canary-server` to bypass the default image's dummy text crash loop.
 #  *
-#  * - EDITED (Canary Server OCI Crash Resolution):
-#  * • Removed `command: twistd -ny frontend.tac` from `aegis-canary-server`. The official image utilizes a hidden native entrypoint script; overriding the command caused a fatal OCI runtime abort during deployment, which dropped Nginx and Envoy from the cycle. We now rely strictly on the native entrypoint + env vars.
+#  * - EDITED (Canary Server Image Correction & OCI Fix):
+#  * • Replaced dummy warning image `thinkst/canarytokens:latest` with the functional application image `thinkst/canarytokens-frontend:latest`.
+#  * • The dummy image lacked the `twistd` binary, causing fatal OCI runtime errors during deployment when the command was specified, which aborted the entire Compose pipeline and dropped Nginx/Envoy.
+#  * • We now use the correct frontend image and rely on its native entrypoint + injected environment variables for safe L4-ADA deception booting.
 #  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
@@ -203,7 +205,7 @@ services:
       retries: 5
 
   aegis-canary-server:
-    image: thinkst/canarytokens:latest
+    image: thinkst/canarytokens-frontend:latest
     container_name: aegis-canary-server
     restart: always
     networks:
