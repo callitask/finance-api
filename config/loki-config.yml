@@ -1,3 +1,18 @@
+# /**
+#  * AI-CONTEXT:
+#  *
+#  * Purpose:
+#  * - Core configuration for Grafana Loki (Log Aggregation System).
+#  *
+#  * Scope:
+#  * - Defines storage drivers, retention, and ingestion limits for all container logs.
+#  *
+#  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+#  * - EDITED (Enterprise Ingestion Limits):
+#  * • Added `limits_config` block with `ingestion_rate_mb: 50` and `ingestion_burst_size_mb: 100`.
+#  * • Reason: Loki's default limits (4MB/s) were rejecting logs with `429 Too Many Requests` during rapid infrastructure reboots when Promtail attempted to upload the historical backlog all at once.
+#  */
+
 auth_enabled: false
 server:
   http_listen_port: 3100
@@ -22,3 +37,7 @@ schema_config:
         period: 24h
 ruler:
   alertmanager_url: http://localhost:9093
+
+limits_config:
+  ingestion_rate_mb: 50
+  ingestion_burst_size_mb: 100
