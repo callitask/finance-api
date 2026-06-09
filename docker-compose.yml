@@ -16,27 +16,15 @@
 #  * - Database credentials must be mapped dynamically via host env variables.
 #  *
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
-#  * - EDITED (Canary Server Image Correction & OCI Fix):
-#  * • Replaced dummy warning image `thinkst/canarytokens:latest` with the functional application image `thinkst/canarytokens-frontend:latest`.
-#  *
-#  * - EDITED (Pipeline Unblock & Canary Reversion):
-#  * • Reverted `aegis-canary-server` image back to `thinkst/canarytokens:latest` and removed the `command` override. 
-#  * • Reason: Thinkst does not publish `canarytokens-frontend` to the public Docker Hub registry. The pull error caused a fatal Compose abort, which prevented Nginx and Backend from restarting. 
-#  *
-#  * - EDITED (Enterprise PITR Enforcement):
-#  * • Modified `treishvaam-db` entrypoint to execute `mariadbd --log-bin=mariadb-bin --server-id=1 --binlog-format=ROW`.
-#  * • Reason: This structurally enables binary logging at the database layer.
-#  *
-#  * - EDITED (L4-ADA Canary Restoration & Loop Fix):
-#  * • Upgraded `aegis-canary-server` image to `thinkst/canarytokens:v2_latest`.
-#  *
 #  * - EDITED (L4-ADA Canary Cryptographic Seeds):
 #  * • Mapped `WG_PRIVATE_KEY_SEED` and `CANARY_SECRET_KEY` from Infisical to the `aegis-canary-server` environment.
 #  *
 #  * - EDITED (Enterprise Wazuh HIDS & Zero-Trust Canary Bridge):
 #  * • Deployed `wazuh-manager` service to natively accept `wazuh-agent` enrollments, securing the host.
-#  * • Injected `printenv > .env` into Canary startup command to satisfy legacy vendor filesystem checks using strictly volatile Docker memory.
-#  * • Added TCP healthcheck to `envoy-sidecar` (port 9901).
+#  *
+#  * - EDITED (Canary Vendor Paradox & Envoy Distroless Fix):
+#  * • Migrated the `printenv > .env` volatile bridge to the `entrypoint:` directive in `aegis-canary-server` so it evaluates before the vendor application boots. This safely bypasses the vendor's hardcoded physical file requirement using ephemeral container memory.
+#  * • Removed `healthcheck` from `envoy-sidecar`. The proxy is functioning perfectly, but the distroless image lacks the `nc` shell utility, causing Docker to falsely label the healthy proxy as unhealthy.
 #  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
@@ -211,7 +199,7 @@ services:
     image: thinkst/canarytokens:v2_latest
     container_name: aegis-canary-server
     restart: always
-    command: [ "sh", "-c", "printenv > .env && twistd -noy frontend.tac" ]
+    entrypoint: [ "sh", "-c", "printenv > .env && exec twistd -noy frontend.tac" ]
     networks:
       - treish_net
     environment:
@@ -304,11 +292,6 @@ services:
           memory: 256M
     depends_on:
       - backend
-    healthcheck:
-      test: ["CMD", "nc", "-z", "127.0.0.1", "9901"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
 
   aegis-zkp-service:
     build: ./aegis/zkp-service

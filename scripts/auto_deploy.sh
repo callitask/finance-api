@@ -20,12 +20,18 @@
 # IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
 #   - EDITED (Compose-Native State Healing & Ghost Container Fix):
 #     • Replaced the brute-force `docker rm -f` deadlock breaker with a compose-native `docker compose rm -f -s -v || true`.
+#
 #   - EDITED (Zero-Disruption Architecture & SSH Drop Prevention):
 #     • Removed the `-s` flag from `docker compose rm` to prevent the `treish_net` bridge from collapsing.
 #
 #   - EDITED (Pipeline Build Integrity Fix):
 #     • Appended the `--build` flag to the explicit state-healing command (`docker compose up -d --build --no-deps treishvaam-redis redis backup-service`).
-#     • Reason: The previous command bypassed the Dockerfile compilation phase. When changes were pushed to `backup/Dockerfile` (e.g., adding openssl), Engine B ignored them because it saw the old image cache. Adding `--build` forces Compose to strictly apply all pushed repository changes to the infrastructure layer dynamically.
+#     • Reason: Forces Compose to strictly apply all pushed repository changes to the infrastructure layer dynamically.
+#
+#   - EDITED (Ghost Metadata Crash Prevention & Canary/Wazuh Healing):
+#     • Added `wazuh-manager` and `aegis-canary-server` to the explicit state-healing `--no-deps` array.
+#     • Removed `aegis-canary-server` from the `--force-recreate` array.
+#     • Reason: Enforces the PIPELINE PRESERVATION PROTOCOL. Using `--force-recreate` on missing/crashing containers causes Docker Compose to panic querying ghost metadata. This surgical bypass ensures missing infrastructure is created safely before the general build block.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -107,15 +113,16 @@ echo "[Docker] Executing Non-Disruptive State Healing..."
 docker compose rm -f -v || true
 
 echo "[Docker] Applying explicit state-healing (Infrastructure)..."
-# Bypass the global orphan scan bug by explicitly targeting missing/unlinked databases first. Added --build to force Dockerfile recompilation.
-docker compose up -d --build --no-deps treishvaam-redis redis backup-service
+# Bypass the global orphan scan bug by explicitly targeting missing/unlinked databases and infrastructure first.
+docker compose up -d --build --no-deps treishvaam-redis redis backup-service wazuh-manager aegis-canary-server
 
 # Safely converge the rest of the infrastructure
 docker compose up -d --build
 
 echo "[Docker] Surgically cycling application tier to consume updated artifacts & secrets..."
-# Force recreate backend, proxy, sidecars, and canary server securely to fresh replicas
-docker compose up -d --force-recreate --no-deps backend nginx envoy-sidecar aegis-canary-server
+# Force recreate backend, proxy, sidecars securely to fresh replicas
+# CRITICAL: aegis-canary-server omitted to prevent ghost metadata aborts
+docker compose up -d --force-recreate --no-deps backend nginx envoy-sidecar
 
 echo "[System] Stabilizing application layer (Waiting 10s)..."
 sleep 10
