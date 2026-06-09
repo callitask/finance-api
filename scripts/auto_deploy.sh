@@ -29,6 +29,9 @@
 #     • Strategy Attempted: `docker compose rm -f -s -v` to clear deadlocked ghost containers.
 #     • Failure Mode: The `-s` flag halted all healthy containers (DB, Redis), collapsing the Docker bridge network and flushing iptables, severing the remote engineer's SSH connection mid-deployment.
 #     • Future AI Warning: NEVER shut down the entire container stack natively or via Compose. Always enforce surgical, non-disruptive rolling updates (`--no-deps backend nginx`).
+#     • Strategy Attempted: `docker compose up -d --force-recreate` on deleted/missing infrastructure (Redis).
+#     • Failure Mode: The `--force-recreate` flag forces Compose to query the Docker daemon for the exact old container ID. Because the old container was natively deleted, the daemon responds "No such container: <ID>", instantly causing Compose to panic and abort the entire deployment script.
+#     • Future AI Warning: NEVER use `--force-recreate` when healing missing or deleted infrastructure components. Use standard `up -d` to allow Compose to cleanly build missing components without searching for dead metadata.
 #
 #   - EDITED (Envoy Sidecar Orchestration):
 #     • Added `envoy-sidecar` and `aegis-canary-server` to the surgical application deployment command (`docker compose up -d --force-recreate --no-deps backend nginx envoy-sidecar aegis-canary-server`).
@@ -42,6 +45,7 @@
 #     • Removed the temporary namespace collision breaker.
 #     • Replaced the global `--remove-orphans` parameter (which suffered fatal crashes due to dangling Compose metadata caches) with explicit, targeted infrastructure rebuilds (`treishvaam-redis redis treishvaam-backup`).
 #     • This bypasses the buggy metadata scan entirely and ensures databases are always definitively attached to the network before application boot.
+#     • Removed `--force-recreate` from the targeted DB rebuild phase to prevent Compose caching crashes.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -124,7 +128,8 @@ docker compose rm -f -v || true
 
 echo "[Docker] Applying explicit state-healing (Infrastructure)..."
 # Bypass the global orphan scan bug by explicitly targeting missing/unlinked databases first
-docker compose up -d --force-recreate --no-deps treishvaam-redis redis treishvaam-backup
+# [FIX] Do NOT use --force-recreate here to prevent fatal metadata lookup crashes
+docker compose up -d --no-deps treishvaam-redis redis treishvaam-backup
 
 # Safely converge the rest of the infrastructure
 docker compose up -d --build
