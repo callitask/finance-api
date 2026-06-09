@@ -26,6 +26,9 @@
 #  * • Migrated the `printenv > .env` volatile bridge to the `entrypoint:` directive in `aegis-canary-server` so it evaluates before the vendor application boots. This safely bypasses the vendor's hardcoded physical file requirement using ephemeral container memory.
 #  * • Removed `healthcheck` from `envoy-sidecar`. The proxy is functioning perfectly, but the distroless image lacks the `nc` shell utility, causing Docker to falsely label the healthy proxy as unhealthy.
 #  *
+#  * - EDITED (Canary Hidden File Globbing Resolution):
+#  * • Changed the volatile memory bridge from `printenv > .env` to `printenv > frontend.env` in `aegis-canary-server`. The vendor's Python parser strictly uses `*.env` globbing, which natively ignores hidden Linux files. Providing an explicit visible filename guarantees the keys are read.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -199,7 +202,7 @@ services:
     image: thinkst/canarytokens:v2_latest
     container_name: aegis-canary-server
     restart: always
-    entrypoint: [ "sh", "-c", "printenv > .env && exec twistd -noy frontend.tac" ]
+    entrypoint: [ "sh", "-c", "printenv > frontend.env && exec twistd -noy frontend.tac" ]
     networks:
       - treish_net
     environment:
