@@ -22,6 +22,10 @@
 #  * - EDITED (Phase 6 - True PITR Enforcement):
 #  * • Restored `--master-data=2` to `mysqldump` command.
 #  * • Reason: True disaster recovery requires Point-In-Time-Recovery. The previous workaround bypassed the binlog crash by removing this flag, which compromised enterprise recovery standards. We have now structurally enabled binary logging in the MariaDB entrypoint within `docker-compose.yml`, safely supporting this requirement.
+#  *
+#  * - EDITED (Retention Rotation Fix):
+#  * • Replaced `date -d "-7 days"` with POSIX epoch arithmetic `$(($(date +%s) - RETENTION_DAYS * 86400))`.
+#  * • Reason: Alpine Linux intercepts GNU date syntax and routes it to Busybox's limited date utility, causing a fatal `invalid date` crash. POSIX math is immune to Alpine OS package variations.
 #  */
 
 DB_HOST="${DB_HOST:-treishvaam-db}"
@@ -91,7 +95,7 @@ while true; do
     aws --endpoint-url "$S3_ENDPOINT" s3 ls "s3://$S3_BUCKET/" | while read -r line; do
         createDate=`echo $line|awk {'print $1"\t"$2'}`
         createDate=`date -d"$createDate" +%s`
-        olderThan=`date -d"-$RETENTION_DAYS days" +%s`
+        olderThan=$(($(date +%s) - RETENTION_DAYS * 86400))
         if [[ $createDate -lt $olderThan ]]
         then
             fileName=`echo $line|awk {'print $4'}`

@@ -28,6 +28,10 @@
 #  * • Modified `treishvaam-db` entrypoint to execute `mariadbd --log-bin=mariadb-bin --server-id=1 --binlog-format=ROW`.
 #  * • Reason: This structurally enables binary logging at the database layer, allowing the backup service to perform true Point-In-Time-Recovery (PITR) without crashing.
 #  *
+#  * - EDITED (L4-ADA Canary Restoration & Loop Fix):
+#  * • Upgraded `aegis-canary-server` image to `thinkst/canarytokens:v2_latest` and injected the native application execution command `[ "twistd", "-noy", "frontend.tac" ]`.
+#  * • Reason: The previous `latest` tag was merely a dummy wrapper that instantly exited, causing the infinite Compose loop. `v2_latest` contains the functional application. Confirmed Canarytokens architecture relies exclusively on Redis, requiring no MariaDB instance.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -198,9 +202,10 @@ services:
       retries: 5
 
   aegis-canary-server:
-    image: thinkst/canarytokens:latest
+    image: thinkst/canarytokens:v2_latest
     container_name: aegis-canary-server
     restart: always
+    command: [ "twistd", "-noy", "frontend.tac" ]
     networks:
       - treish_net
     environment:
