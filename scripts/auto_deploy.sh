@@ -128,7 +128,6 @@ docker compose rm -f -v || true
 
 echo "[Docker] Applying explicit state-healing (Infrastructure)..."
 # Bypass the global orphan scan bug by explicitly targeting missing/unlinked databases first
-# [FIX] Do NOT use --force-recreate here to prevent fatal metadata lookup crashes
 docker compose up -d --no-deps treishvaam-redis redis treishvaam-backup
 
 # Safely converge the rest of the infrastructure
