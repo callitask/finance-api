@@ -27,6 +27,9 @@
 #  * • Provisioned a dedicated, isolated `redis` service specifically for `aegis-canary-server` to satisfy upstream hardcoded unauthenticated dependencies without compromising main DB security.
 #  * • Restored `aegis-canary-server` to active status.
 #  *
+#  * - EDITED (Canary Server Restoration Completion):
+#  * • Injected the missing application boot command (`twistd -ny frontend.tac`) and mandatory validation environment variables (`CANARY_DOMAINS`, `CANARY_PUBLIC_DOMAIN`, `CANARY_NXDOMAINS`) to `aegis-canary-server` to bypass the default image's dummy text crash loop.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -202,6 +205,11 @@ services:
     restart: always
     networks:
       - treish_net
+    command: twistd -ny frontend.tac
+    environment:
+      CANARY_DOMAINS: "canary.treishvaamgroup.com"
+      CANARY_PUBLIC_DOMAIN: "canary.treishvaamgroup.com"
+      CANARY_NXDOMAINS: "nx.treishvaamgroup.com"
     deploy:
       resources:
         limits:
