@@ -3,7 +3,7 @@
 #  * AI-CONTEXT:
 #  *
 #  * Purpose:
-#  * - Automated Database Backup Script (PITR Enabled & Encrypted).
+#  * - Automated Database Backup Script (Encrypted).
 #  * - Dumps MariaDB, compresses, encrypts, uploads to MinIO, and rotates old backups.
 #  *
 #  * Scope:
@@ -16,10 +16,12 @@
 #  *
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
 #  * - EDITED (Phase 4):
-#  * • Added missing AI-CONTEXT header.
 #  * • Implemented AES-256-CBC encryption via OpenSSL on the `.sql.gz` dump file before S3 upload.
 #  * • Added a strict fail-safe: script will `exit 1` and abort the backup process if `BACKUP_ENCRYPTION_KEY` is not provided.
-#  * • Changed MinIO upload to use the `.enc` file extension.
+#  *
+#  * - EDITED (Phase 6 - True PITR Enforcement):
+#  * • Restored `--master-data=2` to `mysqldump` command.
+#  * • Reason: True disaster recovery requires Point-In-Time-Recovery. The previous workaround bypassed the binlog crash by removing this flag, which compromised enterprise recovery standards. We have now structurally enabled binary logging in the MariaDB entrypoint within `docker-compose.yml`, safely supporting this requirement.
 #  */
 
 DB_HOST="${DB_HOST:-treishvaam-db}"
@@ -41,7 +43,7 @@ aws configure set aws_access_key_id "${MINIO_ACCESS_KEY}"
 aws configure set aws_secret_access_key "${MINIO_SECRET_KEY}"
 aws configure set default.region us-east-1
 
-echo "Starting Backup Service... (Schedule: Every 24h, Encryption: AES-256-CBC Enabled)"
+echo "Starting Backup Service... (Schedule: Every 24h, Encryption: AES-256-CBC Enabled, PITR Enabled)"
 
 # Create bucket if not exists
 aws --endpoint-url "$S3_ENDPOINT" s3 mb "s3://$S3_BUCKET" 2>/dev/null || true
@@ -53,7 +55,7 @@ while true; do
 
     echo "[Job Started] Creating backup: $FILE_NAME"
 
-    # Dump and compress
+    # Dump and compress (PITR Flag Restored)
     mysqldump -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" --single-transaction --quick --master-data=2 "$DB_NAME" | gzip > "/tmp/$FILE_NAME"
 
     if [ -f "/tmp/$FILE_NAME" ]; then

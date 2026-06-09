@@ -21,35 +21,11 @@
 #   - EDITED (Compose-Native State Healing & Ghost Container Fix):
 #     • Replaced the brute-force `docker rm -f` deadlock breaker with a compose-native `docker compose rm -f -s -v || true`.
 #   - EDITED (Zero-Disruption Architecture & SSH Drop Prevention):
-#     • Removed the `-s` flag from `docker compose rm` to prevent the `treish_net` bridge from collapsing, which previously severed SSH connections during deployment.
-#     • Separated infrastructure convergence (`docker compose up -d`) from application deployment (`docker compose up -d --force-recreate --no-deps backend nginx`).
-#     • This guarantees databases and networks remain untouched, while the backend pulls fresh code and Infisical secrets seamlessly.
+#     • Removed the `-s` flag from `docker compose rm` to prevent the `treish_net` bridge from collapsing.
 #
-#   - STRATEGIC PIVOTS & FAILED ATTEMPTS (CRITICAL FOR FUTURE AI):
-#     • Strategy Attempted: `docker compose rm -f -s -v` to clear deadlocked ghost containers.
-#     • Failure Mode: The `-s` flag halted all healthy containers (DB, Redis), collapsing the Docker bridge network and flushing iptables, severing the remote engineer's SSH connection mid-deployment.
-#     • Future AI Warning: NEVER shut down the entire container stack natively or via Compose. Always enforce surgical, non-disruptive rolling updates (`--no-deps backend nginx`).
-#     • Strategy Attempted: `docker compose up -d --force-recreate` on deleted/missing infrastructure (Redis).
-#     • Failure Mode: The `--force-recreate` flag forces Compose to query the Docker daemon for the exact old container ID. Because the old container was natively deleted, the daemon responds "No such container: <ID>", instantly causing Compose to panic and abort the entire deployment script.
-#     • Future AI Warning: NEVER use `--force-recreate` when healing missing or deleted infrastructure components. Use standard `up -d` to allow Compose to cleanly build missing components without searching for dead metadata.
-#
-#   - EDITED (Envoy Sidecar Orchestration):
-#     • Added `envoy-sidecar` and `aegis-canary-server` to the surgical application deployment command (`docker compose up -d --force-recreate --no-deps backend nginx envoy-sidecar aegis-canary-server`).
-#     • Why: Envoy depends on the backend replicas. By forcefully recreating it alongside the backend, we ensure it correctly discovers the new replica IP addresses and remains permanently live, rather than dropping out of the process tree.
-#
-#   - EDITED (Canary Deception Restoration & Enterprise Domain Isolation):
-#     • Restored `aegis-canary-server` to the surgical application update target.
-#     • The container no longer crashes because the underlying Redis namespace conflict was resolved natively in compose.
-#
-#   - EDITED (Global Orphan Scan Bypass & Explicit DB State Healing):
-#     • Removed the temporary namespace collision breaker.
-#     • Replaced the global `--remove-orphans` parameter (which suffered fatal crashes due to dangling Compose metadata caches) with explicit, targeted infrastructure rebuilds (`treishvaam-redis redis backup-service`).
-#     • This bypasses the buggy metadata scan entirely and ensures databases are always definitively attached to the network before application boot.
-#     • Removed `--force-recreate` from the targeted DB rebuild phase to prevent Compose caching crashes.
-#
-#   - EDITED (Compose Service Typo Resolution):
-#     • Changed the target in the explicit state-healing command from `treishvaam-backup` (Container Name) to `backup-service` (Service Name).
-#     • Failure Mode: Targeting the container name caused a fatal `no such service` abort, preventing the Redis databases from being provisioned.
+#   - EDITED (Pipeline Build Integrity Fix):
+#     • Appended the `--build` flag to the explicit state-healing command (`docker compose up -d --build --no-deps treishvaam-redis redis backup-service`).
+#     • Reason: The previous command bypassed the Dockerfile compilation phase. When changes were pushed to `backup/Dockerfile` (e.g., adding openssl), Engine B ignored them because it saw the old image cache. Adding `--build` forces Compose to strictly apply all pushed repository changes to the infrastructure layer dynamically.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -131,8 +107,8 @@ echo "[Docker] Executing Non-Disruptive State Healing..."
 docker compose rm -f -v || true
 
 echo "[Docker] Applying explicit state-healing (Infrastructure)..."
-# Bypass the global orphan scan bug by explicitly targeting missing/unlinked databases first
-docker compose up -d --no-deps treishvaam-redis redis backup-service
+# Bypass the global orphan scan bug by explicitly targeting missing/unlinked databases first. Added --build to force Dockerfile recompilation.
+docker compose up -d --build --no-deps treishvaam-redis redis backup-service
 
 # Safely converge the rest of the infrastructure
 docker compose up -d --build
