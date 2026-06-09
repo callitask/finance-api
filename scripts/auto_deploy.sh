@@ -43,9 +43,13 @@
 #
 #   - EDITED (Global Orphan Scan Bypass & Explicit DB State Healing):
 #     • Removed the temporary namespace collision breaker.
-#     • Replaced the global `--remove-orphans` parameter (which suffered fatal crashes due to dangling Compose metadata caches) with explicit, targeted infrastructure rebuilds (`treishvaam-redis redis treishvaam-backup`).
+#     • Replaced the global `--remove-orphans` parameter (which suffered fatal crashes due to dangling Compose metadata caches) with explicit, targeted infrastructure rebuilds (`treishvaam-redis redis backup-service`).
 #     • This bypasses the buggy metadata scan entirely and ensures databases are always definitively attached to the network before application boot.
 #     • Removed `--force-recreate` from the targeted DB rebuild phase to prevent Compose caching crashes.
+#
+#   - EDITED (Compose Service Typo Resolution):
+#     • Changed the target in the explicit state-healing command from `treishvaam-backup` (Container Name) to `backup-service` (Service Name).
+#     • Failure Mode: Targeting the container name caused a fatal `no such service` abort, preventing the Redis databases from being provisioned.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -128,7 +132,7 @@ docker compose rm -f -v || true
 
 echo "[Docker] Applying explicit state-healing (Infrastructure)..."
 # Bypass the global orphan scan bug by explicitly targeting missing/unlinked databases first
-docker compose up -d --no-deps treishvaam-redis redis treishvaam-backup
+docker compose up -d --no-deps treishvaam-redis redis backup-service
 
 # Safely converge the rest of the infrastructure
 docker compose up -d --build
