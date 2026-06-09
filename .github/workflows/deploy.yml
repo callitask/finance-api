@@ -91,6 +91,10 @@
 #  * - EDITED (Process Decoupling & Zombie Prevention):
 #  * • Unset `RUNNER_TRACKING_ID` during the asynchronous execution of `auto_deploy.sh`.
 #  * • Why: Blinds the GitHub Actions native cleanup step. Previously, the runner was ruthlessly assassinating the deployment script mid-execution (specifically during Infisical secret injection), which left the backend containers trapped in a restart loop with blank environment variables.
+#  *
+#  * - EDITED (Pipeline Sync Fix for Backup/Canary):
+#  * • Added `cp -r backup /opt/treishvaam/` to the "Deploy to Application Folder" step.
+#  * • Why: Engine A was previously failing to synchronize the `backup/` directory to the server. This caused Engine B (`auto_deploy.sh`) to continuously rebuild the `treishvaam-backup` container using a stale script containing a fatal Alpine math bug. Explicit synchronization guarantees all infrastructure code reaches the host.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -208,6 +212,7 @@ jobs:
         echo "--> Syncing deployment scripts and infrastructure configs..."
         mkdir -p /opt/treishvaam/scripts
         cp -r scripts/* /opt/treishvaam/scripts/
+        cp -r backup /opt/treishvaam/
         cp docker-compose.yml /opt/treishvaam/
 
         echo "--> Triggering Enterprise Watchdog (Global Stack Refresh) asynchronously..."

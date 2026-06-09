@@ -32,6 +32,10 @@
 #  * • Upgraded `aegis-canary-server` image to `thinkst/canarytokens:v2_latest` and injected the native application execution command `[ "twistd", "-noy", "frontend.tac" ]`.
 #  * • Reason: The previous `latest` tag was merely a dummy wrapper that instantly exited, causing the infinite Compose loop. `v2_latest` contains the functional application. Confirmed Canarytokens architecture relies exclusively on Redis, requiring no MariaDB instance.
 #  *
+#  * - EDITED (L4-ADA Canary Cryptographic Seeds):
+#  * • Mapped `WG_PRIVATE_KEY_SEED` and `CANARY_SECRET_KEY` from Infisical to the `aegis-canary-server` environment.
+#  * • Reason: Canarytokens v2 natively aborts boot sequence unless provided with explicit static cryptographic seeds for WireGuard tunnels and internal signature generation.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -212,6 +216,8 @@ services:
       CANARY_DOMAINS: "canary.treishvaamgroup.com"
       CANARY_PUBLIC_DOMAIN: "canary.treishvaamgroup.com"
       CANARY_NXDOMAINS: "nx.treishvaamgroup.com"
+      WG_PRIVATE_KEY_SEED: ${WG_PRIVATE_KEY_SEED}
+      CANARY_SECRET_KEY: ${CANARY_SECRET_KEY}
     deploy:
       resources:
         limits:
