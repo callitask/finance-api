@@ -35,6 +35,11 @@
 #  * - EDITED (Wazuh Indexer Bridge):
 #  * • Bridged `wazuh-manager` to the existing `treishvaam-elastic` cluster by injecting `INDEXER_URL` and `ELASTICSEARCH_URL`. This satisfies Filebeat's dependency requirement, preventing infinite connection loops and restoring the container's healthcheck state without requiring a dedicated wazuh.indexer node.
 #  *
+#  * - EDITED (Canary Python 2.7 & Wazuh Clusterd Stabilization):
+#  * • Removed double quotes from Canary `echo` mappings. Python 2.7's legacy `dotenv` parser includes quotes in the string value, causing cryptographic key validation to fail natively. Outputting pure, unquoted strings to `canary.env` satisfies the legacy dependency.
+#  * • Removed the incompatible Elastic 8.17 bridge (Wazuh 4.14 requires OpenSearch/Wazuh Indexer). 
+#  * • Injected `hostname: wazuh.manager` into the `wazuh-manager` service. The `wazuh-clusterd` daemon was crashing because it requires a canonical hostname to bind its internal node configuration, which caused the container healthcheck to fail.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -212,11 +217,11 @@ services:
       - sh
       - -c
       - |
-        echo "WG_PRIVATE_KEY_SEED=\"$${WG_PRIVATE_KEY_SEED}\"" > frontend.env
-        echo "CANARY_SECRET_KEY=\"$${CANARY_SECRET_KEY}\"" >> frontend.env
-        echo "CANARY_DOMAINS=\"$${CANARY_DOMAINS}\"" >> frontend.env
-        echo "CANARY_PUBLIC_DOMAIN=\"$${CANARY_PUBLIC_DOMAIN}\"" >> frontend.env
-        echo "CANARY_NXDOMAINS=\"$${CANARY_NXDOMAINS}\"" >> frontend.env
+        echo WG_PRIVATE_KEY_SEED=$${WG_PRIVATE_KEY_SEED} > canary.env
+        echo CANARY_SECRET_KEY=$${CANARY_SECRET_KEY} >> canary.env
+        echo CANARY_DOMAINS=$${CANARY_DOMAINS} >> canary.env
+        echo CANARY_PUBLIC_DOMAIN=$${CANARY_PUBLIC_DOMAIN} >> canary.env
+        echo CANARY_NXDOMAINS=$${CANARY_NXDOMAINS} >> canary.env
         exec twistd -noy frontend.tac
     networks:
       - treish_net
@@ -333,23 +338,14 @@ services:
   wazuh-manager:
     image: wazuh/wazuh-manager:4.14.5
     container_name: treishvaam-wazuh-manager
+    hostname: wazuh.manager
     restart: always
     networks:
       - treish_net
-    environment:
-      - INDEXER_URL=http://treishvaam-elastic:9200
-      - INDEXER_USERNAME=elastic
-      - INDEXER_PASSWORD=${ELASTIC_PASSWORD}
-      - ELASTICSEARCH_URL=http://treishvaam-elastic:9200
-      - ELASTICSEARCH_USERNAME=elastic
-      - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
     deploy:
       resources:
         limits:
           memory: 1024M
-    depends_on:
-      treishvaam-elastic:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "/var/ossec/bin/wazuh-control", "status"]
       interval: 15s
