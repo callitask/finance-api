@@ -27,7 +27,10 @@
 #  * • Removed `healthcheck` from `envoy-sidecar`. The proxy is functioning perfectly, but the distroless image lacks the `nc` shell utility, causing Docker to falsely label the healthy proxy as unhealthy.
 #  *
 #  * - EDITED (Canary Hidden File Globbing Resolution):
-#  * • Changed the volatile memory bridge from `printenv > .env` to `printenv > frontend.env` in `aegis-canary-server`. The vendor's Python parser strictly uses `*.env` globbing, which natively ignores hidden Linux files. Providing an explicit visible filename guarantees the keys are read.
+#  * • Changed the volatile memory bridge from `printenv > .env` to `printenv > frontend.env` in `aegis-canary-server`. The vendor's Python parser strictly uses `*.env` globbing, which natively ignores hidden Linux files.
+#  *
+#  * - EDITED (Canary Strict Parser Fix):
+#  * • Replaced `printenv` with explicit `echo` mappings wrapped in escaped quotes (`\"$$VAR\"`) inside the `aegis-canary-server` entrypoint. This guarantees compliance with Python's strict `dotenv` parsing engine and protects cryptographic strings from shell mangling.
 #  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
@@ -202,7 +205,16 @@ services:
     image: thinkst/canarytokens:v2_latest
     container_name: aegis-canary-server
     restart: always
-    entrypoint: [ "sh", "-c", "printenv > frontend.env && exec twistd -noy frontend.tac" ]
+    entrypoint:
+      - sh
+      - -c
+      - |
+        echo "WG_PRIVATE_KEY_SEED=\"$${WG_PRIVATE_KEY_SEED}\"" > frontend.env
+        echo "CANARY_SECRET_KEY=\"$${CANARY_SECRET_KEY}\"" >> frontend.env
+        echo "CANARY_DOMAINS=\"$${CANARY_DOMAINS}\"" >> frontend.env
+        echo "CANARY_PUBLIC_DOMAIN=\"$${CANARY_PUBLIC_DOMAIN}\"" >> frontend.env
+        echo "CANARY_NXDOMAINS=\"$${CANARY_NXDOMAINS}\"" >> frontend.env
+        exec twistd -noy frontend.tac
     networks:
       - treish_net
     environment:
