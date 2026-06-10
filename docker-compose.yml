@@ -32,6 +32,9 @@
 #  * - EDITED (Canary Strict Parser Fix):
 #  * • Replaced `printenv` with explicit `echo` mappings wrapped in escaped quotes (`\"$$VAR\"`) inside the `aegis-canary-server` entrypoint. This guarantees compliance with Python's strict `dotenv` parsing engine and protects cryptographic strings from shell mangling.
 #  *
+#  * - EDITED (Wazuh Indexer Bridge):
+#  * • Bridged `wazuh-manager` to the existing `treishvaam-elastic` cluster by injecting `INDEXER_URL` and `ELASTICSEARCH_URL`. This satisfies Filebeat's dependency requirement, preventing infinite connection loops and restoring the container's healthcheck state without requiring a dedicated wazuh.indexer node.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -333,10 +336,20 @@ services:
     restart: always
     networks:
       - treish_net
+    environment:
+      - INDEXER_URL=http://treishvaam-elastic:9200
+      - INDEXER_USERNAME=elastic
+      - INDEXER_PASSWORD=${ELASTIC_PASSWORD}
+      - ELASTICSEARCH_URL=http://treishvaam-elastic:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
     deploy:
       resources:
         limits:
           memory: 1024M
+    depends_on:
+      treishvaam-elastic:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "/var/ossec/bin/wazuh-control", "status"]
       interval: 15s
