@@ -41,6 +41,10 @@
 #   - EDITED (Temporal Synchronization Enforcement):
 #     • Injected a native OS NTP clock synchronization block prior to Infisical auth and Docker rebuilds.
 #     • Reason: VirtualBox VMs suffer severe clock drift when paused/resumed. If the clock drifts, AEGIS L1-PPO edge signatures instantly expire (300s TTL), causing a 403 Forbidden blackout. This proactively forces host monotonic alignment before updating application logic.
+#
+#   - EDITED (TCP Massacre & Network Drop Fix):
+#     • Removed `systemctl restart systemd-timesyncd` from the deployment pipeline.
+#     • Reason: Restarting the daemon forced a massive time-jump, which triggered `systemd-networkd` to expire DHCP leases instantly. This dropped the network bridge (`treish_net`), killed active SSH sessions, and corrupted Docker daemon metadata (`No such container` panics). The Tier-1 boot lock now handles this safely at startup.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -75,12 +79,9 @@ chmod +x scripts/*.sh backup/*.sh 2>/dev/null || true
 chmod +x scripts/auto_deploy.sh 2>/dev/null || true
 
 # --- 0.5 TEMPORAL SYNCHRONIZATION ENFORCEMENT ---
-echo "[System] Enforcing Monotonic Clock Synchronization..."
-# Force NTP to active and restart daemon to catch up instantly on severe VirtualBox drift
+echo "[System] Ensuring NTP synchronization is active..."
+# Ensure NTP is enabled without violently restarting the daemon (prevents DHCP network drops)
 sudo -n timedatectl set-ntp true >/dev/null 2>&1 || true
-sudo -n systemctl restart systemd-timesyncd >/dev/null 2>&1 || true
-# Give the OS a brief moment to negotiate the NTP UDP handshake before proceeding
-sleep 2
 
 # --- 1. SECURE RESTART STRATEGY (INFISICAL INJECTION) ---
 echo "[Security] Preparing Secure Environment..."
@@ -132,7 +133,7 @@ echo "[Docker] Executing Non-Disruptive State Healing..."
 docker compose rm -f -v || true
 
 echo "[Docker] Applying explicit state-healing (Infrastructure)..."
-# Bypass the global orphan scan bug by explicitly targeting missing/unlinked databases and infrastructure first.
+# Sequenced to prevent 'No such container' race conditions
 docker compose up -d --build --no-deps treishvaam-redis redis backup-service wazuh-manager aegis-canary-server elasticsearch
 
 # Safely converge the rest of the infrastructure
