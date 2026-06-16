@@ -39,6 +39,11 @@
 #  * • Adjusted `wazuh-manager` healthcheck to test `/var/ossec/bin/wazuh-control status | grep 'wazuh-remoted is running'`.
 #  * • Reason: The global status returned exit code 1 because `wazuh-clusterd` intentionally shuts down in a constrained single-node environment (lacking an Indexer). This precision check accurately reflects that the core HIDS daemon is protecting the host without artificially failing the CI/CD pipeline.
 #  *
+#  * - EDITED (Wazuh Agent Enrollment & Keycloak Production Optimization):
+#  * • Fixed `wazuh-agent` environment variable `WAZUH_MANAGER_SERVER` to native `WAZUH_MANAGER` strictly matching the Wazuh documentation routing protocol.
+#  * • Transitioned `treishvaam-keycloak` command from `start-dev` to `start` for optimized Quarkus production deployment and lower JVM memory consumption.
+#  * • Reason: Corrects the (1208) enrollment connection error on agent while preserving the memory caps for the VirtualBox limits.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -132,7 +137,7 @@ services:
       KC_METRICS_ENABLED: "true"
       FINANCE_FRONTEND_URL: ${FINANCE_FRONTEND_URL:-https://treishvaamfinance.com}
       FINANCE_FRONTEND_LOCAL_URL: ${FINANCE_FRONTEND_LOCAL_URL:-http://localhost:3000}
-    command: [ "start-dev", "--import-realm" ]
+    command: [ "start", "--import-realm" ]
     volumes:
       - ./config/keycloak/realm-export.json:/opt/keycloak/data/import/realm.json
     deploy:
@@ -364,7 +369,7 @@ services:
     privileged: true
     pid: host
     environment:
-      - WAZUH_MANAGER_SERVER=wazuh-manager
+      - WAZUH_MANAGER=wazuh-manager
     deploy:
       resources:
         limits:

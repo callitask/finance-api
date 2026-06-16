@@ -32,6 +32,11 @@
 #     • Added `wazuh-manager` and `aegis-canary-server` to the explicit state-healing `--no-deps` array.
 #     • Removed `aegis-canary-server` from the `--force-recreate` array.
 #     • Reason: Enforces the PIPELINE PRESERVATION PROTOCOL. Using `--force-recreate` on missing/crashing containers causes Docker Compose to panic querying ghost metadata. This surgical bypass ensures missing infrastructure is created safely before the general build block.
+#
+#   - EDITED (Flash & Wipe Bulletproof Trap & Elastic State Healing):
+#     • Replaced `trap 'rm -f "$LOCKFILE"' EXIT` with a comprehensive cleanup trap that forces `cp "$TEMPLATE_FILE" "$ENV_FILE"`.
+#     • Added `elasticsearch` to the `--no-deps` ghost container rebuild list.
+#     • Reason: Manual SSH container cycles previously crashed the Canary server due to missing cryptographic seeds (`WG_PRIVATE_KEY_SEED`). By enforcing the wipe via `trap`, the script guarantees the .env is sanitized back to the base template (preserving `INFISICAL_*` creds) even if the pipeline aborts, crashes, or is killed manually, thus protecting the enterprise vault mechanism without stalling the Git Runner.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -43,7 +48,7 @@ TEMPLATE_FILE=".env.template"
 cd "$PROJECT_DIR" || { echo "CRITICAL: Could not find project directory $PROJECT_DIR"; exit 1; }
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-# --- 0. CRITICAL CONCURRENCY LOCK ---
+# --- 0. CRITICAL CONCURRENCY LOCK & WIPER TRAP ---
 LOCKFILE="/tmp/treishvaam_deploy.lock"
 if [ -f "$LOCKFILE" ]; then
     PID=$(cat "$LOCKFILE")
@@ -54,7 +59,9 @@ if [ -f "$LOCKFILE" ]; then
     fi
 fi
 echo $$ > "$LOCKFILE"
-trap 'rm -f "$LOCKFILE"' EXIT
+
+# BULLETPROOF TRAP: Clears lock and securely restores template (Flash & Wipe) on any exit condition
+trap 'rm -f "$LOCKFILE"; cp "$TEMPLATE_FILE" "$ENV_FILE" 2>/dev/null || true' EXIT
 
 echo "================================================================"
 echo "[$(date)] 🚀 Non-Disruptive Deployment Triggered."
@@ -114,7 +121,7 @@ docker compose rm -f -v || true
 
 echo "[Docker] Applying explicit state-healing (Infrastructure)..."
 # Bypass the global orphan scan bug by explicitly targeting missing/unlinked databases and infrastructure first.
-docker compose up -d --build --no-deps treishvaam-redis redis backup-service wazuh-manager aegis-canary-server
+docker compose up -d --build --no-deps treishvaam-redis redis backup-service wazuh-manager aegis-canary-server elasticsearch
 
 # Safely converge the rest of the infrastructure
 docker compose up -d --build
