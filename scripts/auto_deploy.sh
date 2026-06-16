@@ -37,6 +37,10 @@
 #     • Replaced `trap 'rm -f "$LOCKFILE"' EXIT` with a comprehensive cleanup trap that forces `cp "$TEMPLATE_FILE" "$ENV_FILE"`.
 #     • Added `elasticsearch` to the `--no-deps` ghost container rebuild list.
 #     • Reason: Manual SSH container cycles previously crashed the Canary server due to missing cryptographic seeds (`WG_PRIVATE_KEY_SEED`). By enforcing the wipe via `trap`, the script guarantees the .env is sanitized back to the base template (preserving `INFISICAL_*` creds) even if the pipeline aborts, crashes, or is killed manually, thus protecting the enterprise vault mechanism without stalling the Git Runner.
+#
+#   - EDITED (Temporal Synchronization Enforcement):
+#     • Injected a native OS NTP clock synchronization block prior to Infisical auth and Docker rebuilds.
+#     • Reason: VirtualBox VMs suffer severe clock drift when paused/resumed. If the clock drifts, AEGIS L1-PPO edge signatures instantly expire (300s TTL), causing a 403 Forbidden blackout. This proactively forces host monotonic alignment before updating application logic.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -69,6 +73,14 @@ echo "================================================================"
 
 chmod +x scripts/*.sh backup/*.sh 2>/dev/null || true
 chmod +x scripts/auto_deploy.sh 2>/dev/null || true
+
+# --- 0.5 TEMPORAL SYNCHRONIZATION ENFORCEMENT ---
+echo "[System] Enforcing Monotonic Clock Synchronization..."
+# Force NTP to active and restart daemon to catch up instantly on severe VirtualBox drift
+sudo -n timedatectl set-ntp true >/dev/null 2>&1 || true
+sudo -n systemctl restart systemd-timesyncd >/dev/null 2>&1 || true
+# Give the OS a brief moment to negotiate the NTP UDP handshake before proceeding
+sleep 2
 
 # --- 1. SECURE RESTART STRATEGY (INFISICAL INJECTION) ---
 echo "[Security] Preparing Secure Environment..."
