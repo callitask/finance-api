@@ -44,6 +44,18 @@
 #  * • Transitioned `treishvaam-keycloak` command from `start-dev` to `start` for optimized Quarkus production deployment and lower JVM memory consumption.
 #  * • Reason: Corrects the (1208) enrollment connection error on agent while preserving the memory caps for the VirtualBox limits.
 #  *
+#  * - EDITED (Heredoc Indentation Fix & Wazuh Agent S6-Overlay Resolution):
+#  * • Replaced indented `cat <<EOF` heredoc in `aegis-canary-server` with explicit `printf` payload into `frontend.env`.
+#  * • Reason: YAML block scalars (`|`) combined with spaces before heredocs injected leading spaces into the keys. The `thinkst/canarytokens` legacy python dotenv parser misread keys like `"        WG_PRIVATE_KEY_SEED"`, causing startup crash loops. `printf` guarantees zero structural whitespace.
+#  * • Reverted `wazuh-agent` environment variable to `WAZUH_MANAGER_IP=wazuh.manager` alongside `WAZUH_MANAGER_SERVER=wazuh.manager`.
+#  * • Reason: Wazuh agent `s6-overlay` initialization specifically enforces legacy manager variables. The prior shift to `WAZUH_MANAGER` resulted in an empty string read and immediate `wazuh-agentd: ERROR: (1215)` crashes.
+#  *
+#  * - STRATEGIC PIVOTS & FAILED ATTEMPTS (Canary Parsing):
+#  * • Strategy Attempted: Formatting `cat <<EOF` inside YAML block scalars.
+#  * • Failure Mode: The leading visual YAML spaces were captured by the heredoc and prepended to the environment variable names, failing the vendor's strict exact-match parser.
+#  * • Date/Phase: 2026-06-17
+#  * • Future AI Warning: Never use indented heredocs inside `docker-compose.yml` for configuration file generation. Use single-line `printf` to ensure literal byte accuracy without YAML whitespace injection.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -222,14 +234,7 @@ services:
       - sh
       - -c
       - |
-        cat <<EOF > switchboard.env
-        CANARY_DOMAINS=$${CANARY_DOMAINS}
-        CANARY_PUBLIC_DOMAIN=$${CANARY_PUBLIC_DOMAIN}
-        CANARY_NXDOMAINS=$${CANARY_NXDOMAINS}
-        WG_PRIVATE_KEY_SEED=$${WG_PRIVATE_KEY_SEED}
-        CANARY_SECRET_KEY=$${CANARY_SECRET_KEY}
-        EOF
-        cp switchboard.env frontend.env
+        printf "CANARY_DOMAINS=%s\nCANARY_PUBLIC_DOMAIN=%s\nCANARY_NXDOMAINS=%s\nWG_PRIVATE_KEY_SEED=%s\nCANARY_SECRET_KEY=%s\n" "$$CANARY_DOMAINS" "$$CANARY_PUBLIC_DOMAIN" "$$CANARY_NXDOMAINS" "$$WG_PRIVATE_KEY_SEED" "$$CANARY_SECRET_KEY" > frontend.env
         exec twistd -noy frontend.tac
     networks:
       - treish_net
@@ -369,7 +374,9 @@ services:
     privileged: true
     pid: host
     environment:
-      - WAZUH_MANAGER=wazuh-manager
+      - WAZUH_MANAGER_IP=wazuh.manager
+      - WAZUH_MANAGER_SERVER=wazuh.manager
+      - WAZUH_MANAGER=wazuh.manager
     deploy:
       resources:
         limits:
