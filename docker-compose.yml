@@ -19,16 +19,19 @@
 #  * - EDITED (MariaDB PITR Enforcement - v4.0):
 #  * • Modified `treishvaam-db` entrypoint to execute mariadbd with `--log-bin=mariadb-bin --server-id=1 --binlog-format=ROW`.
 #  * • Reason: Enabled true Point-In-Time-Recovery (PITR) for enterprise backups without bypassing security constraints.
-#  * #  * - STRATEGIC PIVOTS & FAILED ATTEMPTS (Canary Server Evolution):
+#  *
+#  * - STRATEGIC PIVOTS & FAILED ATTEMPTS (Canary Server Evolution):
 #  * • Strategy Attempted: Executing `twistd -ny` override on dummy image. Failure Mode: OCI runtime error (no binary existed), aborted entire deployment pipeline. Future AI Warning: Never blindly modify startup commands without verifying binary existence.
 #  * • Strategy Attempted: `printenv > .env` memory bridge. Failure Mode: Vendor's Python globbing (`*.env`) ignored the file because Linux inherently hides `.env` files.
 #  * • Strategy Attempted: `echo KEY="VALUE" > frontend.env`. Failure Mode: Legacy Python 2.7 dotenv parser absorbed double quotes directly into the Base64 string, corrupting the cryptographic seeds and crashing OpenSSL.
-#  * #  * - EDITED (Canary Deception Stabilization & Zero-Trust Bridge - v5.0/v6.0):
+#  *
+#  * - EDITED (Canary Deception Stabilization & Zero-Trust Bridge - v5.0/v6.0):
 #  * • Upgraded `aegis-canary-server` from dummy to `thinkst/canarytokens:v2_latest`.
 #  * • Injected Canary cryptographic seeds (`WG_PRIVATE_KEY_SEED`, `CANARY_SECRET_KEY`) dynamically via Infisical mapping to prevent disk persistence.
 #  * • Implemented a native POSIX `cat <<EOF > switchboard.env` heredoc in the entrypoint. 
 #  * • Reason: This completely bypasses shell-mangling and hidden file globbing, successfully satisfying the vendor's hardcoded physical file requirement using ephemeral container memory.
-#  * #  * - STRATEGIC PIVOTS & FAILED ATTEMPTS (Wazuh HIDS & Envoy):
+#  *
+#  * - STRATEGIC PIVOTS & FAILED ATTEMPTS (Wazuh HIDS & Envoy):
 #  * • Strategy Attempted: Commenting out Wazuh Agent to bypass connection loop. User Correction: NEVER comment out security features. Engineered full wazuh-manager deployment instead.
 #  * • Strategy Attempted: Bridging Wazuh Manager to Elastic 8.17. Failure Mode: Wazuh 4.14 strictly requires OpenSearch/Wazuh Indexer.
 #  * • Strategy Attempted: Shell `nc` healthcheck on `envoy-sidecar`. Failure Mode: Envoy image is distroless; lacked `nc` binary, causing false-unhealthy flags. Healthcheck permanently removed.
@@ -55,6 +58,16 @@
 #  * • Failure Mode: The leading visual YAML spaces were captured by the heredoc and prepended to the environment variable names, failing the vendor's strict exact-match parser.
 #  * • Date/Phase: 2026-06-17
 #  * • Future AI Warning: Never use indented heredocs inside `docker-compose.yml` for configuration file generation. Use single-line `printf` to ensure literal byte accuracy without YAML whitespace injection.
+#  *
+#  * - EDITED (Canary Switchboard Parser Resolution):
+#  * • Reverted `aegis-canary-server` config generation filename from `frontend.env` back to `switchboard.env`.
+#  * • Migrated from `printf` to explicit, sequential `echo` statements without quotes.
+#  * • Reason: The Python parser strictly requires `switchboard.env` for `WG_PRIVATE_KEY_SEED`. While `printf` solved the YAML indentation, generating `frontend.env` caused the switchboard module to miss the configuration entirely. Sequential `echo` ensures strict `KEY=VALUE` mapping without quoting corruption.
+#  *
+#  * - STRATEGIC PIVOTS & FAILED ATTEMPTS (Canary Parsing 2.0):
+#  * • Strategy Attempted: Generating `frontend.env` to supply variables to the `frontend.tac` application.
+#  * • Failure Mode: The `switchboard` Python module (which `frontend.tac` imports) hardcodes a lookup for `switchboard.env`. Naming the file `frontend.env` resulted in `Required setting WG_PRIVATE_KEY_SEED not defined in a *.env file`.
+#  * • Future AI Warning: Always generate `switchboard.env` for Canarytokens.
 #  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
@@ -234,7 +247,11 @@ services:
       - sh
       - -c
       - |
-        printf "CANARY_DOMAINS=%s\nCANARY_PUBLIC_DOMAIN=%s\nCANARY_NXDOMAINS=%s\nWG_PRIVATE_KEY_SEED=%s\nCANARY_SECRET_KEY=%s\n" "$$CANARY_DOMAINS" "$$CANARY_PUBLIC_DOMAIN" "$$CANARY_NXDOMAINS" "$$WG_PRIVATE_KEY_SEED" "$$CANARY_SECRET_KEY" > frontend.env
+        echo "CANARY_DOMAINS=$$CANARY_DOMAINS" > switchboard.env
+        echo "CANARY_PUBLIC_DOMAIN=$$CANARY_PUBLIC_DOMAIN" >> switchboard.env
+        echo "CANARY_NXDOMAINS=$$CANARY_NXDOMAINS" >> switchboard.env
+        echo "WG_PRIVATE_KEY_SEED=$$WG_PRIVATE_KEY_SEED" >> switchboard.env
+        echo "CANARY_SECRET_KEY=$$CANARY_SECRET_KEY" >> switchboard.env
         exec twistd -noy frontend.tac
     networks:
       - treish_net
