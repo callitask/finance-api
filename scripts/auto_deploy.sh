@@ -45,6 +45,10 @@
 #   - EDITED (TCP Massacre & Network Drop Fix):
 #     • Removed `systemctl restart systemd-timesyncd` from the deployment pipeline.
 #     • Reason: Restarting the daemon forced a massive time-jump, which triggered `systemd-networkd` to expire DHCP leases instantly. This dropped the network bridge (`treish_net`), killed active SSH sessions, and corrupted Docker daemon metadata (`No such container` panics). The Tier-1 boot lock now handles this safely at startup.
+#
+#   - EDITED (Proactive Ghost Metadata Reconciliation):
+#     • Added a proactive `docker rm -f` block targeted specifically at containers with `status=dead` before `docker compose up` executes.
+#     • Reason: If the Docker Daemon falls into Split-Brain mode due to a previous crash, Compose panics with "No such container" and aborts the infrastructure build. This block sanitizes the daemon's internal state machine before allowing Compose to evaluate the manifest.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -128,6 +132,13 @@ export GOMAXPROCS=1
 export DOCKER_BUILDKIT=1
 
 # --- 3. SMART ZERO-DOWNTIME REBUILD ---
+echo "[Docker] Reconciling Daemon Metadata..."
+# Detect if dead containers exist and prune ghost metadata before attempting to up
+if docker ps -a --filter "status=dead" | grep -q 'dead'; then
+    echo "  > Ghost containers detected. Purging corrupted metadata..."
+    docker rm -f $(docker ps -aq --filter "status=dead") 2>/dev/null || true
+fi
+
 echo "[Docker] Executing Non-Disruptive State Healing..."
 # Remove dead/exited containers natively WITHOUT stopping running ones (preserves SSH network bridge)
 docker compose rm -f -v || true
