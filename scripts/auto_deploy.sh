@@ -49,6 +49,10 @@
 #   - EDITED (Proactive Ghost Metadata Reconciliation):
 #     • Added a proactive `docker rm -f` block targeted specifically at containers with `status=dead` before `docker compose up` executes.
 #     • Reason: If the Docker Daemon falls into Split-Brain mode due to a previous crash, Compose panics with "No such container" and aborts the infrastructure build. This block sanitizes the daemon's internal state machine before allowing Compose to evaluate the manifest.
+#
+#   - EDITED (Kernel I/O Starvation & SSH Connection Reset Fix):
+#     • Introduced 'Staggered Infrastructure Ignition' using sleep buffers between docker compose commands.
+#     • Reason: Shotgunning 17 enterprise containers simultaneously caused a massive CPU/IO spike and STP broadcast storm, which starved the 'sshd' daemon and dropped active SSH sessions with 'client_loop: send disconnect'. Staggering the deployment rate-limits the kernel, preserving host responsiveness and SSH stability.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -131,7 +135,7 @@ docker builder prune --filter until=168h -f
 export GOMAXPROCS=1
 export DOCKER_BUILDKIT=1
 
-# --- 3. SMART ZERO-DOWNTIME REBUILD ---
+# --- 3. SMART ZERO-DOWNTIME REBUILD (STAGGERED TO PREVENT SSH KERNEL LOCK) ---
 echo "[Docker] Reconciling Daemon Metadata..."
 # Detect if dead containers exist and prune ghost metadata before attempting to up
 if docker ps -a --filter "status=dead" | grep -q 'dead'; then
@@ -143,17 +147,27 @@ echo "[Docker] Executing Non-Disruptive State Healing..."
 # Remove dead/exited containers natively WITHOUT stopping running ones (preserves SSH network bridge)
 docker compose rm -f -v || true
 
-echo "[Docker] Applying explicit state-healing (Infrastructure)..."
-# Sequenced to prevent 'No such container' race conditions
-docker compose up -d --build --no-deps treishvaam-redis redis backup-service wazuh-manager aegis-canary-server elasticsearch
+echo "[Docker] Applying Staggered Infrastructure Ignition (Preventing I/O Storm)..."
+# Sequenced with sleep buffers to prevent 'client_loop' SSH disconnects caused by kernel CPU starvation
+docker compose up -d --build --no-deps treishvaam-redis redis backup-service
+sleep 3
+
+docker compose up -d --build --no-deps wazuh-manager aegis-canary-server
+sleep 3
+
+docker compose up -d --build --no-deps elasticsearch
+sleep 3
 
 # Safely converge the rest of the infrastructure
 docker compose up -d --build
+sleep 3
 
 echo "[Docker] Surgically cycling application tier to consume updated artifacts & secrets..."
-# Force recreate backend, proxy, sidecars securely to fresh replicas
-# CRITICAL: aegis-canary-server omitted to prevent ghost metadata aborts
-docker compose up -d --force-recreate --no-deps backend nginx envoy-sidecar
+# Force recreate backend, proxy, sidecars securely in waves
+docker compose up -d --force-recreate --no-deps backend
+sleep 5
+
+docker compose up -d --force-recreate --no-deps nginx envoy-sidecar
 
 echo "[System] Stabilizing application layer (Waiting 10s)..."
 sleep 10
