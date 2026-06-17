@@ -25,6 +25,10 @@
 #     • Initial Ansible playbook for Zero-State Ignition.
 #     • Prevents the Bootstrap Paradox by laying down the .env.template, Docker limits, Swap, and NTP Boot Lock.
 #     • Date/Phase: 2026-06-16
+#
+#   - EDITED:
+#     • Added `Restart=always` and `RestartSec=10` to the Tier-1 systemd override (Task 7).
+#     • Reason: VirtualBox bridged networking drops TCP connections (and WebSockets) during mass Docker container recreation. The default GitHub runner dies silently on network hangups. This guarantees autonomous resurrection within 10 seconds of any network shock, permanently stabilizing the CI/CD pipeline.
 # ==============================================================================
 
 - name: Treishvaam Zero-State Ignition (ZSI)
@@ -95,13 +99,17 @@
           INFISICAL_CLIENT_SECRET=7dae5d1c27f5c94cc73dc6823d5ec7c9c09d6e80e0fa8b650eaef21646e4cc51
           SPRING_PROFILES_ACTIVE=prod
 
-    - name: 7. Apply Tier-1 Runner Time-Sync Override
+    - name: 7. Apply Tier-1 Runner Time-Sync & Auto-Heal Override
       shell: |
         mkdir -p /etc/systemd/system/actions.runner.callitask-finance-api.TREISHVAAM-PROD-RUNNER.service.d/
         cat <<EOF > /etc/systemd/system/actions.runner.callitask-finance-api.TREISHVAAM-PROD-RUNNER.service.d/override.conf
         [Unit]
         After=time-sync.target
         Wants=time-sync.target
+
+        [Service]
+        Restart=always
+        RestartSec=10
         EOF
         systemctl daemon-reload
 
