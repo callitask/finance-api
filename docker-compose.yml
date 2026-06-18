@@ -69,6 +69,11 @@
 #  * • Failure Mode: The `switchboard` Python module (which `frontend.tac` imports) hardcodes a lookup for `switchboard.env`. Naming the file `frontend.env` resulted in `Required setting WG_PRIVATE_KEY_SEED not defined in a *.env file`.
 #  * • Future AI Warning: Always generate `switchboard.env` for Canarytokens.
 #  *
+#  * - EDITED (Kernel OOM-Killer Prevention & JVM Memory Optimization):
+#  * • Reduced hardcoded container memory limits across infrastructure (DB, Keycloak, Elasticsearch, Backend, Wazuh, Prometheus, RabbitMQ).
+#  * • Adjusted Java Heap sizes (-Xms/-Xmx) for Elasticsearch, Keycloak, and Backend to guarantee footprint stays within physical cgroup bounds.
+#  * • Reason: The host VM has 4.8GB of physical RAM. Docker Swap Accounting is disabled by default in the Ubuntu kernel, rendering the 4GB swap file useless (0B used). When containers initialized, the physical RAM spiked, causing the Kernel OOM-Killer to assassinate the Java processes. Shrinking allocations forces the stack to fit safely inside the physical 4.8GB boundary without triggering cgroup panics.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -110,7 +115,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1024M
+          memory: 512M
     healthcheck:
       test: [ "CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1" ]
       interval: 10s
@@ -133,7 +138,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 256M
     healthcheck:
       test: [ "CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1" ]
       interval: 10s
@@ -160,6 +165,7 @@ services:
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "true"
+      JAVA_OPTS_APPEND: "-Xmx384m -Xms256m"
       FINANCE_FRONTEND_URL: ${FINANCE_FRONTEND_URL:-https://treishvaamfinance.com}
       FINANCE_FRONTEND_LOCAL_URL: ${FINANCE_FRONTEND_LOCAL_URL:-http://localhost:3000}
     command: [ "start", "--import-realm" ]
@@ -168,7 +174,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: 512M
     depends_on:
       keycloak-db:
         condition: service_healthy
@@ -299,7 +305,7 @@ services:
       - treish_net
     environment:
       - discovery.type=single-node
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
       - xpack.security.enabled=true
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - xpack.security.enrollment.enabled=false
@@ -310,7 +316,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: 512M
     healthcheck:
       test: [ "CMD-SHELL", "curl -u elastic:$$ELASTIC_PASSWORD -s http://localhost:9200/_cluster/health | grep -E -q 'status.*(green|yellow)'" ]
       interval: 20s
@@ -375,7 +381,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1024M
+          memory: 768M
     healthcheck:
       test: ["CMD-SHELL", "/var/ossec/bin/wazuh-control status | grep 'wazuh-remoted is running' || exit 1"]
       interval: 15s
@@ -469,7 +475,7 @@ services:
       - AUDIT_IP_ENCRYPTION_KEY=${AUDIT_IP_ENCRYPTION_KEY}
       - AEGIS_DB_SIGNING_KEY=${AEGIS_DB_SIGNING_KEY}
       - AEGIS_EDGE_SECRET=${AEGIS_EDGE_SECRET}
-      - JAVA_TOOL_OPTIONS=-Xmx768m -Xms512m
+      - JAVA_TOOL_OPTIONS=-Xmx512m -Xms256m
     volumes:
       - ./backend-app.war:/app/app.war
       - ./ga4-credentials.json:/app/ga4-credentials.json
@@ -485,7 +491,7 @@ services:
       replicas: 2
       resources:
         limits:
-          memory: 1024M
+          memory: 768M
     depends_on:
       treishvaam-db:
         condition: service_healthy
@@ -582,7 +588,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 256M
     healthcheck:
       test: [ "CMD", "wget", "--quiet", "--tries=1", "--output-document=-", "http://localhost:9090/-/healthy" ]
       interval: 10s
@@ -648,7 +654,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 384M
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
       interval: 10s
