@@ -53,6 +53,10 @@
 #   - EDITED (Kernel I/O Starvation & SSH Connection Reset Fix):
 #     • Introduced 'Staggered Infrastructure Ignition' using sleep buffers between docker compose commands.
 #     • Reason: Shotgunning 17 enterprise containers simultaneously caused a massive CPU/IO spike and STP broadcast storm, which starved the 'sshd' daemon and dropped active SSH sessions with 'client_loop: send disconnect'. Staggering the deployment rate-limits the kernel, preserving host responsiveness and SSH stability.
+#
+#   - EDITED (ZKP Service Concurrent Build Failure Fix):
+#     • Added `aegis-zkp-service` explicitly to the Staggered Ignition sequence.
+#     • Reason: The Go compiler requires significant CPU/RAM. During general `docker compose up -d --build`, compiling Go simultaneously with starting Elasticsearch and Wazuh caused the compiler to silently OOM/timeout. Isolating it guarantees the security microservice builds and boots successfully without being skipped.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -156,6 +160,10 @@ docker compose up -d --build --no-deps wazuh-manager aegis-canary-server
 sleep 3
 
 docker compose up -d --build --no-deps elasticsearch
+sleep 3
+
+# Isolate the ZKP Go compilation to prevent concurrent CPU exhaustion
+docker compose up -d --build --no-deps aegis-zkp-service
 sleep 3
 
 # Safely converge the rest of the infrastructure

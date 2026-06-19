@@ -96,6 +96,10 @@
 #  * • Added a pre-flight integrity check to crash the container gracefully if `WG_PRIVATE_KEY_SEED` is empty.
 #  * • Reason: The Canary Python parser strictly requires values to be explicitly quoted. Furthermore, manual executions of `docker compose up` while the host `.env` was wiped caused Docker to secretly poison the container with blank variables. The integrity check prevents the cryptic Python crash and provides a clear diagnostic.
 #  *
+#  * - EDITED (Canary Ultimate Target Coverage):
+#  * • Replaced quoted evaluation with direct literal unquoted strings and cloned the file to `frontend.env`, `switchboard.env`, and `.env`.
+#  * • Reason: The vendor's legacy Python parser is highly brittle. It corrupts if double quotes are present, and their repository documentation contradicts itself on whether it loads `frontend.env` or `switchboard.env`. Dumping unquoted strings to all three fallback paths guarantees the daemon intercepts the config natively without parsing errors.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -275,12 +279,14 @@ services:
       - sh
       - -c
       - |
-        if [ -z "$$WG_PRIVATE_KEY_SEED" ]; then echo "FATAL: WG_PRIVATE_KEY_SEED is empty! Infisical flash failed or manual docker compose up bypassed .env" >&2; exit 1; fi
-        echo "CANARY_DOMAINS=\"$$CANARY_DOMAINS\"" > switchboard.env
-        echo "CANARY_PUBLIC_DOMAIN=\"$$CANARY_PUBLIC_DOMAIN\"" >> switchboard.env
-        echo "CANARY_NXDOMAINS=\"$$CANARY_NXDOMAINS\"" >> switchboard.env
-        echo "WG_PRIVATE_KEY_SEED=\"$$WG_PRIVATE_KEY_SEED\"" >> switchboard.env
-        echo "CANARY_SECRET_KEY=\"$$CANARY_SECRET_KEY\"" >> switchboard.env
+        if [ -z "$$WG_PRIVATE_KEY_SEED" ]; then echo "FATAL: WG_PRIVATE_KEY_SEED is empty!" >&2; exit 1; fi
+        echo "CANARY_DOMAINS=$$CANARY_DOMAINS" > frontend.env
+        echo "CANARY_PUBLIC_DOMAIN=$$CANARY_PUBLIC_DOMAIN" >> frontend.env
+        echo "CANARY_NXDOMAINS=$$CANARY_NXDOMAINS" >> frontend.env
+        echo "WG_PRIVATE_KEY_SEED=$$WG_PRIVATE_KEY_SEED" >> frontend.env
+        echo "CANARY_SECRET_KEY=$$CANARY_SECRET_KEY" >> frontend.env
+        cp frontend.env switchboard.env
+        cp frontend.env .env
         exec twistd -noy frontend.tac
     networks:
       - treish_net
