@@ -82,6 +82,15 @@
 #  * • Replaced manual `echo` statements with a raw `env > settings.env` dump in `aegis-canary-server`.
 #  * • Reason: Docker Compose shell evaluation (`$$`) stripped values before they reached the `.env` file, causing the Python parser to read empty keys. Dumping raw OS memory directly into the file guarantees perfect fidelity.
 #  *
+#  * - STRATEGIC PIVOTS & FAILED ATTEMPTS (Canary Parsing 3.0 - Filename Typo):
+#  * • Strategy Attempted: Dumping environment via `env > settings.env`.
+#  * • Failure Mode: The legacy Python script exclusively parses `switchboard.env`. Generating `settings.env` caused the system to bypass the file and crash with a missing key error.
+#  * • Future AI Warning: The target file MUST be named `switchboard.env` exactly. No other filenames are parsed.
+#  *
+#  * - EDITED (Canary Final Filename Fix):
+#  * • Corrected the entrypoint dump from `env > settings.env` to `env > switchboard.env`.
+#  * • Reason: Restores exact filename required by vendor Python parser to properly digest the RAM-bridged cryptographic seeds.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -261,7 +270,7 @@ services:
       - sh
       - -c
       - |
-        env > settings.env
+        env > switchboard.env
         exec twistd -noy frontend.tac
     networks:
       - treish_net
