@@ -74,6 +74,14 @@
 #  * • Adjusted Java Heap sizes (-Xms/-Xmx) for Elasticsearch, Keycloak, and Backend to guarantee footprint stays within physical cgroup bounds.
 #  * • Reason: The host VM has 4.8GB of physical RAM. Docker Swap Accounting is disabled by default in the Ubuntu kernel, rendering the 4GB swap file useless (0B used). When containers initialized, the physical RAM spiked, causing the Kernel OOM-Killer to assassinate the Java processes. Shrinking allocations forces the stack to fit safely inside the physical 4.8GB boundary without triggering cgroup panics.
 #  *
+#  * - EDITED (ZKP Distroless Healthcheck Removal):
+#  * • Removed `nc` based healthcheck from `aegis-zkp-service`.
+#  * • Reason: The container is built from a distroless base image which lacks the netcat binary, causing the healthcheck to fatally exit and kill the ZKP microservice.
+#  *
+#  * - EDITED (Canary Pure-Memory Bridge Resolution):
+#  * • Replaced manual `echo` statements with a raw `env > settings.env` dump in `aegis-canary-server`.
+#  * • Reason: Docker Compose shell evaluation (`$$`) stripped values before they reached the `.env` file, causing the Python parser to read empty keys. Dumping raw OS memory directly into the file guarantees perfect fidelity.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -253,11 +261,7 @@ services:
       - sh
       - -c
       - |
-        echo "CANARY_DOMAINS=$$CANARY_DOMAINS" > switchboard.env
-        echo "CANARY_PUBLIC_DOMAIN=$$CANARY_PUBLIC_DOMAIN" >> switchboard.env
-        echo "CANARY_NXDOMAINS=$$CANARY_NXDOMAINS" >> switchboard.env
-        echo "WG_PRIVATE_KEY_SEED=$$WG_PRIVATE_KEY_SEED" >> switchboard.env
-        echo "CANARY_SECRET_KEY=$$CANARY_SECRET_KEY" >> switchboard.env
+        env > settings.env
         exec twistd -noy frontend.tac
     networks:
       - treish_net
@@ -365,11 +369,6 @@ services:
       resources:
         limits:
           memory: 256M
-    healthcheck:
-      test: ["CMD", "nc", "-z", "127.0.0.1", "9090"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
 
   wazuh-manager:
     image: wazuh/wazuh-manager:4.14.5
