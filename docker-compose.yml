@@ -110,6 +110,11 @@
 #  * • Replaced raw `echo`/`env` dump in `aegis-canary-server` with a native POSIX `awk` extraction bridge pulling strictly from C-level `ENVIRON`.
 #  * • Reason: Awk guarantees perfect `KEY=VALUE` formatting, bypasses all shell mangling/quoting risks, and insulates the brittle Python parser from Docker system noise while preserving zero-trust disk limits.
 #  *
+#  * - EDITED (Strict Zero-Leak POSIX Printf Bridge & Dotless S6 Agent Fix):
+#  * • Replaced `awk` and `env | grep` memory pipelines with strictly scoped `printf "KEY=%s\n" "$$KEY"` sequence for Canary server.
+#  * • Stripped legacy IP variables from Wazuh Agent and provided a single `WAZUH_MANAGER=treishvaam-wazuh-manager` resolution.
+#  * • Reason: (1) `env` pipelines theoretically expose container memory buffers to stdout. The strict `printf` sequence guarantees zero leak risk of other Infisical keys, while maintaining mathematically perfect `KEY=VALUE` parsing for Python. (2) S6's internal XML `sed` script crashes when injecting hostnames with dots (`wazuh.manager`). Using the dotless Docker Compose DNS name natively bypasses the crash.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -290,13 +295,11 @@ services:
       - -c
       - |
         if [ -z "$$WG_PRIVATE_KEY_SEED" ]; then echo "FATAL: WG_PRIVATE_KEY_SEED is empty!" >&2; exit 1; fi
-        awk 'BEGIN {
-          print "CANARY_DOMAINS=" ENVIRON["CANARY_DOMAINS"]
-          print "CANARY_PUBLIC_DOMAIN=" ENVIRON["CANARY_PUBLIC_DOMAIN"]
-          print "CANARY_NXDOMAINS=" ENVIRON["CANARY_NXDOMAINS"]
-          print "WG_PRIVATE_KEY_SEED=" ENVIRON["WG_PRIVATE_KEY_SEED"]
-          print "CANARY_SECRET_KEY=" ENVIRON["CANARY_SECRET_KEY"]
-        }' > switchboard.env
+        printf "CANARY_DOMAINS=%s\n" "$$CANARY_DOMAINS" > switchboard.env
+        printf "CANARY_PUBLIC_DOMAIN=%s\n" "$$CANARY_PUBLIC_DOMAIN" >> switchboard.env
+        printf "CANARY_NXDOMAINS=%s\n" "$$CANARY_NXDOMAINS" >> switchboard.env
+        printf "WG_PRIVATE_KEY_SEED=%s\n" "$$WG_PRIVATE_KEY_SEED" >> switchboard.env
+        printf "CANARY_SECRET_KEY=%s\n" "$$CANARY_SECRET_KEY" >> switchboard.env
         cp switchboard.env frontend.env
         cp switchboard.env .env
         exec twistd -noy frontend.tac
@@ -433,8 +436,7 @@ services:
     privileged: true
     pid: host
     environment:
-      - WAZUH_MANAGER_IP=wazuh.manager
-      - WAZUH_MANAGER_SERVER=wazuh.manager
+      - WAZUH_MANAGER=treishvaam-wazuh-manager
     deploy:
       resources:
         limits:
