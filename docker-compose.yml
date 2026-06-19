@@ -91,6 +91,11 @@
 #  * • Corrected the entrypoint dump from `env > settings.env` to `env > switchboard.env`.
 #  * • Reason: Restores exact filename required by vendor Python parser to properly digest the RAM-bridged cryptographic seeds.
 #  *
+#  * - EDITED (Canary Quoting & Integrity Lock):
+#  * • Wrapped switchboard.env values in explicit double quotes (`"KEY=\"$$KEY\""`).
+#  * • Added a pre-flight integrity check to crash the container gracefully if `WG_PRIVATE_KEY_SEED` is empty.
+#  * • Reason: The Canary Python parser strictly requires values to be explicitly quoted. Furthermore, manual executions of `docker compose up` while the host `.env` was wiped caused Docker to secretly poison the container with blank variables. The integrity check prevents the cryptic Python crash and provides a clear diagnostic.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -270,7 +275,12 @@ services:
       - sh
       - -c
       - |
-        env > switchboard.env
+        if [ -z "$$WG_PRIVATE_KEY_SEED" ]; then echo "FATAL: WG_PRIVATE_KEY_SEED is empty! Infisical flash failed or manual docker compose up bypassed .env" >&2; exit 1; fi
+        echo "CANARY_DOMAINS=\"$$CANARY_DOMAINS\"" > switchboard.env
+        echo "CANARY_PUBLIC_DOMAIN=\"$$CANARY_PUBLIC_DOMAIN\"" >> switchboard.env
+        echo "CANARY_NXDOMAINS=\"$$CANARY_NXDOMAINS\"" >> switchboard.env
+        echo "WG_PRIVATE_KEY_SEED=\"$$WG_PRIVATE_KEY_SEED\"" >> switchboard.env
+        echo "CANARY_SECRET_KEY=\"$$CANARY_SECRET_KEY\"" >> switchboard.env
         exec twistd -noy frontend.tac
     networks:
       - treish_net
