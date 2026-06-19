@@ -57,11 +57,16 @@
 #   - EDITED (ZKP Service Concurrent Build Failure Fix):
 #     • Added `aegis-zkp-service` explicitly to the Staggered Ignition sequence.
 #     • Reason: The Go compiler requires significant CPU/RAM. During general `docker compose up -d --build`, compiling Go simultaneously with starting Elasticsearch and Wazuh caused the compiler to silently OOM/timeout. Isolating it guarantees the security microservice builds and boots successfully without being skipped.
+#
+#   - EDITED (Infisical Token Expiration & Silent Failure Fix):
+#     • Injected `rm -f "$HOME/.infisical/.infisical.json"` before `infisical login`.
+#     • Rerouted Infisical STDERR from `/dev/null` to `$LOG_FILE`.
+#     • Reason: The Universal Auth machine token expired after 4 hours of server uptime. The CLI aggressively cached the dead token and silently failed to export secrets. The safety net correctly aborted deployment, but stranded the Docker infrastructure in a frozen state. Purging the cache mathematically forces a fresh cryptographic token fetch on every pipeline execution, and routing STDERR guarantees observability.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 PROJECT_DIR="/opt/treishvaam"
-LOG_FILE="deploy.log"
+LOG_FILE="deploy_pipeline.log"
 ENV_FILE=".env"
 TEMPLATE_FILE=".env.template"
 
@@ -109,10 +114,13 @@ export INFISICAL_CLIENT_ID=$(grep -E '^INFISICAL_CLIENT_ID=' "$ENV_FILE" | cut -
 export INFISICAL_CLIENT_SECRET=$(grep -E '^INFISICAL_CLIENT_SECRET=' "$ENV_FILE" | cut -d '=' -f2 | tr -d " \"'\r")
 
 echo "[Security] Authenticating with Infisical..."
-infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --silent 2>/dev/null || echo "  > Notice: Using cached session."
+# Force fresh Universal Auth token by destroying stale cache
+rm -f "$HOME/.infisical/.infisical.json" 2>/dev/null || true
+
+infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --silent 2>>"$LOG_FILE" || echo "  > Notice: Login command returned non-zero, checking export..."
 
 TEMP_SECRETS=$(mktemp)
-infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$TEMP_SECRETS" 2>/dev/null
+infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$TEMP_SECRETS" 2>>"$LOG_FILE"
 EXIT_CODE=$?
 
 # Strict Safety Net: If this fails, abort before corrupting the backend
