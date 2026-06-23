@@ -73,6 +73,10 @@
 #     • FMEA #5: Added `chmod 644` to the telemetry file and `755` to the directory ensuring Promtail inside Docker can read it natively.
 #     • FMEA #6: Enforced ISO-8601 UTC timestamps natively for mathematically precise Loki ingestion.
 #     • FMEA #8: Upgraded the `EXIT` trap to absolutely guarantee the Flash & Wipe executes BEFORE emitting the terminal telemetry status.
+#
+#   - EDITED (Infisical Domain Resolution Fix):
+#     • Added explicit `--domain="https://app.infisical.com"` flag to `infisical login` and `infisical export` commands.
+#     • Reason: Purging the `.infisical.json` cache caused the CLI to lose its default domain routing, resulting in an "Unable to parse domain url" crash. Hardcoding the domain restores Universal Auth while maintaining the cache-purge safety mechanism.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -202,10 +206,10 @@ export INFISICAL_CLIENT_SECRET=$(grep -E '^INFISICAL_CLIENT_SECRET=' "$ENV_FILE"
 echo "[Security] Authenticating with Infisical..."
 rm -f "$HOME/.infisical/.infisical.json" 2>/dev/null || true
 
-infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --silent 2>>"$LOG_FILE" || echo "  > Notice: Login command returned non-zero, checking export..."
+infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --domain="https://app.infisical.com" --silent 2>>"$LOG_FILE" || echo "  > Notice: Login command returned non-zero, checking export..."
 
 TEMP_SECRETS=$(mktemp)
-infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$TEMP_SECRETS" 2>>"$LOG_FILE"
+infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --domain="https://app.infisical.com" --format dotenv > "$TEMP_SECRETS" 2>>"$LOG_FILE"
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 0 ] && [ -s "$TEMP_SECRETS" ] && ! grep -qE "arrow keys|Select project|login" "$TEMP_SECRETS"; then
