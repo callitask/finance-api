@@ -115,6 +115,12 @@
 #  * • Stripped legacy IP variables from Wazuh Agent and provided a single `WAZUH_MANAGER=treishvaam-wazuh-manager` resolution.
 #  * • Reason: (1) `env` pipelines theoretically expose container memory buffers to stdout. The strict `printf` sequence guarantees zero leak risk of other Infisical keys, while maintaining mathematically perfect `KEY=VALUE` parsing for Python. (2) S6's internal XML `sed` script crashes when injecting hostnames with dots (`wazuh.manager`). Using the dotless Docker Compose DNS name natively bypasses the crash.
 #  *
+#  * - EDITED (Canary CRLF Shield & Wazuh Agent S6 Variable Synthesis - P0 Resolution):
+#  * • Appended POSIX shell comment markers (#) to every line of `aegis-canary-server` entrypoint block scalar.
+#  * • Reason: Windows Git checkouts introduce CRLF endings, which the Compose YAML parser preserves. /bin/sh was interpreting `\r` as a filename character, creating `switchboard.env\r` and failing the Python glob validation. The # marker safely absorbs the carriage return as a comment.
+#  * • Replaced `WAZUH_MANAGER` in `wazuh-agent` with legacy `WAZUH_MANAGER_IP=treishvaam-wazuh-manager` and `WAZUH_MANAGER_SERVER=treishvaam-wazuh-manager`.
+#  * • Reason: S6 initialization scripts strictly enforce the legacy variables. The dotless internal DNS prevents XML `sed` collisions while satisfying the parser requirements.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -294,15 +300,15 @@ services:
       - sh
       - -c
       - |
-        if [ -z "$$WG_PRIVATE_KEY_SEED" ]; then echo "FATAL: WG_PRIVATE_KEY_SEED is empty!" >&2; exit 1; fi
-        printf "CANARY_DOMAINS=%s\n" "$$CANARY_DOMAINS" > switchboard.env
-        printf "CANARY_PUBLIC_DOMAIN=%s\n" "$$CANARY_PUBLIC_DOMAIN" >> switchboard.env
-        printf "CANARY_NXDOMAINS=%s\n" "$$CANARY_NXDOMAINS" >> switchboard.env
-        printf "WG_PRIVATE_KEY_SEED=%s\n" "$$WG_PRIVATE_KEY_SEED" >> switchboard.env
-        printf "CANARY_SECRET_KEY=%s\n" "$$CANARY_SECRET_KEY" >> switchboard.env
-        cp switchboard.env frontend.env
-        cp switchboard.env .env
-        exec twistd -noy frontend.tac
+        if [ -z "$$WG_PRIVATE_KEY_SEED" ]; then echo "FATAL: WG_PRIVATE_KEY_SEED is empty!" >&2; exit 1; fi #
+        printf "CANARY_DOMAINS=%s\n" "$$CANARY_DOMAINS" > switchboard.env #
+        printf "CANARY_PUBLIC_DOMAIN=%s\n" "$$CANARY_PUBLIC_DOMAIN" >> switchboard.env #
+        printf "CANARY_NXDOMAINS=%s\n" "$$CANARY_NXDOMAINS" >> switchboard.env #
+        printf "WG_PRIVATE_KEY_SEED=%s\n" "$$WG_PRIVATE_KEY_SEED" >> switchboard.env #
+        printf "CANARY_SECRET_KEY=%s\n" "$$CANARY_SECRET_KEY" >> switchboard.env #
+        cp switchboard.env frontend.env #
+        cp switchboard.env .env #
+        exec twistd -noy frontend.tac #
     networks:
       - treish_net
     environment:
@@ -436,7 +442,8 @@ services:
     privileged: true
     pid: host
     environment:
-      - WAZUH_MANAGER=treishvaam-wazuh-manager
+      - WAZUH_MANAGER_IP=treishvaam-wazuh-manager
+      - WAZUH_MANAGER_SERVER=treishvaam-wazuh-manager
     deploy:
       resources:
         limits:
