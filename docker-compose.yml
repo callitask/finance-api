@@ -125,6 +125,10 @@
 #  * • Added `/opt/treishvaam/logs:/host-logs:ro` read-only bind mount to `treishvaam-promtail`.
 #  * • Reason: Grants Promtail strict Zero-Trust access to ingest the `engine_b.ndjson` deployment telemetry natively into Loki.
 #  *
+#  * - EDITED (Canary Python Parser Final Quote Fix):
+#  * • Modified the `printf` block in `aegis-canary-server` to output explicit double quotes around values (`printf 'KEY="%s"\n' "$$KEY"`).
+#  * • Reason: The brittle legacy Python parser strictly requires values to be encapsulated in double quotes in the resulting `switchboard.env` file. Without them, it throws "Required setting not defined" and loops indefinitely.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -305,11 +309,11 @@ services:
       - -c
       - |
         if [ -z "$$WG_PRIVATE_KEY_SEED" ]; then echo "FATAL: WG_PRIVATE_KEY_SEED is empty!" >&2; exit 1; fi #
-        printf "CANARY_DOMAINS=%s\n" "$$CANARY_DOMAINS" > switchboard.env #
-        printf "CANARY_PUBLIC_DOMAIN=%s\n" "$$CANARY_PUBLIC_DOMAIN" >> switchboard.env #
-        printf "CANARY_NXDOMAINS=%s\n" "$$CANARY_NXDOMAINS" >> switchboard.env #
-        printf "WG_PRIVATE_KEY_SEED=%s\n" "$$WG_PRIVATE_KEY_SEED" >> switchboard.env #
-        printf "CANARY_SECRET_KEY=%s\n" "$$CANARY_SECRET_KEY" >> switchboard.env #
+        printf 'CANARY_DOMAINS="%s"\n' "$$CANARY_DOMAINS" > switchboard.env #
+        printf 'CANARY_PUBLIC_DOMAIN="%s"\n' "$$CANARY_PUBLIC_DOMAIN" >> switchboard.env #
+        printf 'CANARY_NXDOMAINS="%s"\n' "$$CANARY_NXDOMAINS" >> switchboard.env #
+        printf 'WG_PRIVATE_KEY_SEED="%s"\n' "$$WG_PRIVATE_KEY_SEED" >> switchboard.env #
+        printf 'CANARY_SECRET_KEY="%s"\n' "$$CANARY_SECRET_KEY" >> switchboard.env #
         cp switchboard.env frontend.env #
         cp switchboard.env .env #
         exec twistd -noy frontend.tac #
