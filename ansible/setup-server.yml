@@ -6,7 +6,7 @@
 #   - Zero-State Ignition (ZSI) playbook. Bootstraps a naked Ubuntu VM to an Enterprise production-ready state.
 #
 # Scope:
-#   - OS-level configurations (NTP, Swap, Docker limits, .env.template, Runner hooks).
+#   - OS-level configurations (NTP, Swap, Docker limits, .env.template, Runner hooks, Telemetry limits).
 #   - Must NEVER deploy application containers directly. It only prepares the host for Engine A (GitHub Actions).
 #
 # Critical Dependencies:
@@ -29,6 +29,11 @@
 #   - EDITED:
 #     • Added `Restart=always` and `RestartSec=10` to the Tier-1 systemd override (Task 7).
 #     • Reason: VirtualBox bridged networking drops TCP connections (and WebSockets) during mass Docker container recreation. The default GitHub runner dies silently on network hangups. This guarantees autonomous resurrection within 10 seconds of any network shock, permanently stabilizing the CI/CD pipeline.
+#
+#   - ADDED (Engine B Telemetry Integration):
+#     • Added Logrotate configuration for `deploy_pipeline.log` and `deploy_telemetry.ndjson` with `su root root` constraint.
+#     • Pre-created `/opt/treishvaam/logs` directory and `deploy_telemetry.ndjson` file with correct 755/644 permissions.
+#     • Reason: Eliminates configuration drift by defining observability boundaries in IaC. Bypasses logrotate insecure parent directory errors natively.
 # ==============================================================================
 
 - name: Treishvaam Zero-State Ignition (ZSI)
@@ -52,6 +57,7 @@
           - curl
           - software-properties-common
           - jq
+          - uuid-runtime
         state: present
         update_cache: yes
 
@@ -113,6 +119,54 @@
         EOF
         systemctl daemon-reload
 
-    - name: 8. Security Notice
+    - name: 8. Initialize Engine B Telemetry Directory
+      file:
+        path: "{{ project_dir }}/logs"
+        state: directory
+        owner: 1000
+        group: 1000
+        mode: '0755'
+
+    - name: 9. Initialize Engine B Telemetry NDJSON File
+      copy:
+        dest: "{{ project_dir }}/logs/deploy_telemetry.ndjson"
+        content: ""
+        force: no
+        owner: 1000
+        group: 1000
+        mode: '0644'
+
+    - name: 10. Configure Engine B Telemetry Logrotate (Anti-Log-Bomb)
+      copy:
+        dest: /etc/logrotate.d/treishvaam-deploy
+        mode: '0644'
+        content: |
+          /opt/treishvaam/deploy_pipeline.log {
+              su root root
+              daily
+              rotate 30
+              maxsize 50M
+              compress
+              delaycompress
+              copytruncate
+              missingok
+              notifempty
+              create 644 root root
+          }
+
+          /opt/treishvaam/logs/deploy_telemetry.ndjson {
+              su root root
+              daily
+              rotate 30
+              maxsize 20M
+              compress
+              delaycompress
+              copytruncate
+              missingok
+              notifempty
+              create 644 root root
+          }
+
+    - name: 11. Security Notice
       debug:
         msg: "ZSI Complete. Server is ready to receive GitHub Actions Runner registration payload."
