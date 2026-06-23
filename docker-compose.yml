@@ -121,6 +121,10 @@
 #  * • Replaced `WAZUH_MANAGER` in `wazuh-agent` with legacy `WAZUH_MANAGER_IP=treishvaam-wazuh-manager` and `WAZUH_MANAGER_SERVER=treishvaam-wazuh-manager`.
 #  * • Reason: S6 initialization scripts strictly enforce the legacy variables. The dotless internal DNS prevents XML `sed` collisions while satisfying the parser requirements.
 #  *
+#  * - EDITED (Promtail Telemetry Scrape):
+#  * • Added `/opt/treishvaam/logs:/host-logs:ro` read-only bind mount to `treishvaam-promtail`.
+#  * • Reason: Grants Promtail strict Zero-Trust access to ingest the `engine_b.ndjson` deployment telemetry natively into Loki.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -615,6 +619,7 @@ services:
     volumes:
       - ./config/promtail-config.yml:/etc/promtail/config.yml
       - app_logs:/app/logs
+      - /opt/treishvaam/logs:/host-logs:ro
     command: [ "-config.file=/etc/promtail/config.yml" ]
     deploy:
       resources:

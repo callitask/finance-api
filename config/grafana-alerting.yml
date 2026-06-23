@@ -22,6 +22,9 @@
 #  * • Converted Phase 6 Prometheus-style rules into strict Grafana Unified Alerting format.
 #  * • Why: Grafana crashed on startup with "empty duration string" because the raw Prometheus rules lacked the required `interval` property at the group level, and violated the expected `data` array schema.
 #  * • What behavior must remain unchanged: Existing `high_error_rate` rule structure.
+#  *
+#  * - ADDED (Dead Man's Switch Alert):
+#  * • Added `engine_b_stuck_in_progress` rule utilizing the Loki datasource to detect OOM-Killed or kernel-locked Engine B deployments that bypass the shell EXIT trap.
 #  */
 apiVersion: 1
 groups:
@@ -217,3 +220,69 @@ groups:
           description: "JWT_SECRET_KEY and INTERNAL_API_SECRET_KEY have not been rotated in 90+ days. Run scripts/rotate_secrets.sh."
         labels:
           severity: warning
+
+      # --- Engine B Dead Man's Switch Alert ---
+      - uid: engine_b_stuck_in_progress
+        title: Engine B Deployment Stuck (Dead Man's Switch)
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 360
+              to: 0
+            datasourceUid: Loki
+            model:
+              expr: |
+                count_over_time({job="engine-b-deploy", status="IN_PROGRESS"}[6m])
+              queryType: range
+              refId: A
+
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Loki
+            model:
+              expr: |
+                count_over_time({job="engine-b-deploy"} | json | status=~"SUCCESS|FAILURE"[5m])
+              queryType: range
+              refId: B
+
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+                - evaluator:
+                    params: [0]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              expression: A
+              refId: C
+              type: math
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Engine B deployment is stuck in IN_PROGRESS"
+          description: >
+            A deployment started more than 5 minutes ago but has not emitted a SUCCESS or FAILURE event. This indicates the process was killed by the OOM-Killer (SIGKILL) or suffered a kernel-level crash that prevented the EXIT trap from running. SSH to the server and verify `/opt/treishvaam/deploy_pipeline.log`.
+        labels:
+          severity: critical
