@@ -143,6 +143,10 @@
 #  * Replicated `switchboard.env` to `frontend.env` in the `aegis-canary-server` entrypoint pipeline.
 #  * Reason: The vendor's wrapper script contains a hardcoded sanity check that explicitly looks for BOTH `frontend.env` and `switchboard.env`. Generating only the switchboard file causes the image to print the generic "Please use the docker compose setup..." help string and immediately exit before Python ever runs.
 #  *
+#  * - EDITED (Canary Vendor Prefix Mandate - Final Red Tick Resolution):
+#  * Changed environment mapping from `WG_PRIVATE_KEY_SEED` to `CANARY_WG_PRIVATE_KEY_SEED`.
+#  * Reason: The vendor's legacy Python parser strips and maps only variables starting with `CANARY_`. Without the prefix, the seed was completely discarded from memory, causing a fatal "Required setting... not defined" crash, which in turn forced Engine B to abort the deployment and report FAILURE.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -323,7 +327,8 @@ services:
       CANARY_DOMAINS: "canary.treishvaamgroup.com"
       CANARY_PUBLIC_DOMAIN: "canary.treishvaamgroup.com"
       CANARY_NXDOMAINS: "nx.treishvaamgroup.com"
-      WG_PRIVATE_KEY_SEED: ${WG_PRIVATE_KEY_SEED}
+      # FIX: The legacy python parser strictly mandates the 'CANARY_' prefix on all environment variables
+      CANARY_WG_PRIVATE_KEY_SEED: ${WG_PRIVATE_KEY_SEED}
       CANARY_SECRET_KEY: ${CANARY_SECRET_KEY}
     entrypoint:
       - /bin/sh
