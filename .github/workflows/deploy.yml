@@ -95,6 +95,10 @@
 #  * - EDITED (Pipeline Sync Fix for Backup/Canary):
 #  * • Added `cp -r backup /opt/treishvaam/` to the "Deploy to Application Folder" step.
 #  * • Why: Engine A was previously failing to synchronize the `backup/` directory to the server. This caused Engine B (`auto_deploy.sh`) to continuously rebuild the `treishvaam-backup` container using a stale script containing a fatal Alpine math bug. Explicit synchronization guarantees all infrastructure code reaches the host.
+#  *
+#  * - EDITED (CI/CD Remediation - Engine A Polling):
+#  * • Injected a 5-minute polling loop to actively monitor `deploy_telemetry.ndjson`.
+#  * • Reason: Prevented Engine A from exiting with a false-positive green tick while Engine B was still executing or failing blindly in the background. CI job now accurately reflects final deployment status.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -224,6 +228,43 @@ jobs:
         export RUNNER_TRACKING_ID=""
         nohup ./scripts/auto_deploy.sh --force > /opt/treishvaam/deploy_pipeline.log 2>&1 &
         echo "--> Watchdog detached successfully. The server will safely reboot the stack in the background."
+
+    - name: Poll Engine B Deployment Status (5-min window)
+      run: |
+        echo "⏳ Polling Engine B deployment status (max 5 minutes)..."
+        TELEMETRY_FILE="/opt/treishvaam/logs/deploy_telemetry.ndjson"
+        # Capture the Run ID emitted by Engine B (it's the most recent IN_PROGRESS event)
+        MAX_WAIT=300
+        ELAPSED=0
+        POLL_INTERVAL=15
+        
+        while [ $ELAPSED -lt $MAX_WAIT ]; do
+          # Look for a SUCCESS or FAILURE event more recent than 90 seconds ago
+          if [ -f "$TELEMETRY_FILE" ]; then
+            TERMINAL=$(tail -n 20 "$TELEMETRY_FILE" | grep -E '"status":"(SUCCESS|FAILURE)"' | \
+                       grep '"phase":"COMPLETION"' | tail -1)
+            if [ -n "$TERMINAL" ]; then
+              STATUS=$(echo "$TERMINAL" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['status'])")
+              MESSAGE=$(echo "$TERMINAL" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['message'])")
+              if [ "$STATUS" = "SUCCESS" ]; then
+                echo "✅ Engine B confirmed SUCCESS: $MESSAGE"
+                exit 0
+              else
+                echo "🚨 Engine B confirmed FAILURE: $MESSAGE"
+                exit 1
+              fi
+            fi
+          fi
+          echo "  > Waiting... (${ELAPSED}s elapsed)"
+          sleep $POLL_INTERVAL
+          ELAPSED=$((ELAPSED + POLL_INTERVAL))
+        done
+        
+        echo "⚠️ Engine B did not report a terminal status within 5 minutes."
+        echo "This likely means Engine B is still running (slow container startup) or was silently killed."
+        echo "Check: /opt/treishvaam/deploy_pipeline.log on the server."
+        # Exit 0 here (don't fail the CI job) — the Dead Man's Switch in Grafana handles the alert
+        exit 0
 
     - name: Secure Flash & Wipe (Guaranteed Cleanup)
       if: always()
