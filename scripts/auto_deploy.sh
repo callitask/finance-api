@@ -77,6 +77,16 @@
 #   - EDITED (Infisical Domain Resolution Fix):
 #     • Added explicit `--domain="https://app.infisical.com"` flag to `infisical login` and `infisical export` commands.
 #     • Reason: Purging the `.infisical.json` cache caused the CLI to lose its default domain routing, resulting in an "Unable to parse domain url" crash. Hardcoding the domain restores Universal Auth while maintaining the cache-purge safety mechanism.
+#
+#   - EDITED (CI/CD Remediation - Phase 2 Hardening):
+#     • Flaw 1: Added notify() function for real-time Telegram deployment status.
+#     • Flaw 2: Replaced 168h cache pruning with aggressive 24h limit and pre-deploy image prune.
+#     • Flaw 3: Removed --build flag from pre-built public images during staggered ignition.
+#     • Flaw 4: Added post-deployment health verification blocking on /actuator/health and container status.
+#     • Flaw 5: Removed -v from `docker compose rm -f` to prevent anonymous volume data loss.
+#     • Flaw 6: Introduced md5 hash-based change detection for aegis-zkp-service to prevent unnecessary Go rebuilds.
+#     • Flaw 8: Enhanced concurrency lock with PID name verification and 2-hour maximum age timeout.
+#     • Flaw 13: Scaled backend to 1 replica during deployment, scaling to 2 after health check to prevent VirtualBox OOM.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -144,15 +154,61 @@ log_telemetry() {
         >> "$TELEMETRY_FILE" 2>/dev/null || true
 }
 
+# ── notify() ──────────────────────────────────────────────────────────────────
+# Dispatches deployment status to Telegram using Infisical-injected tokens.
+# ─────────────────────────────────────────────────────────────────────────────
+notify() {
+    local phase="$1"
+    local status="$2"
+    local message="$3"
+    local emoji
+    case "$status" in
+        SUCCESS)     emoji="✅" ;;
+        FAILURE)     emoji="🚨" ;;
+        IN_PROGRESS) emoji="🔄" ;;
+        SKIPPED)     emoji="⏭️" ;;
+        WARNING)     emoji="⚠️" ;;
+        *)           emoji="ℹ️" ;;
+    esac
+    
+    local hostname
+    hostname=$(hostname 2>/dev/null || echo "server")
+    local text="${emoji} *Treishvaam Deploy* | ${phase} | ${status}
+Host: \`${hostname}\`
+Run: \`${RUN_ID}\`
+Detail: ${message}"
+
+    if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+        curl -s -m 10 -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${text}" \
+            -d "parse_mode=Markdown" \
+            >/dev/null 2>&1 &
+    fi
+}
+
 # --- 0. CRITICAL CONCURRENCY LOCK & WIPER TRAP ---
 LOCKFILE="/tmp/treishvaam_deploy.lock"
 if [ -f "$LOCKFILE" ]; then
-    PID=$(cat "$LOCKFILE")
-    if kill -0 "$PID" 2>/dev/null; then
-        log_telemetry "STARTUP" "SKIPPED" "Concurrent deployment already running (PID $PID). This run exiting."
-        exit 0
-    else
+    LOCK_AGE=$(( $(date +%s) - $(stat -c %Y "$LOCKFILE" 2>/dev/null || echo 0) ))
+    if [ "$LOCK_AGE" -gt 7200 ]; then
+        echo "[Lock] Stale lockfile older than 2 hours. Forcing removal."
         rm -f "$LOCKFILE"
+    else
+        PID=$(cat "$LOCKFILE")
+        if kill -0 "$PID" 2>/dev/null; then
+            PROC_NAME=$(ps -p "$PID" -o comm= 2>/dev/null || echo "")
+            if echo "$PROC_NAME" | grep -qE 'bash|auto_deploy'; then
+                log_telemetry "STARTUP" "SKIPPED" "Concurrent deployment running (PID $PID, COMM: $PROC_NAME). Exiting."
+                exit 0
+            else
+                echo "[Lock] PID $PID exists but belongs to '$PROC_NAME' (recycled). Clearing stale lock."
+                rm -f "$LOCKFILE"
+            fi
+        else
+            rm -f "$LOCKFILE"
+        fi
     fi
 fi
 echo $$ > "$LOCKFILE"
@@ -161,6 +217,7 @@ echo $$ > "$LOCKFILE"
 # Emitted IMMEDIATELY after the concurrency check passes. If process is SIGKILLed,
 # this IN_PROGRESS event will be the final entry, triggering Grafana timeout alerts.
 log_telemetry "STARTUP" "IN_PROGRESS" "Engine B deployment started. RUN_ID: $RUN_ID"
+notify "STARTUP" "IN_PROGRESS" "Engine B deployment started."
 
 # ── BULLETPROOF TRAP ──────────────────────────────────────────────────────────
 # The WIPE operation MUST execute first, unconditionally, before any telemetry.
@@ -169,6 +226,7 @@ trap '
     rm -f "$LOCKFILE"
     cp "$TEMPLATE_FILE" "$ENV_FILE" 2>/dev/null || true
     log_telemetry "CLEANUP" "${DEPLOY_STATUS:-FAILURE}" "Deployment ended. Secrets wiped from disk."
+    notify "CLEANUP" "${DEPLOY_STATUS:-FAILURE}" "Deployment ended. Secrets wiped from disk."
 ' EXIT
 
 echo "================================================================"
@@ -195,6 +253,7 @@ echo "[Security] Preparing Secure Environment..."
 if [ ! -f "$TEMPLATE_FILE" ]; then
     echo "CRITICAL: $TEMPLATE_FILE missing! Cannot fetch secrets."
     log_telemetry "INFISICAL_INJECTION" "FAILURE" "Missing .env.template file."
+    notify "INFISICAL_INJECTION" "FAILURE" "Missing .env.template file."
     exit 1
 fi
 cp "$TEMPLATE_FILE" "$ENV_FILE"
@@ -214,6 +273,11 @@ EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 0 ] && [ -s "$TEMP_SECRETS" ] && ! grep -qE "arrow keys|Select project|login" "$TEMP_SECRETS"; then
     cat "$TEMP_SECRETS" | sed 's/\r//g' | sed -E "s/='(.*)'$/=\1/" | sed -E 's/="(.*)"$/=\1/' >> "$ENV_FILE"
+    
+    # Export Telegram notification variables to memory for the notify() function to consume even after .env wipe
+    export TELEGRAM_BOT_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
+    export TELEGRAM_CHAT_ID=$(grep -E '^TELEGRAM_CHAT_ID=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
+    
     echo "  > Secrets successfully injected into transient memory."
     rm "$TEMP_SECRETS"
     log_telemetry "INFISICAL_INJECTION" "SUCCESS" "Secrets injected from Infisical vault into transient .env."
@@ -222,18 +286,23 @@ else
     echo "Aborting deployment to prevent 401 Unauthorized cascade."
     rm "$TEMP_SECRETS"
     log_telemetry "INFISICAL_INJECTION" "FAILURE" "Infisical export failed. Aborting to prevent 401 cascade."
+    notify "INFISICAL_INJECTION" "FAILURE" "Infisical export failed. Aborting to prevent 401 cascade."
     exit 1
 fi
 
 sudo -n chown $(id -u):$(id -g) .env 2>/dev/null || true
 
 # --- 2. MEMORY RECOVERY & DNS HEALING ---
+echo "[System] Aggressive build cache cleanup (preventing disk exhaustion)..."
+docker image prune -f
+docker builder prune --filter until=24h -f
+log_telemetry "CACHE_CLEANUP" "SUCCESS" "Build cache pruned. $(docker system df --format 'table {{.Type}}\t{{.Size}}\t{{.Reclaimable}}' 2>/dev/null | tail -n +2 | tr '\n' '|')"
+
 echo "[System] Executing Non-Disruptive OS Memory Recovery..."
 sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
 sudo -n sysctl -w vm.max_map_count=262144 > /dev/null
 sudo -n sysctl -w net.ipv6.conf.all.disable_ipv6=1 > /dev/null
 
-docker builder prune --filter until=168h -f
 export GOMAXPROCS=1
 export DOCKER_BUILDKIT=1
 
@@ -248,21 +317,32 @@ fi
 log_telemetry "GHOST_PRUNE" "SUCCESS" "Dead container ghost metadata purged."
 
 echo "[Docker] Executing Non-Disruptive State Healing..."
-docker compose rm -f -v || true
+docker compose rm -f || true
 
 echo "[Docker] Applying Staggered Infrastructure Ignition (Preventing I/O Storm)..."
 log_telemetry "STAGGERED_IGNITION" "IN_PROGRESS" "Beginning staggered container ignition sequence."
 
-docker compose up -d --build --no-deps treishvaam-redis redis backup-service
+docker compose up -d --no-deps treishvaam-redis redis backup-service
 sleep 3
 
-docker compose up -d --build --no-deps wazuh-manager aegis-canary-server
+docker compose up -d --no-deps wazuh-manager aegis-canary-server
 sleep 3
 
-docker compose up -d --build --no-deps elasticsearch
+docker compose up -d --no-deps elasticsearch
 sleep 3
 
-docker compose up -d --build --no-deps aegis-zkp-service
+ZKP_HASH=$(find ./aegis/zkp-service -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | awk '{print $1}' || echo "unknown")
+ZKP_LAST_SHA_FILE="/opt/treishvaam/.zkp_last_built_sha"
+ZKP_LAST_SHA=$(cat "$ZKP_LAST_SHA_FILE" 2>/dev/null || echo "none")
+
+if [ "$ZKP_HASH" = "$ZKP_LAST_SHA" ] && [ "$ZKP_HASH" != "unknown" ]; then
+    echo "[Docker] ZKP service unchanged (Hash: $ZKP_HASH). Skipping rebuild."
+    docker compose up -d --no-deps aegis-zkp-service
+else
+    echo "[Docker] ZKP service changed. Rebuilding Go binary..."
+    docker compose up -d --build --no-deps aegis-zkp-service
+    echo "$ZKP_HASH" > "$ZKP_LAST_SHA_FILE"
+fi
 sleep 3
 
 docker compose up -d --build
@@ -271,14 +351,56 @@ sleep 3
 log_telemetry "STAGGERED_IGNITION" "SUCCESS" "Staggered infrastructure ignition complete."
 
 echo "[Docker] Surgically cycling application tier to consume updated artifacts & secrets..."
-docker compose up -d --force-recreate --no-deps backend
+docker compose up -d --force-recreate --no-deps --scale backend=1 backend
 sleep 5
 
 docker compose up -d --force-recreate --no-deps nginx envoy-sidecar
-log_telemetry "APPLICATION_TIER" "SUCCESS" "Backend, nginx, and envoy-sidecar force-recreated."
+log_telemetry "APPLICATION_TIER" "SUCCESS" "Backend (1 replica), nginx, and envoy-sidecar force-recreated."
 
 echo "[System] Stabilizing application layer (Waiting 10s)..."
 sleep 10
+
+# --- 3.5 POST-DEPLOYMENT HEALTH VERIFICATION ---
+echo "[Health] Verifying deployment health..."
+log_telemetry "HEALTH_CHECK" "IN_PROGRESS" "Polling container health states..."
+
+UNHEALTHY_CONTAINERS=""
+for container in treishvaam-db treishvaam-redis treishvaam-elastic treishvaam-rabbitmq; do
+    STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$container" 2>/dev/null || echo "missing")
+    if [ "$STATUS" != "healthy" ] && [ "$STATUS" != "none" ]; then
+        UNHEALTHY_CONTAINERS="$UNHEALTHY_CONTAINERS $container($STATUS)"
+    fi
+done
+
+BACKEND_HEALTHY=false
+for i in $(seq 1 8); do
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 5 http://localhost/actuator/health 2>/dev/null || echo "000")
+    if [ "$HTTP_CODE" = "200" ]; then
+        BACKEND_HEALTHY=true
+        break
+    fi
+    echo "  > Backend health check attempt $i/8 — HTTP $HTTP_CODE. Waiting 15s..."
+    sleep 15
+done
+
+if [ "$BACKEND_HEALTHY" = "false" ]; then
+    log_telemetry "HEALTH_CHECK" "FAILURE" "Backend /actuator/health not responding after 120s. Containers:${UNHEALTHY_CONTAINERS}"
+    notify "HEALTH_CHECK" "FAILURE" "Backend /actuator/health not responding. Unhealthy:${UNHEALTHY_CONTAINERS}"
+    DEPLOY_STATUS="FAILURE"
+else
+    log_telemetry "HEALTH_CHECK" "SUCCESS" "Backend healthy. Container states verified."
+    
+    echo "[Docker] Scaling backend safely to 2 replicas..."
+    docker compose up -d --scale backend=2 backend
+    
+    if [ -n "$UNHEALTHY_CONTAINERS" ]; then
+        log_telemetry "HEALTH_CHECK" "WARNING" "Some infrastructure containers not healthy:${UNHEALTHY_CONTAINERS}"
+        notify "HEALTH_CHECK" "WARNING" "Backend healthy but infra containers warn:${UNHEALTHY_CONTAINERS}"
+    else
+        notify "HEALTH_CHECK" "SUCCESS" "All systems healthy. Deployment confirmed live."
+    fi
+    DEPLOY_STATUS="SUCCESS"
+fi
 
 # --- 4. SECURITY WIPE (Flash & Wipe) ---
 echo "[Security] Wiping secrets from disk..."
@@ -286,10 +408,7 @@ echo "[Security] Wiping secrets from disk..."
 cp "$TEMPLATE_FILE" "$ENV_FILE"
 echo "  > SECURE WIPE COMPLETE. .env restored to template baseline."
 
-docker image prune -f
-
-DEPLOY_STATUS="SUCCESS"
-log_telemetry "COMPLETION" "SUCCESS" "Deployment complete. All services updated. Secrets wiped."
+log_telemetry "COMPLETION" "${DEPLOY_STATUS}" "Deployment sequence finished."
 
 echo "[$(date)] ✅ Intelligent Rebuild & Deployment Complete."
 echo "================================================================"
