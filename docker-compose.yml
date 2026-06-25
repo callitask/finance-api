@@ -130,11 +130,10 @@
 #  * • Failure Mode: Legacy Python 2.7 dotenv parsers interpret literal double quotes as part of the string, which corrupts the Base64 keys and fails regex validation, triggering the 'Required setting not defined' error loop.
 #  * • Future AI Warning: NEVER use explicit quotes (`""` or `''`) around `%s` in the Canary entrypoint block. It must remain pure, raw strings for compatibility.
 #  *
-#  * - EDITED (CI/CD Remediation - Phase 3 Hardening & Canary Diagnostics):
-#  * • Flaw 12: Enforced `treishvaam-wazuh-manager` memory limit reduction to 512M to free 256MB overhead and prevent GitHub Runner connection drops.
-#  * • Flaw 13: Enforced `update_config` for the `backend` service with rolling replacement (`parallelism: 1`, `delay: 30s`) to prevent OOM spikes during rebuilds.
-#  * • Canary Fix: Replaced `printf` with basic `echo` commands without quotes to satisfy Python 2.7. 
-#  * • Canary Diagnostics: Injected `pwd`, `ls -la`, and `cat switchboard.env` into the entrypoint before `exec twistd`. This forces a diagnostic dump to `docker logs aegis-canary-server` so we can visually inspect formatting corruption or WORKDIR errors before it crashes.
+#  * - EDITED (CI/CD Remediation - Phase 3 Hardening & Canary Crash Resolution):
+#  * • Removed custom `entrypoint` block entirely from `aegis-canary-server`. Native Docker Compose `environment:` injection correctly passes variables to the vendor's internal OS context. Generating a physical `.env` file via Windows checkout introduced CRLF (\r) characters, which the legacy Python parser choked on, falsely reporting the key as undefined.
+#  * • Reduced memory limits and JVM Heaps aggressively across the stack: Elasticsearch (384M, 192m heap), Wazuh Manager (384M), Backend (512M, 256m heap).
+#  * • Reason: The 4.8GB host VM was thrashing 1GB of Swap during the `docker-compose up` wave, causing severe Disk I/O wait. This starved the GitHub Actions runner agent of CPU, causing it to drop offline and fail the CI pipeline prematurely.
 #  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
@@ -311,26 +310,6 @@ services:
     image: thinkst/canarytokens:v2_latest
     container_name: aegis-canary-server
     restart: always
-    entrypoint:
-      - sh
-      - -c
-      - |
-        if [ -z "$$WG_PRIVATE_KEY_SEED" ]; then echo "FATAL: WG_PRIVATE_KEY_SEED is empty!" >&2; exit 1; fi
-        echo "CANARY_DOMAINS=$$CANARY_DOMAINS" > switchboard.env
-        echo "CANARY_PUBLIC_DOMAIN=$$CANARY_PUBLIC_DOMAIN" >> switchboard.env
-        echo "CANARY_NXDOMAINS=$$CANARY_NXDOMAINS" >> switchboard.env
-        echo "WG_PRIVATE_KEY_SEED=$$WG_PRIVATE_KEY_SEED" >> switchboard.env
-        echo "CANARY_SECRET_KEY=$$CANARY_SECRET_KEY" >> switchboard.env
-        cp switchboard.env frontend.env
-        cp switchboard.env .env
-        echo "=== DIAGNOSTIC DUMP: PWD ==="
-        pwd
-        echo "=== DIAGNOSTIC DUMP: LS -LA ==="
-        ls -la
-        echo "=== DIAGNOSTIC DUMP: switchboard.env ==="
-        cat switchboard.env
-        echo "========================================"
-        exec twistd -noy frontend.tac
     networks:
       - treish_net
     environment:
@@ -377,7 +356,7 @@ services:
       - treish_net
     environment:
       - discovery.type=single-node
-      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
+      - "ES_JAVA_OPTS=-Xms192m -Xmx192m"
       - xpack.security.enabled=true
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - xpack.security.enrollment.enabled=false
@@ -388,7 +367,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 384M
     healthcheck:
       test: [ "CMD-SHELL", "curl -u elastic:$$ELASTIC_PASSWORD -s http://localhost:9200/_cluster/health | grep -E -q 'status.*(green|yellow)'" ]
       interval: 20s
@@ -448,7 +427,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 384M
     healthcheck:
       test: ["CMD-SHELL", "/var/ossec/bin/wazuh-control status | grep 'wazuh-remoted is running' || exit 1"]
       interval: 15s
@@ -541,7 +520,7 @@ services:
       - AUDIT_IP_ENCRYPTION_KEY=${AUDIT_IP_ENCRYPTION_KEY}
       - AEGIS_DB_SIGNING_KEY=${AEGIS_DB_SIGNING_KEY}
       - AEGIS_EDGE_SECRET=${AEGIS_EDGE_SECRET}
-      - JAVA_TOOL_OPTIONS=-Xmx512m -Xms256m
+      - JAVA_TOOL_OPTIONS=-Xmx256m -Xms256m
     volumes:
       - ./backend-app.war:/app/app.war
       - ./ga4-credentials.json:/app/ga4-credentials.json
@@ -566,7 +545,7 @@ services:
         delay: 10s
       resources:
         limits:
-          memory: 768M
+          memory: 512M
     depends_on:
       treishvaam-db:
         condition: service_healthy
