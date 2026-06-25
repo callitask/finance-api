@@ -87,6 +87,10 @@
 #     • Flaw 6: Introduced md5 hash-based change detection for aegis-zkp-service to prevent unnecessary Go rebuilds.
 #     • Flaw 8: Enhanced concurrency lock with PID name verification and 2-hour maximum age timeout.
 #     • Flaw 13: Scaled backend to 1 replica during deployment, scaling to 2 after health check to prevent VirtualBox OOM.
+#
+#   - EDITED (CI/CD Remediation - Engine B Timeout Hotfix):
+#     • Increased the `/actuator/health` polling loop from 8 attempts (120s) to 15 attempts (225s).
+#     • Reason: The JVM `backend` container requires a 160s `start_period` on the 4.8GB swapped VM. The previous 120s timeout caused Engine B to prematurely abort deployments and emit `FAILURE` telemetry before the JVM could finish igniting.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -373,18 +377,18 @@ for container in treishvaam-db treishvaam-redis treishvaam-elastic treishvaam-ra
 done
 
 BACKEND_HEALTHY=false
-for i in $(seq 1 8); do
+for i in $(seq 1 15); do
     HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 5 http://localhost/actuator/health 2>/dev/null || echo "000")
     if [ "$HTTP_CODE" = "200" ]; then
         BACKEND_HEALTHY=true
         break
     fi
-    echo "  > Backend health check attempt $i/8 — HTTP $HTTP_CODE. Waiting 15s..."
+    echo "  > Backend health check attempt $i/15 — HTTP $HTTP_CODE. Waiting 15s..."
     sleep 15
 done
 
 if [ "$BACKEND_HEALTHY" = "false" ]; then
-    log_telemetry "HEALTH_CHECK" "FAILURE" "Backend /actuator/health not responding after 120s. Containers:${UNHEALTHY_CONTAINERS}"
+    log_telemetry "HEALTH_CHECK" "FAILURE" "Backend /actuator/health not responding after 225s. Containers:${UNHEALTHY_CONTAINERS}"
     notify "HEALTH_CHECK" "FAILURE" "Backend /actuator/health not responding. Unhealthy:${UNHEALTHY_CONTAINERS}"
     DEPLOY_STATUS="FAILURE"
 else
