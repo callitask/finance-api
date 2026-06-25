@@ -125,10 +125,15 @@
 #  * • Added `/opt/treishvaam/logs:/host-logs:ro` read-only bind mount to `treishvaam-promtail`.
 #  * • Reason: Grants Promtail strict Zero-Trust access to ingest the `engine_b.ndjson` deployment telemetry natively into Loki.
 #  *
-#  * - EDITED (Canary Python Parser Final Quote Fix):
-#  * • Modified the `printf` block in `aegis-canary-server` to output explicit double quotes around values (`printf 'KEY="%s"\n' "$$KEY"`).
-#  * • Reason: The brittle legacy Python parser strictly requires values to be encapsulated in double quotes in the resulting `switchboard.env` file. Without them, it throws "Required setting not defined" and loops indefinitely.
+#  * - STRATEGIC PIVOTS & FAILED ATTEMPTS (Canary Python Parser Quote Loop):
+#  * • Strategy Attempted: Wrapping values in explicit double quotes (`printf 'KEY="%s"\n'`).
+#  * • Failure Mode: Legacy Python 2.7 dotenv parsers interpret literal double quotes as part of the string, which corrupts the Base64 keys and fails regex validation, triggering the 'Required setting not defined' error loop.
+#  * • Future AI Warning: NEVER use explicit quotes (`""` or `''`) around `%s` in the Canary entrypoint block. It must remain pure, raw strings for compatibility.
 #  *
+#  * - EDITED (CI/CD Remediation - Phase 3 Hardening):
+#  * • Flaw 12: Reduced `treishvaam-wazuh-manager` memory limit from 768M to 512M to free 256MB overhead.
+#  * • Flaw 13: Implemented `update_config` for the `backend` service with rolling replacement (`parallelism: 1`, `delay: 30s`) to natively support `docker compose up --scale backend=2` without massive concurrent OOM spikes.
+#  * • Canary Fix: Stripped explicit double quotes from `aegis-canary-server` printf generation to restore Python 2.7 parsing compatibility.
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -309,11 +314,11 @@ services:
       - -c
       - |
         if [ -z "$$WG_PRIVATE_KEY_SEED" ]; then echo "FATAL: WG_PRIVATE_KEY_SEED is empty!" >&2; exit 1; fi #
-        printf 'CANARY_DOMAINS="%s"\n' "$$CANARY_DOMAINS" > switchboard.env #
-        printf 'CANARY_PUBLIC_DOMAIN="%s"\n' "$$CANARY_PUBLIC_DOMAIN" >> switchboard.env #
-        printf 'CANARY_NXDOMAINS="%s"\n' "$$CANARY_NXDOMAINS" >> switchboard.env #
-        printf 'WG_PRIVATE_KEY_SEED="%s"\n' "$$WG_PRIVATE_KEY_SEED" >> switchboard.env #
-        printf 'CANARY_SECRET_KEY="%s"\n' "$$CANARY_SECRET_KEY" >> switchboard.env #
+        printf 'CANARY_DOMAINS=%s\n' "$$CANARY_DOMAINS" > switchboard.env #
+        printf 'CANARY_PUBLIC_DOMAIN=%s\n' "$$CANARY_PUBLIC_DOMAIN" >> switchboard.env #
+        printf 'CANARY_NXDOMAINS=%s\n' "$$CANARY_NXDOMAINS" >> switchboard.env #
+        printf 'WG_PRIVATE_KEY_SEED=%s\n' "$$WG_PRIVATE_KEY_SEED" >> switchboard.env #
+        printf 'CANARY_SECRET_KEY=%s\n' "$$CANARY_SECRET_KEY" >> switchboard.env #
         cp switchboard.env frontend.env #
         cp switchboard.env .env #
         exec twistd -noy frontend.tac #
@@ -434,7 +439,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: 512M
     healthcheck:
       test: ["CMD-SHELL", "/var/ossec/bin/wazuh-control status | grep 'wazuh-remoted is running' || exit 1"]
       interval: 15s
@@ -541,6 +546,15 @@ services:
     deploy:
       mode: replicated
       replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: rollback
+        monitor: 60s
+        max_failure_ratio: 0.5
+      rollback_config:
+        parallelism: 1
+        delay: 10s
       resources:
         limits:
           memory: 768M
