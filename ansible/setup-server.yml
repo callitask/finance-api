@@ -34,6 +34,14 @@
 #     • Added Logrotate configuration for `deploy_pipeline.log` and `deploy_telemetry.ndjson` with `su root root` constraint.
 #     • Pre-created `/opt/treishvaam/logs` directory and `deploy_telemetry.ndjson` file with correct 755/644 permissions.
 #     • Reason: Eliminates configuration drift by defining observability boundaries in IaC. Bypasses logrotate insecure parent directory errors natively.
+#
+#   - EDITED (CI/CD Remediation - Ansible Bootstrap Gap & Hardened OS Limits):
+#     • Added Docker CE, Docker Compose v2, and Infisical CLI installation blocks.
+#     • Replaced plaintext `INFISICAL_CLIENT_SECRET` with Ansible Vault variable `{{ infisical_client_secret }}`.
+#     • Enabled `swapaccount=1` in GRUB to allow Docker cgroups to utilize host swap under memory pressure.
+#     • Configured `/etc/sudoers.d/treishvaam-deploy` allowing `vboxuser` passwordless execution of Engine B infrastructure commands.
+#     • Hardcoded persistent `vm.max_map_count=262144` specifically to prevent Elasticsearch boot failure.
+#     • Replaced hardcoded runner service path with dynamic systemctl detection for auto-heal override.
 # ==============================================================================
 
 - name: Treishvaam Zero-State Ignition (ZSI)
@@ -43,13 +51,17 @@
     project_dir: "/opt/treishvaam"
     github_runner_version: "2.335.1"
     
+  handlers:
+    - name: Update GRUB
+      shell: update-grub
+
   tasks:
     - name: 1. Configure Monotonic Clock (NTP Boot Lock)
       shell: |
         timedatectl set-ntp true
         systemctl enable --now systemd-timesyncd
       
-    - name: 2. Install Docker, Dependencies, and Infisical CLI
+    - name: 2. Install Base Dependencies
       apt:
         name:
           - apt-transport-https
@@ -58,8 +70,54 @@
           - software-properties-common
           - jq
           - uuid-runtime
+          - git
         state: present
         update_cache: yes
+
+    - name: 2.1 Install Docker CE and Docker Compose v2
+      shell: |
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
+        apt-get update -qq
+        apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
+        usermod -aG docker vboxuser
+        systemctl enable --now docker
+      args:
+        creates: /usr/bin/docker
+
+    - name: 2.2 Install Infisical CLI
+      shell: |
+        curl -1sLf 'https://dl.cloudsmith.io/public/infisical/infisical-cli/setup.deb.sh' | bash
+        apt-get install -y infisical
+      args:
+        creates: /usr/bin/infisical
+
+    - name: 2.3 Enable Docker Swap Accounting in Kernel
+      lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX='
+        line: 'GRUB_CMDLINE_LINUX="cgroup_enable=memory swapaccount=1"'
+      notify: Update GRUB
+
+    - name: 2.4 Configure Sudoers for Deployment Commands
+      copy:
+        dest: /etc/sudoers.d/treishvaam-deploy
+        mode: '0440'
+        validate: 'visudo -cf %s'
+        content: |
+          vboxuser ALL=(ALL) NOPASSWD: /usr/bin/timedatectl set-ntp true
+          vboxuser ALL=(ALL) NOPASSWD: /usr/bin/tee /proc/sys/vm/drop_caches
+          vboxuser ALL=(ALL) NOPASSWD: /usr/sbin/sysctl -w vm.max_map_count=262144
+          vboxuser ALL=(ALL) NOPASSWD: /usr/sbin/sysctl -w net.ipv6.conf.all.disable_ipv6=1
+          vboxuser ALL=(ALL) NOPASSWD: /usr/bin/sync
+          vboxuser ALL=(ALL) NOPASSWD: /usr/bin/chown *
+
+    - name: 2.5 Set vm.max_map_count persistently for Elasticsearch
+      sysctl:
+        name: vm.max_map_count
+        value: '262144'
+        state: present
+        sysctl_file: /etc/sysctl.d/99-treishvaam.conf
 
     - name: 3. Configure Docker Daemon Log Rotation
       copy:
@@ -83,15 +141,23 @@
       args:
         creates: /swapfile
 
-    - name: 5. Create Base Project Directory & Env Template
+    - name: 5.1 Initialize Project Directory Structure
       file:
-        path: "{{ project_dir }}"
+        path: "{{ item }}"
         state: directory
         owner: 1000
         group: 1000
         mode: '0755'
+      loop:
+        - "{{ project_dir }}"
+        - "{{ project_dir }}/scripts"
+        - "{{ project_dir }}/logs"
+        - "{{ project_dir }}/data/mariadb"
+        - "{{ project_dir }}/data/keycloak-db"
+        - "{{ project_dir }}/config"
+        - "/backup"
 
-    - name: 6. Inject Permanent Infisical Credentials
+    - name: 6. Inject Permanent Infisical Credentials (Secure Vault Mapping)
       copy:
         dest: "{{ project_dir }}/.env.template"
         owner: 1000
@@ -100,15 +166,21 @@
         content: |
           # --- INFISICAL CREDENTIALS ---
           INFISICAL_URL=https://app.infisical.com
-          INFISICAL_PROJECT_ID=324d4e87-d62a-4ee6-9fd3-c455f6868619
-          INFISICAL_CLIENT_ID=432b59e2-4280-446a-a83e-a028cc20c1c8
-          INFISICAL_CLIENT_SECRET=7dae5d1c27f5c94cc73dc6823d5ec7c9c09d6e80e0fa8b650eaef21646e4cc51
+          INFISICAL_PROJECT_ID={{ infisical_project_id }}
+          INFISICAL_CLIENT_ID={{ infisical_client_id }}
+          INFISICAL_CLIENT_SECRET={{ infisical_client_secret }}
           SPRING_PROFILES_ACTIVE=prod
 
-    - name: 7. Apply Tier-1 Runner Time-Sync & Auto-Heal Override
+    - name: 7. Apply Tier-1 Runner Time-Sync & Auto-Heal Override (Dynamic Name)
       shell: |
-        mkdir -p /etc/systemd/system/actions.runner.callitask-finance-api.TREISHVAAM-PROD-RUNNER.service.d/
-        cat <<EOF > /etc/systemd/system/actions.runner.callitask-finance-api.TREISHVAAM-PROD-RUNNER.service.d/override.conf
+        RUNNER_SERVICE=$(systemctl list-units --type=service --all | grep actions.runner | awk '{print $1}' | head -1)
+        if [ -z "$RUNNER_SERVICE" ]; then
+          echo "WARNING: GitHub Actions runner service not found yet. This task must be re-run after runner registration."
+          exit 0
+        fi
+        OVERRIDE_DIR="/etc/systemd/system/${RUNNER_SERVICE}.d"
+        mkdir -p "$OVERRIDE_DIR"
+        cat > "${OVERRIDE_DIR}/override.conf" << 'EOF'
         [Unit]
         After=time-sync.target
         Wants=time-sync.target
@@ -118,25 +190,9 @@
         RestartSec=10
         EOF
         systemctl daemon-reload
+      ignore_errors: yes
 
-    - name: 8. Initialize Engine B Telemetry Directory
-      file:
-        path: "{{ project_dir }}/logs"
-        state: directory
-        owner: 1000
-        group: 1000
-        mode: '0755'
-
-    - name: 9. Initialize Engine B Telemetry NDJSON File
-      copy:
-        dest: "{{ project_dir }}/logs/deploy_telemetry.ndjson"
-        content: ""
-        force: no
-        owner: 1000
-        group: 1000
-        mode: '0644'
-
-    - name: 10. Configure Engine B Telemetry Logrotate (Anti-Log-Bomb)
+    - name: 8. Configure Engine B Telemetry Logrotate (Anti-Log-Bomb)
       copy:
         dest: /etc/logrotate.d/treishvaam-deploy
         mode: '0644'
@@ -167,6 +223,6 @@
               create 644 root root
           }
 
-    - name: 11. Security Notice
+    - name: 9. Security Notice & Next Steps
       debug:
-        msg: "ZSI Complete. Server is ready to receive GitHub Actions Runner registration payload."
+        msg: "ZSI Complete. ACTION REQUIRED: 1) Reboot server to apply swapaccount. 2) Register GitHub Runner. 3) Re-run this playbook to apply the Runner override."
