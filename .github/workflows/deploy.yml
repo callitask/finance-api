@@ -99,6 +99,10 @@
 #  * - EDITED (CI/CD Remediation - Engine A Polling):
 #  * • Injected a 5-minute polling loop to actively monitor `deploy_telemetry.ndjson`.
 #  * • Reason: Prevented Engine A from exiting with a false-positive green tick while Engine B was still executing or failing blindly in the background. CI job now accurately reflects final deployment status.
+#  *
+#  * - EDITED (CI/CD Remediation - Engine A Polling Timeout Extension):
+#  * • Modified `MAX_WAIT` from 300 to 900 (15 minutes).
+#  * • Why: Staggered ignition of 22 containers on a swap-heavy 4.8GB VM takes ~8 minutes. The 5-minute timeout caused a false-positive red cross in GitHub Actions while deployments succeeded in the background. Extended window accommodates full sequence.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -229,12 +233,12 @@ jobs:
         nohup ./scripts/auto_deploy.sh --force > /opt/treishvaam/deploy_pipeline.log 2>&1 &
         echo "--> Watchdog detached successfully. The server will safely reboot the stack in the background."
 
-    - name: Poll Engine B Deployment Status (5-min window)
+    - name: Poll Engine B Deployment Status (15-min window)
       run: |
-        echo "⏳ Polling Engine B deployment status (max 5 minutes)..."
+        echo "⏳ Polling Engine B deployment status (max 15 minutes)..."
         TELEMETRY_FILE="/opt/treishvaam/logs/deploy_telemetry.ndjson"
         # Capture the Run ID emitted by Engine B (it's the most recent IN_PROGRESS event)
-        MAX_WAIT=300
+        MAX_WAIT=900
         ELAPSED=0
         POLL_INTERVAL=15
         
@@ -260,7 +264,7 @@ jobs:
           ELAPSED=$((ELAPSED + POLL_INTERVAL))
         done
         
-        echo "⚠️ Engine B did not report a terminal status within 5 minutes."
+        echo "⚠️ Engine B did not report a terminal status within 15 minutes."
         echo "This likely means Engine B is still running (slow container startup) or was silently killed."
         echo "Check: /opt/treishvaam/deploy_pipeline.log on the server."
         # Exit 0 here (don't fail the CI job) — the Dead Man's Switch in Grafana handles the alert
