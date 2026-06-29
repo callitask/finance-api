@@ -92,9 +92,10 @@
 #     • Increased the `/actuator/health` polling loop from 8 attempts (120s) to 15 attempts (225s).
 #     • Reason: The JVM `backend` container requires a 160s `start_period` on the 4.8GB swapped VM. The previous 120s timeout caused Engine B to prematurely abort deployments and emit `FAILURE` telemetry before the JVM could finish igniting.
 #
-#   - EDITED (Remediation Hardening - Infisical False Positive Fix):
-#     • Replaced loose string evaluation with strict shell exit code validation ($?) for `infisical login`.
-#     • Integrated strict POSIX grep validation ('=') on the temporary secrets file to prevent text-based CLI update notices from passing as valid secret payloads.
+#   - EDITED (Remediation Hardening - Infisical Stateless Identity Fix):
+#     • Replaced `infisical login` stateful expectations with direct stateless JWT token extraction via `grep -oE 'eyJ...'`.
+#     • Exported `INFISICAL_TOKEN` natively to memory to bypass the CLI's broken file-cache dependency for Machine Identities.
+#     • Prevented export `EOF` (`^D`) prompt failures by feeding the token directly into the export process.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -271,22 +272,29 @@ export INFISICAL_CLIENT_ID=$(grep -E '^INFISICAL_CLIENT_ID=' "$ENV_FILE" | cut -
 export INFISICAL_CLIENT_SECRET=$(grep -E '^INFISICAL_CLIENT_SECRET=' "$ENV_FILE" | cut -d '=' -f2 | tr -d " \"'\r")
 
 echo "[Security] Authenticating with Infisical..."
+export INFISICAL_DISABLE_UPDATE_CHECK=true
 rm -f "$HOME/.infisical/.infisical.json" 2>/dev/null || true
 
-# Strict exit code validation for login
-infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --domain="https://app.infisical.com" --silent 2>>"$LOG_FILE"
-LOGIN_EXIT_CODE=$?
+# ── STATELESS JWT EXTRACTION ─────────────────────────────────────────────────
+# Universal Auth does not save session files automatically. We must grab the JWT
+# token directly from stdout utilizing strict regex matching for the eyJ header.
+set +x
+RAW_TOKEN=$(infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --domain="https://app.infisical.com" --silent 2>/dev/null | grep -oE 'eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+' | head -n 1 || true)
+set -x
 
-if [ $LOGIN_EXIT_CODE -ne 0 ]; then
-    echo "CRITICAL ERROR: Infisical authentication failed (Exit Code: $LOGIN_EXIT_CODE)."
-    echo "Aborting deployment. Check your Client ID and Client Secret in .env.template."
-    log_telemetry "INFISICAL_INJECTION" "FAILURE" "Infisical login failed (401/403). Exit code: $LOGIN_EXIT_CODE."
+if [ -z "$RAW_TOKEN" ]; then
+    echo "CRITICAL ERROR: Infisical authentication failed. Could not extract JWT token."
+    echo "Aborting deployment to prevent a blind boot cascade."
+    log_telemetry "INFISICAL_INJECTION" "FAILURE" "Infisical login failed. Token extraction yielded empty string."
     notify "INFISICAL_INJECTION" "FAILURE" "Infisical login failed. Check template credentials."
     exit 1
 fi
 
+export INFISICAL_TOKEN="$RAW_TOKEN"
+
 TEMP_SECRETS=$(mktemp)
-infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --domain="https://app.infisical.com" --format dotenv > "$TEMP_SECRETS" 2>>"$LOG_FILE"
+# Inject the token natively into memory so the CLI does not ask for domain prompts
+infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$TEMP_SECRETS" 2>>"$LOG_FILE"
 EXPORT_EXIT_CODE=$?
 
 # Strict validation: Check export exit code AND enforce valid key=value presence
