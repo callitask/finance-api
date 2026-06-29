@@ -91,6 +91,10 @@
 #   - EDITED (CI/CD Remediation - Engine B Timeout Hotfix):
 #     • Increased the `/actuator/health` polling loop from 8 attempts (120s) to 15 attempts (225s).
 #     • Reason: The JVM `backend` container requires a 160s `start_period` on the 4.8GB swapped VM. The previous 120s timeout caused Engine B to prematurely abort deployments and emit `FAILURE` telemetry before the JVM could finish igniting.
+#
+#   - EDITED (Remediation Hardening - Infisical False Positive Fix):
+#     • Replaced loose string evaluation with strict shell exit code validation ($?) for `infisical login`.
+#     • Integrated strict POSIX grep validation ('=') on the temporary secrets file to prevent text-based CLI update notices from passing as valid secret payloads.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -269,13 +273,24 @@ export INFISICAL_CLIENT_SECRET=$(grep -E '^INFISICAL_CLIENT_SECRET=' "$ENV_FILE"
 echo "[Security] Authenticating with Infisical..."
 rm -f "$HOME/.infisical/.infisical.json" 2>/dev/null || true
 
-infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --domain="https://app.infisical.com" --silent 2>>"$LOG_FILE" || echo "  > Notice: Login command returned non-zero, checking export..."
+# Strict exit code validation for login
+infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --domain="https://app.infisical.com" --silent 2>>"$LOG_FILE"
+LOGIN_EXIT_CODE=$?
+
+if [ $LOGIN_EXIT_CODE -ne 0 ]; then
+    echo "CRITICAL ERROR: Infisical authentication failed (Exit Code: $LOGIN_EXIT_CODE)."
+    echo "Aborting deployment. Check your Client ID and Client Secret in .env.template."
+    log_telemetry "INFISICAL_INJECTION" "FAILURE" "Infisical login failed (401/403). Exit code: $LOGIN_EXIT_CODE."
+    notify "INFISICAL_INJECTION" "FAILURE" "Infisical login failed. Check template credentials."
+    exit 1
+fi
 
 TEMP_SECRETS=$(mktemp)
 infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --domain="https://app.infisical.com" --format dotenv > "$TEMP_SECRETS" 2>>"$LOG_FILE"
-EXIT_CODE=$?
+EXPORT_EXIT_CODE=$?
 
-if [ $EXIT_CODE -eq 0 ] && [ -s "$TEMP_SECRETS" ] && ! grep -qE "arrow keys|Select project|login" "$TEMP_SECRETS"; then
+# Strict validation: Check export exit code AND enforce valid key=value presence
+if [ $EXPORT_EXIT_CODE -eq 0 ] && grep -q "=" "$TEMP_SECRETS"; then
     cat "$TEMP_SECRETS" | sed 's/\r//g' | sed -E "s/='(.*)'$/=\1/" | sed -E 's/="(.*)"$/=\1/' >> "$ENV_FILE"
     
     # Export Telegram notification variables to memory for the notify() function to consume even after .env wipe
@@ -286,11 +301,11 @@ if [ $EXIT_CODE -eq 0 ] && [ -s "$TEMP_SECRETS" ] && ! grep -qE "arrow keys|Sele
     rm "$TEMP_SECRETS"
     log_telemetry "INFISICAL_INJECTION" "SUCCESS" "Secrets injected from Infisical vault into transient .env."
 else
-    echo "CRITICAL ERROR: Infisical authentication or export failed. Vault is empty."
-    echo "Aborting deployment to prevent 401 Unauthorized cascade."
+    echo "CRITICAL ERROR: Infisical export returned empty variables or update warnings."
+    echo "Aborting deployment to prevent a blind boot cascade."
     rm "$TEMP_SECRETS"
-    log_telemetry "INFISICAL_INJECTION" "FAILURE" "Infisical export failed. Aborting to prevent 401 cascade."
-    notify "INFISICAL_INJECTION" "FAILURE" "Infisical export failed. Aborting to prevent 401 cascade."
+    log_telemetry "INFISICAL_INJECTION" "FAILURE" "Infisical export stream blocked or contained no valid keys."
+    notify "INFISICAL_INJECTION" "FAILURE" "Infisical export returned invalid data."
     exit 1
 fi
 
