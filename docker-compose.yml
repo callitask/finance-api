@@ -151,6 +151,10 @@
 #  * Added `LOG_FILE: "canary.log"` to the environment block and expanded the grep filter to `grep -E "^(CANARY_|WG_|LOG_)"`.
 #  * Reason: The `thinkst/canarytokens` python script requires a defined `LOG_FILE`. If missing, the legacy settings parser defaults to an invalid type (a list), crashing the Twisted logging engine with `AttributeError: 'list' object has no attribute 'startswith'`. Explicit injection satisfies the internal filesystem router.
 #  *
+#  * - EDITED (Canary Zombie PID Crash Fix):
+#  * Added `rm -f twistd.pid` to the `aegis-canary-server` entrypoint.
+#  * Reason: Ungraceful host crashes leave orphaned `twistd.pid` files in the container's writable layer. Upon restart, the daemon falsely detects another instance running and commits suicide. Purging the PID file guarantees a clean boot state.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -338,6 +342,7 @@ services:
       - /bin/sh
       - -c
       - |
+        rm -f twistd.pid
         printenv | grep -E "^(CANARY_|WG_|LOG_)" | tr -d '\r' > switchboard.env
         cp switchboard.env frontend.env
         exec twistd -ny frontend.tac
