@@ -96,6 +96,10 @@
 #     • Replaced `infisical login` stateful expectations with direct stateless JWT token extraction via `grep -oE 'eyJ...'`.
 #     • Exported `INFISICAL_TOKEN` natively to memory to bypass the CLI's broken file-cache dependency for Machine Identities.
 #     • Prevented export `EOF` (`^D`) prompt failures by feeding the token directly into the export process.
+#
+#   - EDITED (Smart System Ghost Eradication Expansion - 2026-06-30):
+#     • Upgraded the Daemon Metadata Reconciliation block to capture both `status=dead` AND `status=created` containers simultaneously.
+#     • Reason: A previous ungraceful network crash left `aegis-zkp-service` physically locked in a `Created` limbo state, which bypassed the `dead` filter. This blocked subsequent rebuilds by hoarding internal DNS bindings. Extracting and mathematically purging both locked states via `$GHOST_NODES` guarantees absolute zero-state recovery without manual SSH intervention.
 # ==============================================================================
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -336,12 +340,13 @@ export DOCKER_BUILDKIT=1
 log_telemetry "MEMORY_RECOVERY" "SUCCESS" "OS memory recovery and sysctl tuning complete."
 
 # --- 3. SMART ZERO-DOWNTIME REBUILD (STAGGERED TO PREVENT SSH KERNEL LOCK) ---
-echo "[Docker] Reconciling Daemon Metadata..."
-if docker ps -a --filter "status=dead" | grep -q 'dead'; then
-    echo "  > Ghost containers detected. Purging corrupted metadata..."
-    docker rm -f $(docker ps -aq --filter "status=dead") 2>/dev/null || true
+echo "[Docker] Reconciling Daemon Metadata (Dead/Limbo state eradication)..."
+GHOST_NODES=$(docker ps -aq --filter "status=dead" --filter "status=created")
+if [ -n "$GHOST_NODES" ]; then
+    echo "  > Limbo containers detected. Purging corrupted metadata..."
+    docker rm -f $GHOST_NODES 2>/dev/null || true
 fi
-log_telemetry "GHOST_PRUNE" "SUCCESS" "Dead container ghost metadata purged."
+log_telemetry "GHOST_PRUNE" "SUCCESS" "Dead/Limbo container ghost metadata purged."
 
 echo "[Docker] Executing Non-Disruptive State Healing..."
 docker compose rm -f || true

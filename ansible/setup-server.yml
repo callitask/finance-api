@@ -42,6 +42,14 @@
 #     • Configured `/etc/sudoers.d/treishvaam-deploy` allowing `vboxuser` passwordless execution of Engine B infrastructure commands.
 #     • Hardcoded persistent `vm.max_map_count=262144` specifically to prevent Elasticsearch boot failure.
 #     • Replaced hardcoded runner service path with dynamic systemctl detection for auto-heal override.
+#
+#   - EDITED (Stateless Auth Alignment - 2026-06-30):
+#     • Verified Vault Seed injection matrix against the new Stateless JWT Infisical architecture.
+#     • Reason: Ensures Zero-State Ignition (ZSI) natively supports the `engine-b-runner` Machine Identity credentials without polluting the template with legacy session parameters.
+#
+#   - EDITED (Smart System Ghost Eradication Alignment - 2026-06-30):
+#     • Validated playbook against the Phase 3 Orchestrator (Engine B) daemon reconciliation upgrades.
+#     • Reason: A "Smart System" architecture dictates that Engine A (Ansible ZSI) strictly handles pristine OS-level bootstrapping, while Engine B exclusively manages zero-downtime daemon states (including Dead/Created ghost purges). This separation of concerns prevents IaC from colliding with Docker's internal state machine.
 # ==============================================================================
 
 - name: Treishvaam Zero-State Ignition (ZSI)
