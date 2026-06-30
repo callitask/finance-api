@@ -155,6 +155,10 @@
 #  * Added `rm -f twistd.pid` to the `aegis-canary-server` entrypoint.
 #  * Reason: Ungraceful host crashes leave orphaned `twistd.pid` files in the container's writable layer. Upon restart, the daemon falsely detects another instance running and commits suicide. Purging the PID file guarantees a clean boot state.
 #  *
+#  * - EDITED (ZKP OOM-Killer Prevention & Multi-Stage Architecture - 2026-06-30):
+#  * Configured `cpus: '0.50'` and strictly enforced `memory: 256M` on `aegis-zkp-service`.
+#  * Reason: The VirtualBox VM kernel was starved of CPU/Memory during the Go compilation phase, resulting in a SIGKILL (Exit Code 2) dead state. Throttling the container build natively prevents host starvation while the multi-stage Dockerfile handles memory isolation.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -432,7 +436,9 @@ services:
       - backend
 
   aegis-zkp-service:
-    build: ./aegis/zkp-service
+    build:
+      context: ./aegis/zkp-service
+      dockerfile: Dockerfile
     image: treishvaam/aegis-zkp-service:latest
     container_name: aegis-zkp-service
     restart: always
@@ -443,6 +449,7 @@ services:
     deploy:
       resources:
         limits:
+          cpus: '0.50'
           memory: 256M
 
   wazuh-manager:

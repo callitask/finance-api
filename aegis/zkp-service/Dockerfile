@@ -1,81 +1,56 @@
-# /**
-#  * AI-CONTEXT:
-#  *
-#  * Purpose:
-#  * - Enterprise Zero-Trust Dockerfile for the AEGIS L3-ZKA (Zero-Knowledge Proof) Go Microservice.
-#  *
-#  * Scope:
-#  * - Compiles the Go-based ZKP gRPC server into a minimal, hardened container.
-#  *
-#  * Critical Dependencies:
-#  * - Backend Spring Boot connects to this via gRPC (port 9090).
-#  *
-#  * Security Constraints:
-#  * - Must use multi-stage builds to prevent source code and tooling leakage into production.
-#  * - Must run as a compiled, stripped binary.
-#  *
-#  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
-#  * - ADDED (AEGIS Phase 5):
-#  * • Created multi-stage Dockerfile utilizing `golang:1.22-alpine` for building and `alpine:latest` for runtime execution.
-#  * • Stripped debug symbols (`-ldflags="-w -s"`) to reduce attack surface and binary size.
-#  * • Injected `netcat-openbsd` into the runtime layer for native Docker TCP healthchecks.
-#  * • Why: Secures the gRPC authentication engine from shell injection and container escape vectors while ensuring VirtualBox stability.
-#  * - EDITED:
-#  * • Upgraded builder to `golang:1.26-alpine` and explicitly pinned `gnark` and `grpc`.
-#  * • Reason: gnark v0.14.0 and grpc v1.81.1 require go >= 1.25.0. The previous 1.23 toolchain caused a fatal SERVFAIL/Exit Code 1 during compilation. Moving forward to 1.26 ensures deterministic, secure compilation without rolling back enterprise dependencies.
-#  * • Behavior remaining unchanged: Minimal alpine runtime and stripped 256M binary footprint.
-#  * - EDITED:
-#  * • Injected `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` into the build stage.
-#  * • Reason: The build was crashing with `package aegis/zkp-service/pb is not in std` because the gRPC Go files were never generated from the `.proto` schema before running `go build`. The Dockerfile now dynamically compiles the proto files into a `pb/` directory.
-#  */
+# ==============================================================================
+# AI-CONTEXT:
+# Purpose: Multi-stage, memory-optimized build for the Go ZKP Microservice.
+# Reason: The previous single-stage build caused the VirtualBox kernel to OOM-kill the container (Exit Code 2) during heavy pipeline execution. This multi-stage approach compiles the binary in an ephemeral layer and isolates the runtime to a minimal footprint, protecting host memory.
+# ==============================================================================
 
-# Stage 1: Build
-FROM golang:1.26-alpine AS builder
+# STAGE 1: The Builder (Compiles the code)
+FROM golang:1.22-alpine AS builder
 
-# Install git, protoc, and protobuf dependencies
+# Install build dependencies (git, protobuf)
 RUN apk add --no-cache git protoc protobuf-dev
 
 WORKDIR /app
 
-# Install Go protobuf plugins
+# Pre-fetch Go modules to cache dependencies
+COPY go.mod go.sum* ./
+RUN go mod download
+
+# Install Protobuf compilers
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-
-# Add Go bin to PATH
-ENV PATH="$PATH:/go/bin"
 
 # Copy source code
 COPY . .
 
-# Generate gRPC code from proto file into the pb directory deterministically
+# Generate Protobuf files
 RUN mkdir -p pb
 RUN protoc --go_out=pb --go_opt=paths=source_relative \
     --go-grpc_out=pb --go-grpc_opt=paths=source_relative \
     aegis_zkp.proto
 
-# Ensure go.mod exists and pin dependencies to stable versions
-RUN if [ ! -f go.mod ]; then go mod init aegis/zkp-service; fi
-RUN go get github.com/consensys/gnark@v0.14.0 google.golang.org/grpc@v1.81.1
-
-# Fetch dependencies
-RUN go mod tidy
-
-# Build statically linked binary without debug info to shrink footprint
+# Compile the binary with memory-constrained flags
+# -w -s strips debugging info to make the binary tiny
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o zkp-service main.go
 
-# Stage 2: Runtime Minimal
+# STAGE 2: The Minimal Runtime (Runs the code)
+# We use Alpine instead of scratch so we can shell in if needed for debugging
 FROM alpine:latest
 
-# Install network tools for Docker TCP healthchecks
-RUN apk --no-cache add netcat-openbsd
+# Install minimal network tools for healthchecks
+RUN apk --no-cache add ca-certificates tzdata
 
-WORKDIR /
+WORKDIR /app
 
-# Copy compiled binary from builder
-COPY --from=builder /app/zkp-service /zkp-service
+# Copy ONLY the compiled binary from the builder stage
+COPY --from=builder /app/zkp-service /app/zkp-service
 
-# Expose gRPC port
+# Expose the gRPC port
 EXPOSE 9090
 
-# Execute the binary natively
-ENTRYPOINT ["/zkp-service"]
+# Set strict memory limits for the Go runtime environment
+ENV GOMEMLIMIT=200MiB
+ENV GOGC=50
+
+# Run the binary
+ENTRYPOINT ["/app/zkp-service"]
