@@ -50,6 +50,11 @@
 #   - EDITED (Smart System Ghost Eradication Alignment - 2026-06-30):
 #     • Validated playbook against the Phase 3 Orchestrator (Engine B) daemon reconciliation upgrades.
 #     • Reason: A "Smart System" architecture dictates that Engine A (Ansible ZSI) strictly handles pristine OS-level bootstrapping, while Engine B exclusively manages zero-downtime daemon states (including Dead/Created ghost purges). This separation of concerns prevents IaC from colliding with Docker's internal state machine.
+#
+#   - EDITED (CI/CD Remediation - Phase 4 Network & Observability Hardening):
+#     • Injected UFW firewall configuration to natively allow ports 22, 80, 443 and deny all others.
+#     • Injected observability aliases (watchdeploy, detstatus) into the vboxuser .bashrc.
+#     • Reason: Completes the final gaps from the CI/CD remediation report. Secures the host from unauthorized port access and provides zero-friction CLI observability tools for incident response without typing long paths.
 # ==============================================================================
 
 - name: Treishvaam Zero-State Ignition (ZSI)
@@ -230,6 +235,31 @@
               notifempty
               create 644 root root
           }
+
+    - name: 8.1 Configure UFW Firewall (Allow 22, 80, 443)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - '22'
+        - '80'
+        - '443'
+
+    - name: 8.2 Enable UFW with Default Deny
+      ufw:
+        state: enabled
+        policy: deny
+
+    - name: 8.3 Inject Observability Aliases into ~/.bashrc
+      blockinfile:
+        path: /home/vboxuser/.bashrc
+        owner: vboxuser
+        group: vboxuser
+        marker: "# {mark} TREISHVAAM OBSERVABILITY ALIASES"
+        content: |
+          alias watchdeploy='bash /opt/treishvaam/scripts/watch-deployment.sh'
+          alias detstatus='bash /opt/treishvaam/scripts/deployment-health-report.sh'
 
     - name: 9. Security Notice & Next Steps
       debug:

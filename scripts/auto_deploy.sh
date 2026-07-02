@@ -113,6 +113,10 @@
 #   - EDITED (Concurrency Double-Wipe Trap Fix - 2026-07-02):
 #     • Wrapped the EXIT trap logic in an `if [ "$OWNS_LOCK" = "true" ]` validation gate.
 #     • Reason: If a second `git push` occurred while a deployment was already running, the second instance of Engine B would hit the concurrency lock, gracefully exit, and trigger its own `EXIT` trap. This un-gated trap would wipe the `.env` file and delete the lockfile out from under the *actively running* first deployment, crashing the live production databases with `NOAUTH` blank passwords. Now, only the process that successfully claims the lock is permitted to wipe the vault.
+#
+#   - EDITED (Secret Integrity Gate - INC-20260702-02 NOAUTH Fix):
+#     • Injected a strict validation block checking for empty REDIS_PASSWORD and PROD_DB_PASSWORD immediately after Infisical extraction.
+#     • Reason: Prevents deployment from continuing if Infisical successfully connects but writes empty values (e.g. from an empty vault or manual SSH poisoning cycle), permanently eliminating the risk of baking blank passwords into the Docker daemon.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -335,6 +339,23 @@ if [ $EXPORT_EXIT_CODE -eq 0 ] && grep -q "=" "$TEMP_SECRETS"; then
     export TELEGRAM_BOT_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
     export TELEGRAM_CHAT_ID=$(grep -E '^TELEGRAM_CHAT_ID=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
     
+    # ── SECRET INTEGRITY GATE (ANTI-NOAUTH POISONING) ──────────────────────────
+    # Validates critical infrastructure secrets mathematically exist in memory.
+    # If they are blank, abort immediately before Docker touches them.
+    LOCAL_REDIS_PASS=$(grep -E '^REDIS_PASSWORD=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
+    LOCAL_DB_PASS=$(grep -E '^PROD_DB_PASSWORD=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
+
+    if [ -z "$LOCAL_REDIS_PASS" ] || [ -z "$LOCAL_DB_PASS" ]; then
+        echo "CRITICAL ERROR: Secret Integrity Gate Failed!"
+        echo "REDIS_PASSWORD or PROD_DB_PASSWORD evaluated as blank after Infisical export."
+        echo "Aborting deployment to prevent NOAUTH database lockout cascade."
+        rm -f "$TEMP_SECRETS"
+        log_telemetry "INFISICAL_INJECTION" "FAILURE" "Secret Integrity Gate failed: Critical passwords are blank."
+        notify "INFISICAL_INJECTION" "FAILURE" "Secret Integrity Gate failed. Blank passwords detected."
+        exit 1
+    fi
+    # ─────────────────────────────────────────────────────────────────────────────
+
     echo "  > Secrets successfully injected into transient memory."
     rm "$TEMP_SECRETS"
     log_telemetry "INFISICAL_INJECTION" "SUCCESS" "Secrets injected from Infisical vault into transient .env."
