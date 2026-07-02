@@ -105,12 +105,16 @@
 #     • Added 'set +e' at the top of the execution layer.
 #     • Removed the background '&' operator from the Telegram curl payload in notify().
 #     • Reason: GitHub Actions injects 'set -e' natively, which prematurely aborted Engine B on trivial Docker daemon warnings (like ghost reconciliation panics), halting the script in 31 seconds. The Telegram background request was failing because the EXIT trap killed the background curl process before network transmission could complete. Synchronizing the curl request ensures delivery.
+#
+#   - EDITED (Anti-Blind Boot Cascade Fix - 2026-07-02):
+#     • Retained `set +e` to survive ghost metadata warnings, but injected explicit exit code validation (`$?`) directly after `docker compose up -d --build`.
+#     • Reason: A Java OOM during the build phase previously crashed Maven (exit code 1). Because `set +e` was active, the script blindly continued into the application restart phase. Compounding this, the Git Runner canceled and wiped the `.env` file during the OOM thrash. This caused the script to inject blank passwords into the containers, resulting in a fatal NOAUTH redis loop and database lockout. Validating the build exit code forces a graceful, secure abort before the application layer is touched.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
 # GitHub Actions inherently executes shell scripts with set -e (Exit on Error).
-# This aggressively assassinates the orchestrator if Docker throws a non-fatal
-# warning. We MUST explicitly override this to permit graceful trap handling.
+# We MUST explicitly override this to prevent premature assassination on non-fatal
+# Docker daemon warnings. However, we MUST manually validate critical exit codes.
 set +e
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -204,7 +208,7 @@ Run: \`${RUN_ID}\`
 Detail: ${message}"
 
     if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
-        # Removed the background '&' parameter to ensure synchronous delivery before script exits
+        # Must be synchronous. No background '&' operator, so it finishes before trap closes.
         curl -s -m 10 -X POST \
             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
@@ -390,7 +394,19 @@ else
 fi
 sleep 3
 
+# ── EXPLICIT EXIT CODE VALIDATION (ANTI-BLIND BOOT CASCADE) ────────────────
+echo "[Docker] Building Application Images..."
 docker compose up -d --build
+BUILD_EXIT_CODE=$?
+
+if [ $BUILD_EXIT_CODE -ne 0 ]; then
+    echo "CRITICAL ERROR: Infrastructure build failed (Exit Code: $BUILD_EXIT_CODE)."
+    echo "Aborting deployment to prevent NOAUTH cascade and blind booting."
+    log_telemetry "STAGGERED_IGNITION" "FAILURE" "Docker compose build failed with exit code $BUILD_EXIT_CODE."
+    notify "STAGGERED_IGNITION" "FAILURE" "Infrastructure build failed (OOM/Syntax error). Aborting."
+    exit 1
+fi
+# ─────────────────────────────────────────────────────────────────────────────
 sleep 3
 
 log_telemetry "STAGGERED_IGNITION" "SUCCESS" "Staggered infrastructure ignition complete."
