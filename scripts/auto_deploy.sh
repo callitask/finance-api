@@ -100,7 +100,19 @@
 #   - EDITED (Smart System Ghost Eradication Expansion - 2026-06-30):
 #     • Upgraded the Daemon Metadata Reconciliation block to capture both `status=dead` AND `status=created` containers simultaneously.
 #     • Reason: A previous ungraceful network crash left `aegis-zkp-service` physically locked in a `Created` limbo state, which bypassed the `dead` filter. This blocked subsequent rebuilds by hoarding internal DNS bindings. Extracting and mathematically purging both locked states via `$GHOST_NODES` guarantees absolute zero-state recovery without manual SSH intervention.
+#
+#   - EDITED (GitHub Actions Strict Abort Override & Telegram Synchronous Fix):
+#     • Added 'set +e' at the top of the execution layer.
+#     • Removed the background '&' operator from the Telegram curl payload in notify().
+#     • Reason: GitHub Actions injects 'set -e' natively, which prematurely aborted Engine B on trivial Docker daemon warnings (like ghost reconciliation panics), halting the script in 31 seconds. The Telegram background request was failing because the EXIT trap killed the background curl process before network transmission could complete. Synchronizing the curl request ensures delivery.
 # ==============================================================================
+
+# ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
+# GitHub Actions inherently executes shell scripts with set -e (Exit on Error).
+# This aggressively assassinates the orchestrator if Docker throws a non-fatal
+# warning. We MUST explicitly override this to permit graceful trap handling.
+set +e
+# ─────────────────────────────────────────────────────────────────────────────
 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -192,12 +204,13 @@ Run: \`${RUN_ID}\`
 Detail: ${message}"
 
     if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+        # Removed the background '&' parameter to ensure synchronous delivery before script exits
         curl -s -m 10 -X POST \
             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "text=${text}" \
             -d "parse_mode=Markdown" \
-            >/dev/null 2>&1 &
+            >/dev/null 2>&1
     fi
 }
 
