@@ -6,10 +6,10 @@
 #  *
 #  * Scope:
 #  * - Triggers on pushes to main, staging, and develop, and runs weekly via cron.
-#  * - Executes Maven build on a self-hosted runner and deploys the WAR file.
+#  * - Executes Maven build on a self-hosted runner and delegates deployment asynchronously to `auto_deploy.sh`.
 #  *
 #  * Critical Dependencies:
-#  * - Backend: Compiles `finance-api.war` and delegates deployment asynchronously to `auto_deploy.sh`.
+#  * - Backend: Compiles `finance-api.war`.
 #  *
 #  * Security Constraints:
 #  * - Self-hosted runner environment constraints (memory limits).
@@ -90,19 +90,27 @@
 #  *
 #  * - EDITED (Process Decoupling & Zombie Prevention):
 #  * • Unset `RUNNER_TRACKING_ID` during the asynchronous execution of `auto_deploy.sh`.
-#  * • Why: Blinds the GitHub Actions native cleanup step. Previously, the runner was ruthlessly assassinating the deployment script mid-execution (specifically during Infisical secret injection), which left the backend containers trapped in a restart loop with blank environment variables.
+#  * • Why: Blinds the GitHub Actions native cleanup process. Previously, the runner was ruthlessly assassinating the deployment script mid-execution, leaving the backend containers trapped in a restart loop with blank variables.
 #  *
 #  * - EDITED (Pipeline Sync Fix for Backup/Canary):
 #  * • Added `cp -r backup /opt/treishvaam/` to the "Deploy to Application Folder" step.
-#  * • Why: Engine A was previously failing to synchronize the `backup/` directory to the server. This caused Engine B (`auto_deploy.sh`) to continuously rebuild the `treishvaam-backup` container using a stale script containing a fatal Alpine math bug. Explicit synchronization guarantees all infrastructure code reaches the host.
+#  * • Why: Engine A was previously failing to synchronize the `backup/` directory to the server. This caused Engine B (`auto_deploy.sh`) to continuously rebuild the `treishvaam-backup` container using a stale script containing a fatal Alpine math bug.
 #  *
 #  * - EDITED (CI/CD Remediation - Engine A Polling):
 #  * • Injected a 5-minute polling loop to actively monitor `deploy_telemetry.ndjson`.
-#  * • Reason: Prevented Engine A from exiting with a false-positive green tick while Engine B was still executing or failing blindly in the background. CI job now accurately reflects final deployment status.
+#  * • Reason: Prevented Engine A from exiting with a false-positive green tick while Engine B was still executing or failing blindly in the background.
 #  *
 #  * - EDITED (CI/CD Remediation - Engine A Polling Timeout Extension):
 #  * • Modified `MAX_WAIT` from 300 to 900 (15 minutes).
-#  * • Why: Staggered ignition of 22 containers on a swap-heavy 4.8GB VM takes ~8 minutes. The 5-minute timeout caused a false-positive red cross in GitHub Actions while deployments succeeded in the background. Extended window accommodates full sequence.
+#  * • Why: Staggered ignition of 22 containers on a swap-heavy 4.8GB VM takes ~8 minutes. Extended window accommodates full sequence.
+#  *
+#  * - EDITED (Stale Telemetry Race Condition & Double-Wipe Fix - 2026-07-02):
+#  * • Injected `> logs/deploy_telemetry.ndjson` to explicitly clear the telemetry file BEFORE launching `auto_deploy.sh`.
+#  * • Reason: Engine A's polling loop was instantly reading stale `COMPLETION` events from previous failed deployments. This caused Engine A to abort in 0s and trigger the `always()` trap, which wiped `.env` out from under the actively booting Engine B orchestrator, resulting in blank passwords and fatal NOAUTH loops.
+#  *
+#  * - DO-NOT-DELETE RULE (ABSOLUTE):
+#  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
+#  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
 #  */
 
 name: Treishvaam Enterprise Deploy
@@ -227,6 +235,12 @@ jobs:
         cd /opt/treishvaam
         chmod +x scripts/auto_deploy.sh
         
+        # CLEAR THE STALE TELEMETRY FILE TO PREVENT POLLING RACE CONDITIONS!
+        # If this is not cleared, Engine A will read the previous run's failure, abort instantly, 
+        # and wipe the .env file while Engine B is still trying to boot containers.
+        mkdir -p logs
+        > logs/deploy_telemetry.ndjson
+        
         # Unset tracking ID to blind GitHub Actions' cleanup process
         # This prevents the runner from assassinating the background script during post-job cleanup
         export RUNNER_TRACKING_ID=""
@@ -237,13 +251,12 @@ jobs:
       run: |
         echo "⏳ Polling Engine B deployment status (max 15 minutes)..."
         TELEMETRY_FILE="/opt/treishvaam/logs/deploy_telemetry.ndjson"
-        # Capture the Run ID emitted by Engine B (it's the most recent IN_PROGRESS event)
         MAX_WAIT=900
         ELAPSED=0
         POLL_INTERVAL=15
         
         while [ $ELAPSED -lt $MAX_WAIT ]; do
-          # Look for a SUCCESS or FAILURE event more recent than 90 seconds ago
+          # Look for a SUCCESS or FAILURE event
           if [ -f "$TELEMETRY_FILE" ]; then
             TERMINAL=$(tail -n 20 "$TELEMETRY_FILE" | grep -E '"status":"(SUCCESS|FAILURE)"' | \
                        grep '"phase":"COMPLETION"' | tail -1)
