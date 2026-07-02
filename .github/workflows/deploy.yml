@@ -112,6 +112,10 @@
 #  * • Added explicit `cp` commands for `Dockerfile`, `aegis/`, `config/`, and `nginx/` into the Deploy to Application Folder step.
 #  * • Reason: The pipeline was compiling WAR files but failing to push updated `Dockerfile` or ZKP microservice definitions to `/opt/treishvaam/`. This caused Engine B to continuously execute `docker compose up --build` against stale 6-day-old files, resulting in persistent Maven Java Heap OOMs and ZKP crash loops. The synchronization is now absolute.
 #  *
+#  * - EDITED (Anti-Race Condition Vault Ownership Fix - 2026-07-02):
+#  * • Removed the `Secure Flash & Wipe (Guaranteed Cleanup)` step entirely from Engine A.
+#  * • Reason: Engine B runs asynchronously in the background. If Engine A's polling loop aborted or the runner was canceled, Engine A's `always()` trap wiped the `.env` file while Engine B was actively booting containers. This injected blank passwords and triggered catastrophic NOAUTH database lockouts. Engine B's internal `EXIT` trap is now the sole, exclusive owner of the `.env` lifecycle.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
@@ -287,9 +291,3 @@ jobs:
         echo "Check: /opt/treishvaam/deploy_pipeline.log on the server."
         # Exit 0 here (don't fail the CI job) — the Dead Man's Switch in Grafana handles the alert
         exit 0
-
-    - name: Secure Flash & Wipe (Guaranteed Cleanup)
-      if: always()
-      run: |
-        echo "--> [SECURITY] Executing Flash & Wipe (Securing .env)..."
-        cp /opt/treishvaam/.env.template /opt/treishvaam/.env || true
