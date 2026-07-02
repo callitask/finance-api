@@ -109,6 +109,10 @@
 #   - EDITED (Anti-Blind Boot Cascade Fix - 2026-07-02):
 #     • Retained `set +e` to survive ghost metadata warnings, but injected explicit exit code validation (`$?`) directly after `docker compose up -d --build`.
 #     • Reason: A Java OOM during the build phase previously crashed Maven (exit code 1). Because `set +e` was active, the script blindly continued into the application restart phase. Compounding this, the Git Runner canceled and wiped the `.env` file during the OOM thrash. This caused the script to inject blank passwords into the containers, resulting in a fatal NOAUTH redis loop and database lockout. Validating the build exit code forces a graceful, secure abort before the application layer is touched.
+#
+#   - EDITED (Concurrency Double-Wipe Trap Fix - 2026-07-02):
+#     • Wrapped the EXIT trap logic in an `if [ "$OWNS_LOCK" = "true" ]` validation gate.
+#     • Reason: If a second `git push` occurred while a deployment was already running, the second instance of Engine B would hit the concurrency lock, gracefully exit, and trigger its own `EXIT` trap. This un-gated trap would wipe the `.env` file and delete the lockfile out from under the *actively running* first deployment, crashing the live production databases with `NOAUTH` blank passwords. Now, only the process that successfully claims the lock is permitted to wipe the vault.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -127,6 +131,7 @@ RUN_ID=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || 
 TELEMETRY_DIR="/opt/treishvaam/logs"
 TELEMETRY_FILE="$TELEMETRY_DIR/deploy_telemetry.ndjson"
 DEPLOY_STATUS="FAILURE"   # Pessimistic default. Set to SUCCESS only on clean completion.
+OWNS_LOCK="false"         # Defaults to false. Prevents the EXIT trap from executing a Double-Wipe.
 # ─────────────────────────────────────────────────────────────────────────────
 
 PROJECT_DIR="/opt/treishvaam"
@@ -242,6 +247,7 @@ if [ -f "$LOCKFILE" ]; then
     fi
 fi
 echo $$ > "$LOCKFILE"
+OWNS_LOCK="true" # Lock explicitly acquired. This process is now authorized to execute the Flash & Wipe trap.
 
 # ── DEAD MAN'S SWITCH ─────────────────────────────────────────────────────────
 # Emitted IMMEDIATELY after the concurrency check passes. If process is SIGKILLed,
@@ -251,12 +257,15 @@ notify "STARTUP" "IN_PROGRESS" "Engine B deployment started."
 
 # ── BULLETPROOF TRAP ──────────────────────────────────────────────────────────
 # The WIPE operation MUST execute first, unconditionally, before any telemetry.
-# This is the Flash & Wipe guarantee. Do NOT reorder these operations.
+# The `OWNS_LOCK` gate guarantees we don't accidentally wipe the vault of a
+# concurrent deployment if we hit the concurrency exit above.
 trap '
-    rm -f "$LOCKFILE"
-    cp "$TEMPLATE_FILE" "$ENV_FILE" 2>/dev/null || true
-    log_telemetry "CLEANUP" "${DEPLOY_STATUS:-FAILURE}" "Deployment ended. Secrets wiped from disk."
-    notify "CLEANUP" "${DEPLOY_STATUS:-FAILURE}" "Deployment ended. Secrets wiped from disk."
+    if [ "$OWNS_LOCK" = "true" ]; then
+        rm -f "$LOCKFILE"
+        cp "$TEMPLATE_FILE" "$ENV_FILE" 2>/dev/null || true
+        log_telemetry "CLEANUP" "${DEPLOY_STATUS:-FAILURE}" "Deployment ended. Secrets wiped from disk."
+        notify "CLEANUP" "${DEPLOY_STATUS:-FAILURE}" "Deployment ended. Secrets wiped from disk."
+    fi
 ' EXIT
 
 echo "================================================================"
