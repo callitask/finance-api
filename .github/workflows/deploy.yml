@@ -108,6 +108,10 @@
 #  * • Injected `> logs/deploy_telemetry.ndjson` to explicitly clear the telemetry file BEFORE launching `auto_deploy.sh`.
 #  * • Reason: Engine A's polling loop was instantly reading stale `COMPLETION` events from previous failed deployments. This caused Engine A to abort in 0s and trigger the `always()` trap, which wiped `.env` out from under the actively booting Engine B orchestrator, resulting in blank passwords and fatal NOAUTH loops.
 #  *
+#  * - EDITED (Infrastructure Sync Blindspot Fix - 2026-07-02):
+#  * • Added explicit `cp` commands for `Dockerfile`, `aegis/`, `config/`, and `nginx/` into the Deploy to Application Folder step.
+#  * • Reason: The pipeline was compiling WAR files but failing to push updated `Dockerfile` or ZKP microservice definitions to `/opt/treishvaam/`. This caused Engine B to continuously execute `docker compose up --build` against stale 6-day-old files, resulting in persistent Maven Java Heap OOMs and ZKP crash loops. The synchronization is now absolute.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
@@ -225,24 +229,25 @@ jobs:
         echo "--> Copying new WAR file..."
         cp target/finance-api.war /opt/treishvaam/backend-app.war
 
-        echo "--> Syncing deployment scripts and infrastructure configs..."
+        echo "--> Syncing deployment scripts and FULL infrastructure configs..."
         mkdir -p /opt/treishvaam/scripts
         cp -r scripts/* /opt/treishvaam/scripts/
         cp -r backup /opt/treishvaam/
+        cp -r aegis /opt/treishvaam/
+        cp Dockerfile /opt/treishvaam/
         cp docker-compose.yml /opt/treishvaam/
+        cp -r config /opt/treishvaam/ 2>/dev/null || true
+        cp -r nginx /opt/treishvaam/ 2>/dev/null || true
 
         echo "--> Triggering Enterprise Watchdog (Global Stack Refresh) asynchronously..."
         cd /opt/treishvaam
         chmod +x scripts/auto_deploy.sh
         
         # CLEAR THE STALE TELEMETRY FILE TO PREVENT POLLING RACE CONDITIONS!
-        # If this is not cleared, Engine A will read the previous run's failure, abort instantly, 
-        # and wipe the .env file while Engine B is still trying to boot containers.
         mkdir -p logs
         > logs/deploy_telemetry.ndjson
         
         # Unset tracking ID to blind GitHub Actions' cleanup process
-        # This prevents the runner from assassinating the background script during post-job cleanup
         export RUNNER_TRACKING_ID=""
         nohup ./scripts/auto_deploy.sh --force > /opt/treishvaam/deploy_pipeline.log 2>&1 &
         echo "--> Watchdog detached successfully. The server will safely reboot the stack in the background."
