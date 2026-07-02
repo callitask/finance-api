@@ -116,6 +116,14 @@
 #  * • Removed the `Secure Flash & Wipe (Guaranteed Cleanup)` step entirely from Engine A.
 #  * • Reason: Engine B runs asynchronously in the background. If Engine A's polling loop aborted or the runner was canceled, Engine A's `always()` trap wiped the `.env` file while Engine B was actively booting containers. This injected blank passwords and triggered catastrophic NOAUTH database lockouts. Engine B's internal `EXIT` trap is now the sole, exclusive owner of the `.env` lifecycle.
 #  *
+#  * - EDITED (Directory Nesting Paradox Fix - 2026-07-03):
+#  * • Replaced `cp -r <dir>` with `cp -a <dir>/. /opt/treishvaam/<dir>/`.
+#  * • Reason: Linux `cp -r` places the source directory *inside* the target if the target already exists (e.g., creating `aegis/aegis/`). This silently prevented Dockerfile updates from applying. `cp -a .` mathematically guarantees absolute content overwriting.
+#  *
+#  * - EDITED (Cross-Engine Metadata Injection - 2026-07-03):
+#  * • Added a step to extract `git log` metadata (Hash, Message) and serialize it into `/opt/treishvaam/.deploy_meta`.
+#  * • Reason: Engine B runs in a detached `/opt/treishvaam/` execution context, which is outside the Git repository boundary. Engine A must manually cross the boundary and pass the commit variables so Engine B can inject them into Telegram telemetry.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
@@ -234,14 +242,24 @@ jobs:
         cp target/finance-api.war /opt/treishvaam/backend-app.war
 
         echo "--> Syncing deployment scripts and FULL infrastructure configs..."
-        mkdir -p /opt/treishvaam/scripts
+        mkdir -p /opt/treishvaam/scripts /opt/treishvaam/backup /opt/treishvaam/aegis /opt/treishvaam/config /opt/treishvaam/nginx
+        
+        # Use cp -a <source>/. to mathematically guarantee file overwriting and prevent nested directories
         cp -r scripts/* /opt/treishvaam/scripts/
-        cp -r backup /opt/treishvaam/
-        cp -r aegis /opt/treishvaam/
+        cp -a backup/. /opt/treishvaam/backup/
+        cp -a aegis/. /opt/treishvaam/aegis/
         cp Dockerfile /opt/treishvaam/
         cp docker-compose.yml /opt/treishvaam/
-        cp -r config /opt/treishvaam/ 2>/dev/null || true
-        cp -r nginx /opt/treishvaam/ 2>/dev/null || true
+        cp -a config/. /opt/treishvaam/config/ 2>/dev/null || true
+        cp -a nginx/. /opt/treishvaam/nginx/ 2>/dev/null || true
+
+        echo "--> Extracting Git Metadata for Engine B Telemetry..."
+        GIT_COMMIT=$(git log -1 --format="%h")
+        GIT_MSG=$(git log -1 --format="%s")
+        cat <<EOF > /opt/treishvaam/.deploy_meta
+        GIT_COMMIT="${GIT_COMMIT}"
+        GIT_MSG="${GIT_MSG}"
+        EOF
 
         echo "--> Triggering Enterprise Watchdog (Global Stack Refresh) asynchronously..."
         cd /opt/treishvaam
