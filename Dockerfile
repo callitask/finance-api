@@ -2,14 +2,13 @@
 #  * AI-CONTEXT:
 #  *
 #  * Purpose:
-#  * - Multi-stage Docker build for the Treishvaam Finance Backend API.
+#  * - Enterprise Runtime Dockerfile for the Treishvaam Finance Backend API.
 #  *
 #  * Scope:
-#  * - Stage 1: Builds the WAR file natively using Maven/Java 21 to bypass GHCR network denials.
-#  * - Stage 2: Executes the application using a minimal, secure JRE environment.
+#  * - Executes the pre-compiled WAR application using a minimal, secure JRE environment.
 #  *
 #  * Critical Dependencies:
-#  * - Backend: `pom.xml`, `src/`, `checkstyle.xml`, `dependency-check-suppressions.xml`, `aegis/`.
+#  * - Backend: `backend-app.war` (Provided by Engine A GitHub Actions Builder)
 #  *
 #  * Security Constraints:
 #  * - The final container must run as the non-root `spring` user.
@@ -17,15 +16,7 @@
 #  *
 #  * Non-Negotiables:
 #  * - Do not revert to root execution.
-#  * - Maintain the multi-stage build to keep the final image size minimal and secure.
-#  *
-#  * Change Intent:
-#  * - Resolving the Maven gRPC pipeline failure. The builder stage lacked the `aegis` directory, 
-#  * blinding the protobuf compiler to the `.proto` files required to generate stub classes.
-#  *
-#  * Future AI Guidance:
-#  * - If new root-level configuration files or external proto definitions are added, 
-#  * they MUST be explicitly copied into the `builder` stage.
+#  * - Do not re-introduce a multi-stage Maven builder. The artifact is built natively on the host.
 #  *
 #  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
 #  * - EDITED:
@@ -56,39 +47,20 @@
 #  * • Increased `MAVEN_OPTS` to `-Xmx1024m -XX:MaxMetaspaceSize=256m`.
 #  * • Reason: The `maven-war-plugin` was failing with `Java heap space` during artifact assembly. The 512m limit caused the JVM to thrash, which dropped the Git Runner connection and triggered a catastrophic `.env` wipe. 1024m provides the necessary headroom for compilation while remaining safe for the host.
 #  *
+#  * - EDITED (Single-Stage Artifact Architecture Pivot):
+#  * • Removed the multi-stage Maven builder entirely. 
+#  * • Reason: Engine A (`deploy.yml`) already natively builds the artifact to `/opt/treishvaam/backend-app.war`. Executing a secondary Maven compilation inside Docker caused catastrophic Java Heap OOMs, crashing the Git Runner and wiping the `.env` vault. The Dockerfile now strictly consumes the pre-built WAR artifact, eliminating the double-build starvation.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
 #  */
 
 # ------------------------------------------------------------------------------
-# STAGE 1: Build the Application
-# ------------------------------------------------------------------------------
-# We use a Docker image that HAS Maven and Java 21 to build the app.
-# This solves the "Permission Denied" and "Java Version" errors on your Host.
-FROM maven:3.9.6-eclipse-temurin-21 AS builder
-
-WORKDIR /build
-
-# Enforce strict memory bounds on the compiler to prevent host OOM crashes during CI/CD
-ENV MAVEN_OPTS="-Xmx1024m -XX:MaxMetaspaceSize=256m"
-
-# 1. Copy configuration
-COPY pom.xml .
-# 2. Download dependencies (Cached if pom.xml doesn't change via BuildKit)
-RUN --mount=type=cache,target=/root/.m2 mvn dependency:go-offline
-
-# 3. Copy validation configurations and source code, then build
-COPY checkstyle.xml .
-COPY dependency-check-suppressions.xml .
-COPY aegis ./aegis
-COPY src ./src
-RUN --mount=type=cache,target=/root/.m2 mvn clean package -DskipTests
-
-# ------------------------------------------------------------------------------
-# STAGE 2: Run the Application
+# RUNTIME ENVIRONMENT (Single Stage)
 # ------------------------------------------------------------------------------
 # We use a lightweight Java 21 image for running the app.
+# The WAR file is provided natively by Engine A (deploy.yml).
 FROM eclipse-temurin:21-jdk-jammy
 
 WORKDIR /app
@@ -116,8 +88,8 @@ RUN addgroup --system --gid 1000 spring && adduser --system --uid 1000 --ingroup
 RUN mkdir -p /app/uploads /app/sitemaps /app/logs /app/scripts && \
     chown -R spring:spring /app
 
-# 3. Copy the compiled WAR file from the 'builder' stage with permissions
-COPY --chown=spring:spring --from=builder /build/target/finance-api.war app.war
+# 3. Copy the compiled WAR file explicitly built by Engine A on the host
+COPY --chown=spring:spring backend-app.war app.war
 
 # 4. Expose Port
 EXPOSE 8080
