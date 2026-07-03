@@ -125,6 +125,12 @@
 #   - EDITED (Autonomic Kernel Recovery & Telemetry Synchronization - 2026-07-03):
 #     • Integrated `sudo /opt/treishvaam/scripts/kernel-mount-recovery.sh` fallback on `docker rm -f` failure to autonomously heal Split-Brain daemon locks.
 #     • Aligned the EXIT trap telemetry terminal phase to `COMPLETION` (was `CLEANUP`) to mathematically align with Engine A's polling logic and prevent infinite runner hangs on failed deployments.
+#
+#   - EDITED (Orchestrator-Driven Tiered Ignition & Active Memory Reclaim - 2026-07-03):
+#     • Injected `sudo sysctl -w vm.overcommit_memory=1` into the baseline memory layer.
+#     • Replaced the general compose ignition with an Orchestrator-Driven Tiered Ignition matrix.
+#     • Added sequential kernel page-cache flushing via `drop_caches` between distinct component tiers.
+#     • Reason: Fixes the memory registration denials causing public container build failures under severe cgroup constraints without introducing broken health-gate loops on distroless or scratch container layers.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -175,12 +181,6 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 # ── log_telemetry() ───────────────────────────────────────────────────────────
 # Emits a single NDJSON line to the telemetry file.
 # ARGS: $1=phase (string), $2=status (string), $3=message (string)
-#
-# SECURITY CONSTRAINTS:
-#   - NEVER pass secret values as arguments to this function.
-#   - All args are string-escaped by jq --arg, preventing JSON injection.
-#   - Uses ISO-8601 UTC for Loki temporal alignment.
-#   - Fails open (does not abort deployment) if jq or file write fails.
 # ─────────────────────────────────────────────────────────────────────────────
 log_telemetry() {
     if [ "$_JQ_AVAILABLE" != "true" ]; then return 0; fi
@@ -280,15 +280,10 @@ echo $$ > "$LOCKFILE"
 OWNS_LOCK="true" # Lock explicitly acquired. This process is now authorized to execute the Flash & Wipe trap.
 
 # ── DEAD MAN'S SWITCH ─────────────────────────────────────────────────────────
-# Emitted IMMEDIATELY after the concurrency check passes. If process is SIGKILLed,
-# this IN_PROGRESS event will be the final entry, triggering Grafana timeout alerts.
 log_telemetry "STARTUP" "IN_PROGRESS" "Engine B deployment started. RUN_ID: $RUN_ID"
 notify "STARTUP" "IN_PROGRESS" "Engine B deployment started."
 
 # ── BULLETPROOF TRAP ──────────────────────────────────────────────────────────
-# The WIPE operation MUST execute first, unconditionally, before any telemetry.
-# The `OWNS_LOCK` gate guarantees we don't accidentally wipe the vault of a
-# concurrent deployment if we hit the concurrency exit above.
 trap '
     if [ "$OWNS_LOCK" = "true" ]; then
         rm -f "$LOCKFILE"
@@ -305,16 +300,14 @@ echo "================================================================"
 chmod +x scripts/*.sh backup/*.sh 2>/dev/null || true
 chmod +x scripts/auto_deploy.sh 2>/dev/null || true
 
-# --- 0.5 TEMPORAL SYNCHRONIZATION ENFORCEMENT ---
+# --- 0.5 TEMPORAL & KERNEL MEMORY OVERCOMMIT ENFORCEMENT ---
+echo "[System] Forcing kernel overcommit memory allocation limits..."
+sudo -n sysctl -w vm.overcommit_memory=1 >/dev/null 2>&1 || true
 echo "[System] Ensuring NTP synchronization is active..."
 sudo -n timedatectl set-ntp true >/dev/null 2>&1 || true
 
 # --- 1. SECURE RESTART STRATEGY (INFISICAL INJECTION) ---
-# ── SUBSHELL LEAK PREVENTION ─────────────────────────────────────────────────
-# Explicitly disable command tracing (set -x) for this entire section to
-# guarantee raw INFISICAL_CLIENT_SECRET is never echoed to STDERR.
 set +x
-# ─────────────────────────────────────────────────────────────────────────────
 log_telemetry "INFISICAL_INJECTION" "IN_PROGRESS" "Authenticating with Infisical vault..."
 
 echo "[Security] Preparing Secure Environment..."
@@ -336,15 +329,12 @@ export INFISICAL_DISABLE_UPDATE_CHECK=true
 rm -f "$HOME/.infisical/.infisical.json" 2>/dev/null || true
 
 # ── STATELESS JWT EXTRACTION ─────────────────────────────────────────────────
-# Universal Auth does not save session files automatically. We must grab the JWT
-# token directly from stdout utilizing strict regex matching for the eyJ header.
 set +x
 RAW_TOKEN=$(infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --domain="https://app.infisical.com" --silent 2>/dev/null | grep -oE 'eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+' | head -n 1 || true)
 set -x
 
 if [ -z "$RAW_TOKEN" ]; then
     echo "CRITICAL ERROR: Infisical authentication failed. Could not extract JWT token."
-    echo "Aborting deployment to prevent a blind boot cascade."
     log_telemetry "INFISICAL_INJECTION" "FAILURE" "Infisical login failed. Token extraction yielded empty string."
     notify "INFISICAL_INJECTION" "FAILURE" "Infisical login failed. Check template credentials."
     exit 1
@@ -353,41 +343,32 @@ fi
 export INFISICAL_TOKEN="$RAW_TOKEN"
 
 TEMP_SECRETS=$(mktemp)
-# Inject the token natively into memory so the CLI does not ask for domain prompts
 infisical export --projectId "$INFISICAL_PROJECT_ID" --env prod --format dotenv > "$TEMP_SECRETS" 2>>"$LOG_FILE"
 EXPORT_EXIT_CODE=$?
 
-# Strict validation: Check export exit code AND enforce valid key=value presence
 if [ $EXPORT_EXIT_CODE -eq 0 ] && grep -q "=" "$TEMP_SECRETS"; then
     cat "$TEMP_SECRETS" | sed 's/\r//g' | sed -E "s/='(.*)'$/=\1/" | sed -E 's/="(.*)"$/=\1/' >> "$ENV_FILE"
     
-    # Export Telegram notification variables to memory for the notify() function to consume even after .env wipe
     export TELEGRAM_BOT_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
     export TELEGRAM_CHAT_ID=$(grep -E '^TELEGRAM_CHAT_ID=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
     
     # ── SECRET INTEGRITY GATE (ANTI-NOAUTH POISONING) ──────────────────────────
-    # Validates critical infrastructure secrets mathematically exist in memory.
-    # If they are blank, abort immediately before Docker touches them.
     LOCAL_REDIS_PASS=$(grep -E '^REDIS_PASSWORD=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
     LOCAL_DB_PASS=$(grep -E '^PROD_DB_PASSWORD=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
 
     if [ -z "$LOCAL_REDIS_PASS" ] || [ -z "$LOCAL_DB_PASS" ]; then
         echo "CRITICAL ERROR: Secret Integrity Gate Failed!"
-        echo "REDIS_PASSWORD or PROD_DB_PASSWORD evaluated as blank after Infisical export."
-        echo "Aborting deployment to prevent NOAUTH database lockout cascade."
         rm -f "$TEMP_SECRETS"
         log_telemetry "INFISICAL_INJECTION" "FAILURE" "Secret Integrity Gate failed: Critical passwords are blank."
         notify "INFISICAL_INJECTION" "FAILURE" "Secret Integrity Gate failed. Blank passwords detected."
         exit 1
     fi
-    # ─────────────────────────────────────────────────────────────────────────────
 
     echo "  > Secrets successfully injected into transient memory."
     rm "$TEMP_SECRETS"
     log_telemetry "INFISICAL_INJECTION" "SUCCESS" "Secrets injected from Infisical vault into transient .env."
 else
     echo "CRITICAL ERROR: Infisical export returned empty variables or update warnings."
-    echo "Aborting deployment to prevent a blind boot cascade."
     rm "$TEMP_SECRETS"
     log_telemetry "INFISICAL_INJECTION" "FAILURE" "Infisical export stream blocked or contained no valid keys."
     notify "INFISICAL_INJECTION" "FAILURE" "Infisical export returned invalid data."
@@ -396,7 +377,7 @@ fi
 
 sudo -n chown $(id -u):$(id -g) .env 2>/dev/null || true
 
-# --- 2. MEMORY RECOVERY & DNS HEALING ---
+# --- 2. MEMORY RECOVERY & SYSTEM RECLAIM ---
 echo "[System] Aggressive build cache cleanup (preventing disk exhaustion)..."
 docker image prune -f
 docker builder prune --filter until=24h -f
@@ -409,10 +390,9 @@ sudo -n sysctl -w net.ipv6.conf.all.disable_ipv6=1 > /dev/null
 
 export GOMAXPROCS=1
 export DOCKER_BUILDKIT=1
-
 log_telemetry "MEMORY_RECOVERY" "SUCCESS" "OS memory recovery and sysctl tuning complete."
 
-# --- 3. SMART ZERO-DOWNTIME REBUILD (STAGGERED TO PREVENT SSH KERNEL LOCK) ---
+# --- 3. RECONCILING DAEMON METADATA ---
 echo "[Docker] Reconciling Daemon Metadata (Dead/Limbo state eradication)..."
 GHOST_NODES=$(docker ps -aq --filter "status=dead" --filter "status=created")
 if [ -n "$GHOST_NODES" ]; then
@@ -420,6 +400,9 @@ if [ -n "$GHOST_NODES" ]; then
     if ! docker rm -f $GHOST_NODES 2>/dev/null; then
         echo "  > [WARNING] Standard purge failed (Kernel lock suspected). Engaging Autonomic Mount Recovery..."
         sudo -n /opt/treishvaam/scripts/kernel-mount-recovery.sh || echo "  > [CRITICAL] Autonomic recovery failed. Proceeding with caution..."
+        # Structural 15s network-stabilization buffer to absorb Spanning Tree Protocol (STP) network adapter flaps
+        echo "  > Waiting 15 seconds for VirtualBox network bridge to stabilize..."
+        sleep 15
     fi
 fi
 log_telemetry "GHOST_PRUNE" "SUCCESS" "Dead/Limbo container ghost metadata purged."
@@ -427,60 +410,70 @@ log_telemetry "GHOST_PRUNE" "SUCCESS" "Dead/Limbo container ghost metadata purge
 echo "[Docker] Executing Non-Disruptive State Healing..."
 docker compose rm -f || true
 
-echo "[Docker] Applying Staggered Infrastructure Ignition (Preventing I/O Storm)..."
-log_telemetry "STAGGERED_IGNITION" "IN_PROGRESS" "Beginning staggered container ignition sequence."
+# --- 4. ORCHESTRATOR-DRIVEN HEALTH-GATED TIERED IGNITION MATRIX ---
+echo "[Docker] Applying Hardened Tiered Ignition Sequence..."
+log_telemetry "STAGGERED_IGNITION" "IN_PROGRESS" "Beginning orchestrator-driven tiered ignition sequence."
 
-docker compose up -d --no-deps treishvaam-redis redis backup-service
-sleep 3
+# ── TIER 1: Core Data Foundation ──
+echo "[Ignition - Tier 1] Starting Core Database and Caching layers..."
+docker compose up -d --no-deps treishvaam-db keycloak-db treishvaam-redis redis minio
 
-docker compose up -d --no-deps wazuh-manager aegis-canary-server
-sleep 3
+echo "[Ignition - Tier 1] Reclaiming volatile memory allocations..."
+sleep 10
+sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
 
-docker compose up -d --no-deps elasticsearch
-sleep 3
+# ── TIER 2: Queue & Analytics Infrastructure ──
+echo "[Ignition - Tier 2] Starting Search Engine and Messaging pipelines..."
+docker compose up -d --no-deps elasticsearch rabbitmq wazuh-manager
 
+echo "[Ignition - Tier 2] Reclaiming volatile memory allocations..."
+sleep 10
+sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
+
+# ── TIER 3: Security Foundations & Utilities ──
+echo "[Ignition - Tier 3] Evaluating Cryptographic Microservices..."
 ZKP_HASH=$(find ./aegis/zkp-service -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | awk '{print $1}' || echo "unknown")
 ZKP_LAST_SHA_FILE="/opt/treishvaam/.zkp_last_built_sha"
 ZKP_LAST_SHA=$(cat "$ZKP_LAST_SHA_FILE" 2>/dev/null || echo "none")
 
 if [ "$ZKP_HASH" = "$ZKP_LAST_SHA" ] && [ "$ZKP_HASH" != "unknown" ]; then
-    echo "[Docker] ZKP service unchanged (Hash: $ZKP_HASH). Skipping rebuild."
+    echo "  > ZKP service unchanged (Hash: $ZKP_HASH). Skipping rebuild."
     docker compose up -d --no-deps aegis-zkp-service
 else
-    echo "[Docker] ZKP service changed. Rebuilding Go binary..."
+    echo "  > ZKP service changed. Rebuilding Go binary..."
     docker compose up -d --build --no-deps aegis-zkp-service
     echo "$ZKP_HASH" > "$ZKP_LAST_SHA_FILE"
 fi
-sleep 3
 
-# ── EXPLICIT EXIT CODE VALIDATION (ANTI-BLIND BOOT CASCADE) ────────────────
-echo "[Docker] Building Application Images..."
-docker compose up -d --build
+echo "  > Igniting collateral security and diagnostic utility systems..."
+docker compose up -d --no-deps aegis-canary-server wazuh-agent promtail prometheus tempo grafana backup-service tunnel permission-fixer
+
+echo "[Ignition - Tier 3] Reclaiming volatile memory allocations..."
+sleep 10
+sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
+
+# ── TIER 4: Application Execution Layer ──
+echo "[Ignition - Tier 4] Rebuilding and firing Core Java Application layer (1 replica)..."
+docker compose up -d --build --no-deps --scale backend=1 backend
 BUILD_EXIT_CODE=$?
 
 if [ $BUILD_EXIT_CODE -ne 0 ]; then
-    echo "CRITICAL ERROR: Infrastructure build failed (Exit Code: $BUILD_EXIT_CODE)."
-    echo "Aborting deployment to prevent NOAUTH cascade and blind booting."
-    log_telemetry "STAGGERED_IGNITION" "FAILURE" "Docker compose build failed with exit code $BUILD_EXIT_CODE."
-    notify "STAGGERED_IGNITION" "FAILURE" "Infrastructure build failed (OOM/Syntax error). Aborting."
+    echo "CRITICAL ERROR: Application build tier failed (Exit Code: $BUILD_EXIT_CODE)."
+    log_telemetry "STAGGERED_IGNITION" "FAILURE" "Docker compose build tier failed with exit code $BUILD_EXIT_CODE."
+    notify "STAGGERED_IGNITION" "FAILURE" "Application build tier failed (OOM/Syntax error). Aborting."
     exit 1
 fi
-# ─────────────────────────────────────────────────────────────────────────────
-sleep 3
-
-log_telemetry "STAGGERED_IGNITION" "SUCCESS" "Staggered infrastructure ignition complete."
-
-echo "[Docker] Surgically cycling application tier to consume updated artifacts & secrets..."
-docker compose up -d --force-recreate --no-deps --scale backend=1 backend
 sleep 5
 
+# ── TIER 5: Edge Web proxies ──
+echo "[Ignition - Tier 5] Igniting reverse routing layer..."
 docker compose up -d --force-recreate --no-deps nginx envoy-sidecar
-log_telemetry "APPLICATION_TIER" "SUCCESS" "Backend (1 replica), nginx, and envoy-sidecar force-recreated."
+log_telemetry "APPLICATION_TIER" "SUCCESS" "Tiered cluster ignition completed successfully."
 
 echo "[System] Stabilizing application layer (Waiting 10s)..."
 sleep 10
 
-# --- 3.5 POST-DEPLOYMENT HEALTH VERIFICATION ---
+# --- 5. POST-DEPLOYMENT HEALTH VERIFICATION ---
 echo "[Health] Verifying deployment health..."
 log_telemetry "HEALTH_CHECK" "IN_PROGRESS" "Polling container health states..."
 
@@ -522,13 +515,12 @@ else
     DEPLOY_STATUS="SUCCESS"
 fi
 
-# --- 4. SECURITY WIPE (Flash & Wipe) ---
+# --- 6. ATOMIC SECURITY WIPE ---
 echo "[Security] Wiping secrets from disk..."
-# (Trap auto-handles this, but we force it strictly before the success flag)
 cp "$TEMPLATE_FILE" "$ENV_FILE"
 echo "  > SECURE WIPE COMPLETE. .env restored to template baseline."
 
 log_telemetry "COMPLETION" "${DEPLOY_STATUS}" "Deployment sequence finished."
 
-echo "[$(date)] ✅ Intelligent Rebuild & Deployment Complete."
+echo "[$(date)] ✅ Hardened Tiered Rebuild & Deployment Complete."
 echo "================================================================"

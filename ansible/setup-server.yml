@@ -58,6 +58,11 @@
 #   - EDITED (Autonomic Mount Recovery Engine):
 #     • Injected `NOPASSWD` sudo execution rights for `/opt/treishvaam/scripts/kernel-mount-recovery.sh` into `treishvaam-deploy` sudoers config.
 #     • Reason: Permits Engine B (`auto_deploy.sh`) to invoke root-level lazy unmounts and clear Split-Brain ghost containers autonomously without dropping the engineer's SSH session or granting blanket root access to `vboxuser`.
+#
+#   - EDITED (Kernel Overcommit Memory Fix - 2026-07-03):
+#     • Injected `vm.overcommit_memory=1` persistently into sysctl configurations.
+#     • Updated sudoers to allow `auto_deploy.sh` to trigger the sysctl override gracefully at runtime.
+#     • Reason: The Linux kernel was denying container allocations on the 4.8GB host, resulting in silent Exit Code 1 compose aborts during the build/boot phase. This natively authorizes Docker to bypass the heuristic block, resolving the Engine B panic loops permanently.
 # ==============================================================================
 
 - name: Treishvaam Zero-State Ignition (ZSI)
@@ -124,6 +129,7 @@
           vboxuser ALL=(ALL) NOPASSWD: /usr/bin/timedatectl set-ntp true
           vboxuser ALL=(ALL) NOPASSWD: /usr/bin/tee /proc/sys/vm/drop_caches
           vboxuser ALL=(ALL) NOPASSWD: /usr/sbin/sysctl -w vm.max_map_count=262144
+          vboxuser ALL=(ALL) NOPASSWD: /usr/sbin/sysctl -w vm.overcommit_memory=1
           vboxuser ALL=(ALL) NOPASSWD: /usr/sbin/sysctl -w net.ipv6.conf.all.disable_ipv6=1
           vboxuser ALL=(ALL) NOPASSWD: /usr/bin/sync
           vboxuser ALL=(ALL) NOPASSWD: /usr/bin/chown *
@@ -133,6 +139,13 @@
       sysctl:
         name: vm.max_map_count
         value: '262144'
+        state: present
+        sysctl_file: /etc/sysctl.d/99-treishvaam.conf
+
+    - name: 2.6 Set vm.overcommit_memory persistently (Fix Container Memory Allocation)
+      sysctl:
+        name: vm.overcommit_memory
+        value: '1'
         state: present
         sysctl_file: /etc/sysctl.d/99-treishvaam.conf
 

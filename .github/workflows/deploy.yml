@@ -128,7 +128,7 @@
 #  *
 #  * - EDITED (Engine A Polling Synchronization Fix - 2026-07-03):
 #  * • Upgraded the Polling Regex to accept `grep -E '"phase":"(COMPLETION|CLEANUP)"'`.
-#  * • Reason: Engine B was accurately aborting early and firing its EXIT trap (emitting CLEANUP telemetry) when infrastructure builds failed. Engine A was stubbornly searching for COMPLETION and timed out infinitely. This allows Engine A to detect catastrophic aborts immediately.
+#  * • Reason: Engine B was accurately aborting early and firing its EXIT trap (emitting CLEANUP/COMPLETION telemetry) when infrastructure builds failed (e.g. overcommit_memory Kernel denials). Engine A was stubbornly searching for COMPLETION and timed out infinitely. This allows Engine A to detect catastrophic aborts immediately without hanging.
 #  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
