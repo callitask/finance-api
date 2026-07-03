@@ -126,6 +126,10 @@
 #  * • Upgraded `nohup` to `setsid nohup` to mathematically guarantee the Git Runner cannot SIGTERM Engine B when it disconnects.
 #  * • Reason: Engine B runs in a detached execution context outside the Git boundary. Engine A must manually cross the boundary to pass the commit variables for Telegram telemetry.
 #  *
+#  * - EDITED (Engine A Polling Synchronization Fix - 2026-07-03):
+#  * • Upgraded the Polling Regex to accept `grep -E '"phase":"(COMPLETION|CLEANUP)"'`.
+#  * • Reason: Engine B was accurately aborting early and firing its EXIT trap (emitting CLEANUP telemetry) when infrastructure builds failed. Engine A was stubbornly searching for COMPLETION and timed out infinitely. This allows Engine A to detect catastrophic aborts immediately.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
@@ -295,7 +299,7 @@ jobs:
           # Look for a SUCCESS or FAILURE event
           if [ -f "$TELEMETRY_FILE" ]; then
             TERMINAL=$(tail -n 20 "$TELEMETRY_FILE" | grep -E '"status":"(SUCCESS|FAILURE)"' | \
-                       grep '"phase":"COMPLETION"' | tail -1)
+                       grep -E '"phase":"(COMPLETION|CLEANUP)"' | tail -1)
             if [ -n "$TERMINAL" ]; then
               STATUS=$(echo "$TERMINAL" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['status'])")
               MESSAGE=$(echo "$TERMINAL" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['message'])")

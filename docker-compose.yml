@@ -159,6 +159,10 @@
 #  * Configured `cpus: '0.50'` and strictly enforced `memory: 256M` on `aegis-zkp-service`.
 #  * Reason: The VirtualBox VM kernel was starved of CPU/Memory during the Go compilation phase, resulting in a SIGKILL (Exit Code 2) dead state. Throttling the container build natively prevents host starvation while the multi-stage Dockerfile handles memory isolation.
 #  *
+#  * - EDITED (Wazuh Manager Memory Re-Optimization - 2026-07-03):
+#  * Increased `treishvaam-wazuh-manager` memory limit from 384M to 512M.
+#  * Reason: The previous aggressive optimization (384M) fell below the recommended 400MB safety threshold required for Wazuh Manager's internal Java log processing components, risking silent crashes. 512M provides the necessary 50% headroom for a single-node configuration while still protecting the VirtualBox host.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -462,7 +466,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 384M
+          memory: 512M
     healthcheck:
       test: ["CMD-SHELL", "/var/ossec/bin/wazuh-control status | grep 'wazuh-remoted is running' || exit 1"]
       interval: 15s

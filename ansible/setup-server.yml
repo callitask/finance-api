@@ -1,4 +1,3 @@
----
 # ==============================================================================
 # AI-CONTEXT:
 #
@@ -55,6 +54,10 @@
 #     • Injected UFW firewall configuration to natively allow ports 22, 80, 443 and deny all others.
 #     • Injected observability aliases (watchdeploy, detstatus) into the vboxuser .bashrc.
 #     • Reason: Completes the final gaps from the CI/CD remediation report. Secures the host from unauthorized port access and provides zero-friction CLI observability tools for incident response without typing long paths.
+#
+#   - EDITED (Autonomic Mount Recovery Engine):
+#     • Injected `NOPASSWD` sudo execution rights for `/opt/treishvaam/scripts/kernel-mount-recovery.sh` into `treishvaam-deploy` sudoers config.
+#     • Reason: Permits Engine B (`auto_deploy.sh`) to invoke root-level lazy unmounts and clear Split-Brain ghost containers autonomously without dropping the engineer's SSH session or granting blanket root access to `vboxuser`.
 # ==============================================================================
 
 - name: Treishvaam Zero-State Ignition (ZSI)
@@ -124,6 +127,7 @@
           vboxuser ALL=(ALL) NOPASSWD: /usr/sbin/sysctl -w net.ipv6.conf.all.disable_ipv6=1
           vboxuser ALL=(ALL) NOPASSWD: /usr/bin/sync
           vboxuser ALL=(ALL) NOPASSWD: /usr/bin/chown *
+          vboxuser ALL=(ALL) NOPASSWD: /opt/treishvaam/scripts/kernel-mount-recovery.sh
 
     - name: 2.5 Set vm.max_map_count persistently for Elasticsearch
       sysctl:
