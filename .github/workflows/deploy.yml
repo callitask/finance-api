@@ -120,9 +120,11 @@
 #  * • Replaced `cp -r <dir>` with `cp -a <dir>/. /opt/treishvaam/<dir>/`.
 #  * • Reason: Linux `cp -r` places the source directory *inside* the target if the target already exists (e.g., creating `aegis/aegis/`). This silently prevented Dockerfile updates from applying. `cp -a .` mathematically guarantees absolute content overwriting.
 #  *
-#  * - EDITED (Cross-Engine Metadata Injection - 2026-07-03):
+#  * - EDITED (Cross-Engine Metadata Injection & Detachment Hardening - 2026-07-03):
 #  * • Added a step to extract `git log` metadata (Hash, Message) and serialize it into `/opt/treishvaam/.deploy_meta`.
-#  * • Reason: Engine B runs in a detached `/opt/treishvaam/` execution context, which is outside the Git repository boundary. Engine A must manually cross the boundary and pass the commit variables so Engine B can inject them into Telegram telemetry.
+#  * • Injected `sed -i 's/\r$//'` to universally sanitize Windows CRLF characters from shell scripts.
+#  * • Upgraded `nohup` to `setsid nohup` to mathematically guarantee the Git Runner cannot SIGTERM Engine B when it disconnects.
+#  * • Reason: Engine B runs in a detached execution context outside the Git boundary. Engine A must manually cross the boundary to pass the commit variables for Telegram telemetry.
 #  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
@@ -245,13 +247,17 @@ jobs:
         mkdir -p /opt/treishvaam/scripts /opt/treishvaam/backup /opt/treishvaam/aegis /opt/treishvaam/config /opt/treishvaam/nginx
         
         # Use cp -a <source>/. to mathematically guarantee file overwriting and prevent nested directories
-        cp -r scripts/* /opt/treishvaam/scripts/
+        cp -a scripts/. /opt/treishvaam/scripts/
         cp -a backup/. /opt/treishvaam/backup/
         cp -a aegis/. /opt/treishvaam/aegis/
         cp Dockerfile /opt/treishvaam/
         cp docker-compose.yml /opt/treishvaam/
         cp -a config/. /opt/treishvaam/config/ 2>/dev/null || true
         cp -a nginx/. /opt/treishvaam/nginx/ 2>/dev/null || true
+
+        echo "--> Sanitizing Windows CRLF characters from execution scripts..."
+        find /opt/treishvaam/scripts/ -type f -name "*.sh" -exec sed -i 's/\r$//' {} +
+        find /opt/treishvaam/backup/ -type f -name "*.sh" -exec sed -i 's/\r$//' {} +
 
         echo "--> Extracting Git Metadata for Engine B Telemetry..."
         GIT_COMMIT=$(git log -1 --format="%h")
@@ -260,6 +266,7 @@ jobs:
         GIT_COMMIT="${GIT_COMMIT}"
         GIT_MSG="${GIT_MSG}"
         EOF
+        sed -i 's/\r$//' /opt/treishvaam/.deploy_meta
 
         echo "--> Triggering Enterprise Watchdog (Global Stack Refresh) asynchronously..."
         cd /opt/treishvaam
@@ -271,7 +278,9 @@ jobs:
         
         # Unset tracking ID to blind GitHub Actions' cleanup process
         export RUNNER_TRACKING_ID=""
-        nohup ./scripts/auto_deploy.sh --force > /opt/treishvaam/deploy_pipeline.log 2>&1 &
+        
+        # Use setsid to mathematically detach the process from the GitHub Runner's session group
+        setsid nohup ./scripts/auto_deploy.sh --force > /opt/treishvaam/deploy_pipeline.log 2>&1 &
         echo "--> Watchdog detached successfully. The server will safely reboot the stack in the background."
 
     - name: Poll Engine B Deployment Status (15-min window)
