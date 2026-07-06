@@ -163,6 +163,10 @@
 #  * Increased `treishvaam-wazuh-manager` memory limit from 384M to 512M.
 #  * Reason: The previous aggressive optimization (384M) fell below the recommended 400MB safety threshold required for Wazuh Manager's internal Java log processing components, risking silent crashes. 512M provides the necessary 50% headroom for a single-node configuration while still protecting the VirtualBox host.
 #  *
+#  * - EDITED (Bucket4j NOAUTH Crash Fix - 2026-07-06):
+#  * Injected SPRING_REDIS_URL, SPRING_DATA_REDIS_URL, and REDIS_URL explicitly mapped to redis://default:${REDIS_PASSWORD}@treishvaam-redis:6379.
+#  * Reason: Bucket4j uses the Lettuce client, which defaults to the RESP3 protocol and requires a fully qualified connection URI to properly negotiate the HELLO authentication handshake. Relying on fragmented host/password properties caused the backend to crash with a NOAUTH error on startup.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -537,9 +541,12 @@ services:
       - SPRING_PROFILES_ACTIVE=prod
       - SPRING_DATA_REDIS_HOST=treishvaam-redis
       - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - SPRING_DATA_REDIS_URL=redis://default:${REDIS_PASSWORD}@treishvaam-redis:6379
       - SPRING_REDIS_HOST=treishvaam-redis
       - SPRING_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - SPRING_REDIS_URL=redis://default:${REDIS_PASSWORD}@treishvaam-redis:6379
       - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_URL=redis://default:${REDIS_PASSWORD}@treishvaam-redis:6379
       - SPRING_ELASTICSEARCH_URIS=http://elasticsearch:9200
       - SPRING_ELASTICSEARCH_USERNAME=elastic
       - SPRING_ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
