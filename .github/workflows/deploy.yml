@@ -134,6 +134,10 @@
 #   • Removed the 15-minute `Engine B Deployment Status` polling loop completely.
 #   • Reason: Rebuilding the `treish_net` bridge triggers a VirtualBox Spanning Tree Protocol (STP) broadcast storm that forcibly severs the runner's TCP connection to GitHub. The runner hangs indefinitely trying to poll local logs while disconnected, resulting in false-positive "build failed" UI states. Engine A is now strictly Fire-and-Forget. Telegram is the absolute source of deployment truth.
 #
+#   - EDITED (Systemd Cgroup Emancipation - 2026-07-06):
+#   • Replaced `setsid nohup` with `sudo systemd-run`.
+#   • Reason: The GitHub Actions runner was sending SIGTERM to the `auto_deploy.sh` script via Linux cgroup tracking immediately after the job completed, causing the deployment to silently abort midway. `systemd-run` physically hands execution to pid 1, mathematically emancipating Engine B from the runner's lifecycle.
+#
 #   - DO-NOT-DELETE RULE (ABSOLUTE):
 #   This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #   It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
@@ -284,9 +288,10 @@ jobs:
         mkdir -p logs
         > logs/deploy_telemetry.ndjson
         
-        # Unset tracking ID to blind GitHub Actions' cleanup process
+        # Unset tracking ID to blind GitHub Actions' cleanup process (legacy fallback)
         export RUNNER_TRACKING_ID=""
         
-        # Use setsid to mathematically detach the process from the GitHub Runner's session group
-        setsid nohup ./scripts/auto_deploy.sh --force > /opt/treishvaam/deploy_pipeline.log 2>&1 &
-        echo "--> Watchdog detached successfully. The server will safely reboot the stack in the background. Telegram is now tracking the deployment status."
+        # Emancipate Engine B from the GitHub Runner's cgroup via systemd-run
+        sudo systemd-run --unit=treishvaam-deploy-$(date +%s) --description="Treishvaam Engine B Deploy" /bin/bash -c "cd /opt/treishvaam && ./scripts/auto_deploy.sh --force > /opt/treishvaam/deploy_pipeline.log 2>&1"
+        
+        echo "--> Watchdog detached successfully via systemd. The server will safely reboot the stack in the background. Telegram is now tracking the deployment status."
