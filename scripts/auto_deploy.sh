@@ -131,6 +131,11 @@
 #     • Replaced the general compose ignition with an Orchestrator-Driven Tiered Ignition matrix.
 #     • Added sequential kernel page-cache flushing via `drop_caches` between distinct component tiers.
 #     • Reason: Fixes the memory registration denials causing public container build failures under severe cgroup constraints without introducing broken health-gate loops on distroless or scratch container layers.
+#
+#   - EDITED (Kernel Overcommit Logging Fix - 2026-07-06):
+#     • Removed `>/dev/null 2>&1 || true` from the `sudo sysctl vm.overcommit_memory` command.
+#     • Added explicit error handling and telemetry warnings.
+#     • Reason: The Ansible playbook wasn't run, leaving `vboxuser` without sudo rights for `sysctl`. Hiding the output caused a silent failure where the kernel denied JVM memory allocations and killed the backend containers on boot (Exit Code 1). Explicitly logging this unmasks infrastructure failures.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -302,7 +307,11 @@ chmod +x scripts/auto_deploy.sh 2>/dev/null || true
 
 # --- 0.5 TEMPORAL & KERNEL MEMORY OVERCOMMIT ENFORCEMENT ---
 echo "[System] Forcing kernel overcommit memory allocation limits..."
-sudo -n sysctl -w vm.overcommit_memory=1 >/dev/null 2>&1 || true
+if ! sudo -n sysctl -w vm.overcommit_memory=1; then
+    echo "[CRITICAL WARNING] Failed to set vm.overcommit_memory=1. Backend JVM allocations WILL likely be denied by the kernel (Exit Code 1). Please run the Ansible ZSI playbook to grant sudo rights."
+    log_telemetry "SYSTEM_TUNE" "WARNING" "Failed to set vm.overcommit_memory. Host kernel may deny memory allocations."
+    notify "SYSTEM_TUNE" "WARNING" "Failed to set vm.overcommit_memory. Host kernel may deny memory allocations. Check sudoers!"
+fi
 echo "[System] Ensuring NTP synchronization is active..."
 sudo -n timedatectl set-ntp true >/dev/null 2>&1 || true
 

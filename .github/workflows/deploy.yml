@@ -1,139 +1,143 @@
-# /**
-#  * AI-CONTEXT:
-#  *
-#  * Purpose:
-#  * - GitHub Actions workflow for building and deploying the Treishvaam Finance Backend.
-#  *
-#  * Scope:
-#  * - Triggers on pushes to main, staging, and develop, and runs weekly via cron.
-#  * - Executes Maven build on a self-hosted runner and delegates deployment asynchronously to `auto_deploy.sh`.
-#  *
-#  * Critical Dependencies:
-#  * - Backend: Compiles `finance-api.war`.
-#  *
-#  * Security Constraints:
-#  * - Self-hosted runner environment constraints (memory limits).
-#  *
-#  * Non-Negotiables:
-#  * - Must not exhaust runner memory (OOM killer prevention).
-#  * - CI runner must safely detach from CD deployment to survive I/O storms.
-#  *
-#  * Change Intent:
-#  * - Resolved Node 20 deprecation warnings and fixed Gitleaks schema syntax.
-#  *
-#  * Future AI Guidance:
-#  * - Do not re-introduce `-T 1C` unless the self-hosted runner is confirmed to have >8GB RAM.
-#  * - Always maintain `MAVEN_OPTS` memory boundaries.
-#  * - Always hydrate secrets BEFORE running ANY docker-compose command, including stop/down.
-#  * - Flash & Wipe MUST remain in an `if: always()` step to prevent secret leakage during crashes.
-#  * - NEVER make the runner wait synchronously for `docker-compose up` to finish, as VirtualBox I/O spikes will drop the runner connection and kill the deployment.
-#  *
-#  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
-#  * - EDITED:
-#  * • Added `export MAVEN_OPTS="-Xmx1024m"` to the Maven build step.
-#  * • Removed `-T 1C` flag from the Maven command.
-#  * • Why: The self-hosted runner was experiencing OOM (Out-Of-Memory) kills (Exit code 137) during the Spotless/Checkstyle/Spring Boot repackage phases. Capping heap and forcing single-threaded execution stabilizes the build.
-#  *
-#  * - EDITED (Phase 1):
-#  * • Added GPG Commit Signature Verification step.
-#  * • Added Gitleaks Secret Scanning step.
-#  * • Why: Enforce cryptographic commit integrity and prevent leaked credentials from reaching production.
-#  *
-#  * - EDITED (Hotfix - Multiline Secret Fix):
-#  * • Refactored Verify GPG step to map secrets to env variables.
-#  * • Why: Resolved "no valid OpenPGP data found" errors caused by shell-mangled multiline secrets.
-#  *
-#  * - EDITED (Phase 4 & 6 Fix - CI/CD Stability):
-#  * • Injected `-DossindexAnalyzerEnabled=false` into the OWASP Maven command to prevent API rate-limit crashes.
-#  * • Injected `-DsuppressionFiles=dependency-check-suppressions.xml` to load the explicit risk-acceptance ledger.
-#  * • Why: Unblocks the CI/CD pipeline from failing on unpatchable transitive Spring Boot vulnerabilities (Tomcat, Netty) while keeping the security scanner active for everything else.
-#  *
-#  * - EDITED (Phase 4 Optimization):
-#  * • Extracted OWASP Dependency Check into a standalone parallel job (`dependency-security-scan`).
-#  * • Why: The NVD scan takes 10-15 minutes and requires massive memory. Running it on every single commit blocks rapid deployments. It now runs on schedule or manual dispatch.
-#  *
-#  * - EDITED (Hotfix - Self-Hosted Runner Gitleaks Cache):
-#  * • Injected `sudo rm -f /tmp/gitleaks.tmp || true` before the Gitleaks action.
-#  * • Why: Self-hosted runners retain filesystem state. A previously aborted run left a locked temp file, causing the gitleaks-action downloader to crash. This step provides idempotent self-healing.
-#  *
-#  * - EDITED (Fix-Forward: Registry Denial & Zero-Trust Flash/Wipe):
-#  * • Injected `bash scripts/load_secrets.sh` before container boot, and `cp .env.template .env` after.
-#  * • Added `--build` flag to `docker compose up`.
-#  * • Why: Resolves the "error from registry: denied" and missing variable warnings by ensuring the CI runner dynamically fetches production secrets via Infisical and reconstructs the Docker image locally without relying on external GitHub Container Registries.
-#  *
-#  * - EDITED (Execution Sync & Missing Env Warnings Fix):
-#  * • Injected `cp -r scripts/* /opt/treishvaam/scripts/` and `cp docker-compose.yml /opt/treishvaam/`.
-#  * • Re-ordered `bash scripts/load_secrets.sh` to execute BEFORE `docker compose stop backend`.
-#  * • Why: The Git Runner was executing stale scripts because the updated `scripts/` directory wasn't copied to the host execution path. Furthermore, running `docker compose stop` against a wiped `.env` caused massive "variable is not set" YAML parser warnings.
-#  *
-#  * - EDITED (Guaranteed Flash & Wipe):
-#  * • Moved `cp .env.template .env` to a dedicated step with `if: always()`.
-#  * • Why: Previous pipeline crashes halted execution before the cleanup step was reached, leaving secrets exposed on the VM disk. Decoupling ensures the environment is scrubbed even if the build fails.
-#  *
-#  * - EDITED (Unified CI/CD Pipeline):
-#  * • Removed localized `docker compose` commands (`stop`, `rm`, `up --no-deps`) from the Deploy step.
-#  * • Replaced with direct invocation of `./scripts/auto_deploy.sh --force`.
-#  * • Why: Fixed the "Double Deployment Collision" where the Git Runner was partially restarting only the backend on stale configurations, leaving the rest of the 17-container stack out of sync. `auto_deploy.sh` is now the Single Source of Truth for Continuous Deployment.
-#  *
-#  * - EDITED (Asynchronous Fire-and-Forget Orchestration):
-#  * • Modified `./scripts/auto_deploy.sh --force` to execute via `nohup ... &`.
-#  * • Removed the synchronous `sleep 15` Verify Deployment step.
-#  * • Why: Shutting down 17 enterprise containers simultaneously creates a VirtualBox I/O storm that temporarily locks the network interface. When the runner executes synchronously, this network lock severs its connection to GitHub, causing a fatal SIGKILL mid-deployment that orphans containers (e.g., deleting the DB but dying before rebuilding it). Asynchronous detachment insulates the CI pipeline from the CD infrastructure shock.
-#  *
-#  * - EDITED (Event-Driven Push Architecture):
-#  * • Transitioned execution model to surgical idempotency. 
-#  * • Confirmed asynchronous handoff to auto_deploy.sh to prevent VirtualBox network starvation and gracefully handle configuration synchronization.
-#  *
-#  * - EDITED (Node 24 Deprecation & Gitleaks Fix):
-#  * • Injected `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` globally to future-proof against GitHub's Node 20 deprecation.
-#  * • Stripped invalid `with: args:` block from Gitleaks action to conform to v2 schema requirements.
-#  *
-#  * - EDITED (Process Decoupling & Zombie Prevention):
-#  * • Unset `RUNNER_TRACKING_ID` during the asynchronous execution of `auto_deploy.sh`.
-#  * • Why: Blinds the GitHub Actions native cleanup process. Previously, the runner was ruthlessly assassinating the deployment script mid-execution, leaving the backend containers trapped in a restart loop with blank variables.
-#  *
-#  * - EDITED (Pipeline Sync Fix for Backup/Canary):
-#  * • Added `cp -r backup /opt/treishvaam/` to the "Deploy to Application Folder" step.
-#  * • Why: Engine A was previously failing to synchronize the `backup/` directory to the server. This caused Engine B (`auto_deploy.sh`) to continuously rebuild the `treishvaam-backup` container using a stale script containing a fatal Alpine math bug.
-#  *
-#  * - EDITED (CI/CD Remediation - Engine A Polling):
-#  * • Injected a 5-minute polling loop to actively monitor `deploy_telemetry.ndjson`.
-#  * • Reason: Prevented Engine A from exiting with a false-positive green tick while Engine B was still executing or failing blindly in the background.
-#  *
-#  * - EDITED (CI/CD Remediation - Engine A Polling Timeout Extension):
-#  * • Modified `MAX_WAIT` from 300 to 900 (15 minutes).
-#  * • Why: Staggered ignition of 22 containers on a swap-heavy 4.8GB VM takes ~8 minutes. Extended window accommodates full sequence.
-#  *
-#  * - EDITED (Stale Telemetry Race Condition & Double-Wipe Fix - 2026-07-02):
-#  * • Injected `> logs/deploy_telemetry.ndjson` to explicitly clear the telemetry file BEFORE launching `auto_deploy.sh`.
-#  * • Reason: Engine A's polling loop was instantly reading stale `COMPLETION` events from previous failed deployments. This caused Engine A to abort in 0s and trigger the `always()` trap, which wiped `.env` out from under the actively booting Engine B orchestrator, resulting in blank passwords and fatal NOAUTH loops.
-#  *
-#  * - EDITED (Infrastructure Sync Blindspot Fix - 2026-07-02):
-#  * • Added explicit `cp` commands for `Dockerfile`, `aegis/`, `config/`, and `nginx/` into the Deploy to Application Folder step.
-#  * • Reason: The pipeline was compiling WAR files but failing to push updated `Dockerfile` or ZKP microservice definitions to `/opt/treishvaam/`. This caused Engine B to continuously execute `docker compose up --build` against stale 6-day-old files, resulting in persistent Maven Java Heap OOMs and ZKP crash loops. The synchronization is now absolute.
-#  *
-#  * - EDITED (Anti-Race Condition Vault Ownership Fix - 2026-07-02):
-#  * • Removed the `Secure Flash & Wipe (Guaranteed Cleanup)` step entirely from Engine A.
-#  * • Reason: Engine B runs asynchronously in the background. If Engine A's polling loop aborted or the runner was canceled, Engine A's `always()` trap wiped the `.env` file while Engine B was actively booting containers. This injected blank passwords and triggered catastrophic NOAUTH database lockouts. Engine B's internal `EXIT` trap is now the sole, exclusive owner of the `.env` lifecycle.
-#  *
-#  * - EDITED (Directory Nesting Paradox Fix - 2026-07-03):
-#  * • Replaced `cp -r <dir>` with `cp -a <dir>/. /opt/treishvaam/<dir>/`.
-#  * • Reason: Linux `cp -r` places the source directory *inside* the target if the target already exists (e.g., creating `aegis/aegis/`). This silently prevented Dockerfile updates from applying. `cp -a .` mathematically guarantees absolute content overwriting.
-#  *
-#  * - EDITED (Cross-Engine Metadata Injection & Detachment Hardening - 2026-07-03):
-#  * • Added a step to extract `git log` metadata (Hash, Message) and serialize it into `/opt/treishvaam/.deploy_meta`.
-#  * • Injected `sed -i 's/\r$//'` to universally sanitize Windows CRLF characters from shell scripts.
-#  * • Upgraded `nohup` to `setsid nohup` to mathematically guarantee the Git Runner cannot SIGTERM Engine B when it disconnects.
-#  * • Reason: Engine B runs in a detached execution context outside the Git boundary. Engine A must manually cross the boundary to pass the commit variables for Telegram telemetry.
-#  *
-#  * - EDITED (Engine A Polling Synchronization Fix - 2026-07-03):
-#  * • Upgraded the Polling Regex to accept `grep -E '"phase":"(COMPLETION|CLEANUP)"'`.
-#  * • Reason: Engine B was accurately aborting early and firing its EXIT trap (emitting CLEANUP/COMPLETION telemetry) when infrastructure builds failed (e.g. overcommit_memory Kernel denials). Engine A was stubbornly searching for COMPLETION and timed out infinitely. This allows Engine A to detect catastrophic aborts immediately without hanging.
-#  *
-#  * - DO-NOT-DELETE RULE (ABSOLUTE):
-#  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
-#  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
-#  */
+# ==============================================================================
+# AI-CONTEXT:
+#
+# Purpose:
+#   - GitHub Actions workflow for building and deploying the Treishvaam Finance Backend.
+#
+# Scope:
+#   - Triggers on pushes to main, staging, and develop, and runs weekly via cron.
+#   - Executes Maven build on a self-hosted runner and delegates deployment asynchronously to `auto_deploy.sh`.
+#
+# Critical Dependencies:
+#   - Backend: Compiles `finance-api.war`.
+#
+# Security Constraints:
+#   - Self-hosted runner environment constraints (memory limits).
+#
+# Non-Negotiables:
+#   - Must not exhaust runner memory (OOM killer prevention).
+#   - CI runner must safely detach from CD deployment to survive I/O storms.
+#
+# Change Intent:
+#   - Resolved Node 20 deprecation warnings and fixed Gitleaks schema syntax.
+#
+# Future AI Guidance:
+#   - Do not re-introduce `-T 1C` unless the self-hosted runner is confirmed to have >8GB RAM.
+#   - Always maintain `MAVEN_OPTS` memory boundaries.
+#   - Always hydrate secrets BEFORE running ANY docker-compose command, including stop/down.
+#   - Flash & Wipe MUST remain in an `if: always()` step to prevent secret leakage during crashes.
+#   - NEVER make the runner wait synchronously for `docker-compose up` to finish, as VirtualBox I/O spikes will drop the runner connection and kill the deployment.
+#
+# IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+#   - EDITED:
+#   • Added `export MAVEN_OPTS="-Xmx1024m"` to the Maven build step.
+#   • Removed `-T 1C` flag from the Maven command.
+#   • Why: The self-hosted runner was experiencing OOM (Out-Of-Memory) kills (Exit code 137) during the Spotless/Checkstyle/Spring Boot repackage phases. Capping heap and forcing single-threaded execution stabilizes the build.
+#
+#   - EDITED (Phase 1):
+#   • Added GPG Commit Signature Verification step.
+#   • Added Gitleaks Secret Scanning step.
+#   • Why: Enforce cryptographic commit integrity and prevent leaked credentials from reaching production.
+#
+#   - EDITED (Hotfix - Multiline Secret Fix):
+#   • Refactored Verify GPG step to map secrets to env variables.
+#   • Why: Resolved "no valid OpenPGP data found" errors caused by shell-mangled multiline secrets.
+#
+#   - EDITED (Phase 4 & 6 Fix - CI/CD Stability):
+#   • Injected `-DossindexAnalyzerEnabled=false` into the OWASP Maven command to prevent API rate-limit crashes.
+#   • Injected `-DsuppressionFiles=dependency-check-suppressions.xml` to load the explicit risk-acceptance ledger.
+#   • Why: Unblocks the CI/CD pipeline from failing on unpatchable transitive Spring Boot vulnerabilities (Tomcat, Netty) while keeping the security scanner active for everything else.
+#
+#   - EDITED (Phase 4 Optimization):
+#   • Extracted OWASP Dependency Check into a standalone parallel job (`dependency-security-scan`).
+#   • Why: The NVD scan takes 10-15 minutes and requires massive memory. Running it on every single commit blocks rapid deployments. It now runs on schedule or manual dispatch.
+#
+#   - EDITED (Hotfix - Self-Hosted Runner Gitleaks Cache):
+#   • Injected `sudo rm -f /tmp/gitleaks.tmp || true` before the Gitleaks action.
+#   • Why: Self-hosted runners retain filesystem state. A previously aborted run left a locked temp file, causing the gitleaks-action downloader to crash. This step provides idempotent self-healing.
+#
+#   - EDITED (Fix-Forward: Registry Denial & Zero-Trust Flash/Wipe):
+#   • Injected `bash scripts/load_secrets.sh` before container boot, and `cp .env.template .env` after.
+#   • Added `--build` flag to `docker compose up`.
+#   • Why: Resolves the "error from registry: denied" and missing variable warnings by ensuring the CI runner dynamically fetches production secrets via Infisical and reconstructs the Docker image locally without relying on external GitHub Container Registries.
+#
+#   - EDITED (Execution Sync & Missing Env Warnings Fix):
+#   • Injected `cp -r scripts/* /opt/treishvaam/scripts/` and `cp docker-compose.yml /opt/treishvaam/`.
+#   • Re-ordered `bash scripts/load_secrets.sh` to execute BEFORE `docker compose stop backend`.
+#   • Why: The Git Runner was executing stale scripts because the updated `scripts/` directory wasn't copied to the host execution path. Furthermore, running `docker compose stop` against a wiped `.env` caused massive "variable is not set" YAML parser warnings.
+#
+#   - EDITED (Guaranteed Flash & Wipe):
+#   • Moved `cp .env.template .env` to a dedicated step with `if: always()`.
+#   • Why: Previous pipeline crashes halted execution before the cleanup step was reached, leaving secrets exposed on the VM disk. Decoupling ensures the environment is scrubbed even if the build fails.
+#
+#   - EDITED (Unified CI/CD Pipeline):
+#   • Removed localized `docker compose` commands (`stop`, `rm`, `up --no-deps`) from the Deploy step.
+#   • Replaced with direct invocation of `./scripts/auto_deploy.sh --force`.
+#   • Why: Fixed the "Double Deployment Collision" where the Git Runner was partially restarting only the backend on stale configurations, leaving the rest of the 17-container stack out of sync. `auto_deploy.sh` is now the Single Source of Truth for Continuous Deployment.
+#
+#   - EDITED (Asynchronous Fire-and-Forget Orchestration):
+#   • Modified `./scripts/auto_deploy.sh --force` to execute via `nohup ... &`.
+#   • Removed the synchronous `sleep 15` Verify Deployment step.
+#   • Why: Shutting down 17 enterprise containers simultaneously creates a VirtualBox I/O storm that temporarily locks the network interface. When the runner executes synchronously, this network lock severs its connection to GitHub, causing a fatal SIGKILL mid-deployment that orphans containers (e.g., deleting the DB but dying before rebuilding it). Asynchronous detachment insulates the CI pipeline from the CD infrastructure shock.
+#
+#   - EDITED (Event-Driven Push Architecture):
+#   • Transitioned execution model to surgical idempotency. 
+#   • Confirmed asynchronous handoff to auto_deploy.sh to prevent VirtualBox network starvation and gracefully handle configuration synchronization.
+#
+#   - EDITED (Node 24 Deprecation & Gitleaks Fix):
+#   • Injected `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` globally to future-proof against GitHub's Node 20 deprecation.
+#   • Stripped invalid `with: args:` block from Gitleaks action to conform to v2 schema requirements.
+#
+#   - EDITED (Process Decoupling & Zombie Prevention):
+#   • Unset `RUNNER_TRACKING_ID` during the asynchronous execution of `auto_deploy.sh`.
+#   • Why: Blinds the GitHub Actions native cleanup process. Previously, the runner was ruthlessly assassinating the deployment script mid-execution, leaving the backend containers trapped in a restart loop with blank variables.
+#
+#   - EDITED (Pipeline Sync Fix for Backup/Canary):
+#   • Added `cp -r backup /opt/treishvaam/` to the "Deploy to Application Folder" step.
+#   • Why: Engine A was previously failing to synchronize the `backup/` directory to the server. This caused Engine B (`auto_deploy.sh`) to continuously rebuild the `treishvaam-backup` container using a stale script containing a fatal Alpine math bug.
+#
+#   - EDITED (CI/CD Remediation - Engine A Polling):
+#   • Injected a 5-minute polling loop to actively monitor `deploy_telemetry.ndjson`.
+#   • Reason: Prevented Engine A from exiting with a false-positive green tick while Engine B was still executing or failing blindly in the background.
+#
+#   - EDITED (CI/CD Remediation - Engine A Polling Timeout Extension):
+#   • Modified `MAX_WAIT` from 300 to 900 (15 minutes).
+#   • Why: Staggered ignition of 22 containers on a swap-heavy 4.8GB VM takes ~8 minutes. Extended window accommodates full sequence.
+#
+#   - EDITED (Stale Telemetry Race Condition & Double-Wipe Fix - 2026-07-02):
+#   • Injected `> logs/deploy_telemetry.ndjson` to explicitly clear the telemetry file BEFORE launching `auto_deploy.sh`.
+#   • Reason: Engine A's polling loop was instantly reading stale `COMPLETION` events from previous failed deployments. This caused Engine A to abort in 0s and trigger the `always()` trap, which wiped `.env` out from under the actively booting Engine B orchestrator, resulting in blank passwords and fatal NOAUTH loops.
+#
+#   - EDITED (Infrastructure Sync Blindspot Fix - 2026-07-02):
+#   • Added explicit `cp` commands for `Dockerfile`, `aegis/`, `config/`, and `nginx/` into the Deploy to Application Folder step.
+#   • Reason: The pipeline was compiling WAR files but failing to push updated `Dockerfile` or ZKP microservice definitions to `/opt/treishvaam/`. This caused Engine B to continuously execute `docker compose up --build` against stale 6-day-old files, resulting in persistent Maven Java Heap OOMs and ZKP crash loops. The synchronization is now absolute.
+#
+#   - EDITED (Anti-Race Condition Vault Ownership Fix - 2026-07-02):
+#   • Removed the `Secure Flash & Wipe (Guaranteed Cleanup)` step entirely from Engine A.
+#   • Reason: Engine B runs asynchronously in the background. If Engine A's polling loop aborted or the runner was canceled, Engine A's `always()` trap wiped the `.env` file while Engine B was actively booting containers. This injected blank passwords and triggered catastrophic NOAUTH database lockouts. Engine B's internal `EXIT` trap is now the sole, exclusive owner of the `.env` lifecycle.
+#
+#   - EDITED (Directory Nesting Paradox Fix - 2026-07-03):
+#   • Replaced `cp -r <dir>` with `cp -a <dir>/. /opt/treishvaam/<dir>/`.
+#   • Reason: Linux `cp -r` places the source directory *inside* the target if the target already exists (e.g., creating `aegis/aegis/`). This silently prevented Dockerfile updates from applying. `cp -a .` mathematically guarantees absolute content overwriting.
+#
+#   - EDITED (Cross-Engine Metadata Injection & Detachment Hardening - 2026-07-03):
+#   • Added a step to extract `git log` metadata (Hash, Message) and serialize it into `/opt/treishvaam/.deploy_meta`.
+#   • Injected `sed -i 's/\r$//'` to universally sanitize Windows CRLF characters from shell scripts.
+#   • Upgraded `nohup` to `setsid nohup` to mathematically guarantee the Git Runner cannot SIGTERM Engine B when it disconnects.
+#   • Reason: Engine B runs in a detached execution context outside the Git boundary. Engine A must manually cross the boundary to pass the commit variables for Telegram telemetry.
+#
+#   - EDITED (Engine A Polling Synchronization Fix - 2026-07-03):
+#   • Upgraded the Polling Regex to accept `grep -E '"phase":"(COMPLETION|CLEANUP)"'`.
+#   • Reason: Engine B was accurately aborting early and firing its EXIT trap (emitting CLEANUP/COMPLETION telemetry) when infrastructure builds failed (e.g. overcommit_memory Kernel denials). Engine A was stubbornly searching for COMPLETION and timed out infinitely. This allows Engine A to detect catastrophic aborts immediately without hanging.
+#
+#   - EDITED (VirtualBox STP Flap & Polling Amputation - 2026-07-06):
+#   • Removed the 15-minute `Engine B Deployment Status` polling loop completely.
+#   • Reason: Rebuilding the `treish_net` bridge triggers a VirtualBox Spanning Tree Protocol (STP) broadcast storm that forcibly severs the runner's TCP connection to GitHub. The runner hangs indefinitely trying to poll local logs while disconnected, resulting in false-positive "build failed" UI states. Engine A is now strictly Fire-and-Forget. Telegram is the absolute source of deployment truth.
+#
+#   - DO-NOT-DELETE RULE (ABSOLUTE):
+#   This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
+#   It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
+# ==============================================================================
 
 name: Treishvaam Enterprise Deploy
 
@@ -285,40 +289,4 @@ jobs:
         
         # Use setsid to mathematically detach the process from the GitHub Runner's session group
         setsid nohup ./scripts/auto_deploy.sh --force > /opt/treishvaam/deploy_pipeline.log 2>&1 &
-        echo "--> Watchdog detached successfully. The server will safely reboot the stack in the background."
-
-    - name: Poll Engine B Deployment Status (15-min window)
-      run: |
-        echo "⏳ Polling Engine B deployment status (max 15 minutes)..."
-        TELEMETRY_FILE="/opt/treishvaam/logs/deploy_telemetry.ndjson"
-        MAX_WAIT=900
-        ELAPSED=0
-        POLL_INTERVAL=15
-        
-        while [ $ELAPSED -lt $MAX_WAIT ]; do
-          # Look for a SUCCESS or FAILURE event
-          if [ -f "$TELEMETRY_FILE" ]; then
-            TERMINAL=$(tail -n 20 "$TELEMETRY_FILE" | grep -E '"status":"(SUCCESS|FAILURE)"' | \
-                       grep -E '"phase":"(COMPLETION|CLEANUP)"' | tail -1)
-            if [ -n "$TERMINAL" ]; then
-              STATUS=$(echo "$TERMINAL" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['status'])")
-              MESSAGE=$(echo "$TERMINAL" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['message'])")
-              if [ "$STATUS" = "SUCCESS" ]; then
-                echo "✅ Engine B confirmed SUCCESS: $MESSAGE"
-                exit 0
-              else
-                echo "🚨 Engine B confirmed FAILURE: $MESSAGE"
-                exit 1
-              fi
-            fi
-          fi
-          echo "  > Waiting... (${ELAPSED}s elapsed)"
-          sleep $POLL_INTERVAL
-          ELAPSED=$((ELAPSED + POLL_INTERVAL))
-        done
-        
-        echo "⚠️ Engine B did not report a terminal status within 15 minutes."
-        echo "This likely means Engine B is still running (slow container startup) or was silently killed."
-        echo "Check: /opt/treishvaam/deploy_pipeline.log on the server."
-        # Exit 0 here (don't fail the CI job) — the Dead Man's Switch in Grafana handles the alert
-        exit 0
+        echo "--> Watchdog detached successfully. The server will safely reboot the stack in the background. Telegram is now tracking the deployment status."
