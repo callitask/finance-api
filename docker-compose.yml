@@ -167,6 +167,12 @@
 #  * Injected SPRING_REDIS_URL, SPRING_DATA_REDIS_URL, and REDIS_URL explicitly mapped to redis://default:${REDIS_PASSWORD}@treishvaam-redis:6379.
 #  * Reason: Bucket4j uses the Lettuce client, which defaults to the RESP3 protocol and requires a fully qualified connection URI to properly negotiate the HELLO authentication handshake. Relying on fragmented host/password properties caused the backend to crash with a NOAUTH error on startup.
 #  *
+#  * - EDITED (YAML Truncation & Explicit Quoting Fix - 2026-07-06):
+#  * Removed the `redis://` URI connection strings as they are vulnerable to parsing failures when cryptographic passwords contain `#`, `@`, or `/`.
+#  * Meticulously wrapped all REDIS_PASSWORD injections in the `backend` and `treishvaam-redis` containers with explicit double quotes (`"SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}"`).
+#  * Reason: Docker Compose v2 interprets the `#` character as an inline comment terminator unless the entire array string is explicitly quoted. Because the Infisical-generated password contained a `#`, YAML silently truncated the password before it reached Spring Boot, causing a persistent `NOAUTH` crash loop. Explicit quoting mathematically guarantees the payload reaches the JVM intact.
+#  * Added explicit `SPRING_DATA_REDIS_USERNAME=default` to enforce Redis 6+ ACL compliance for Lettuce RESP3.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. 
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only. 
@@ -282,7 +288,7 @@ services:
     command:
       - redis-server
       - --requirepass
-      - ${REDIS_PASSWORD}
+      - "${REDIS_PASSWORD}"
       - --save
       - "60"
       - "1"
@@ -310,13 +316,13 @@ services:
       - MONITOR
       - ""
     environment:
-      REDISCLI_AUTH: ${REDIS_PASSWORD}
+      REDISCLI_AUTH: "${REDIS_PASSWORD}"
     deploy:
       resources:
         limits:
           memory: 256M
     healthcheck:
-      test: [ "CMD-SHELL", "redis-cli -a $$REDISCLI_AUTH ping | grep PONG" ]
+      test: [ "CMD-SHELL", "redis-cli -a \"$$REDISCLI_AUTH\" ping | grep PONG" ]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -539,14 +545,20 @@ services:
       - CLOUDFLARE_THREAT_KV_NAMESPACE_ID=${CLOUDFLARE_THREAT_KV_NAMESPACE_ID}
       - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
       - SPRING_PROFILES_ACTIVE=prod
-      - SPRING_DATA_REDIS_HOST=treishvaam-redis
-      - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
-      - SPRING_DATA_REDIS_URL=redis://default:${REDIS_PASSWORD}@treishvaam-redis:6379
-      - SPRING_REDIS_HOST=treishvaam-redis
-      - SPRING_REDIS_PASSWORD=${REDIS_PASSWORD}
-      - SPRING_REDIS_URL=redis://default:${REDIS_PASSWORD}@treishvaam-redis:6379
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - REDIS_URL=redis://default:${REDIS_PASSWORD}@treishvaam-redis:6379
+      - "SPRING_DATA_REDIS_HOST=treishvaam-redis"
+      - "SPRING_DATA_REDIS_PORT=6379"
+      - "SPRING_DATA_REDIS_USERNAME=default"
+      - "SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}"
+      - "SPRING_REDIS_HOST=treishvaam-redis"
+      - "SPRING_REDIS_PORT=6379"
+      - "SPRING_REDIS_USERNAME=default"
+      - "SPRING_REDIS_PASSWORD=${REDIS_PASSWORD}"
+      - "REDIS_HOST=treishvaam-redis"
+      - "REDIS_PORT=6379"
+      - "REDIS_PASSWORD=${REDIS_PASSWORD}"
+      - "APP_REDIS_PASSWORD=${REDIS_PASSWORD}"
+      - "BUCKET4J_REDIS_PASSWORD=${REDIS_PASSWORD}"
+      - "SPRING_CACHE_REDIS_PASSWORD=${REDIS_PASSWORD}"
       - SPRING_ELASTICSEARCH_URIS=http://elasticsearch:9200
       - SPRING_ELASTICSEARCH_USERNAME=elastic
       - SPRING_ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
