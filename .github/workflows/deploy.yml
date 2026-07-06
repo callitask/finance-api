@@ -138,6 +138,10 @@
 #   • Replaced `setsid nohup` with `sudo systemd-run`.
 #   • Reason: The GitHub Actions runner was sending SIGTERM to the `auto_deploy.sh` script via Linux cgroup tracking immediately after the job completed, causing the deployment to silently abort midway. `systemd-run` physically hands execution to pid 1, mathematically emancipating Engine B from the runner's lifecycle.
 #
+#   - EDITED (Root Permission Collision Fix - 2026-07-06):
+#   • Added `--uid=vboxuser --gid=vboxuser` to the `systemd-run` command.
+#   • Reason: The previous `systemd-run` executed as root, causing a fatal "Permission Denied" error on the `/tmp/treishvaam_deploy.lock` file due to the `/tmp` directory's sticky bit. Explicitly enforcing the `vboxuser` context safely escapes the GitHub cgroup while maintaining strict, non-root file ownership for telemetry and locks.
+#
 #   - DO-NOT-DELETE RULE (ABSOLUTE):
 #   This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #   It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
@@ -291,7 +295,7 @@ jobs:
         # Unset tracking ID to blind GitHub Actions' cleanup process (legacy fallback)
         export RUNNER_TRACKING_ID=""
         
-        # Emancipate Engine B from the GitHub Runner's cgroup via systemd-run
-        sudo systemd-run --unit=treishvaam-deploy-$(date +%s) --description="Treishvaam Engine B Deploy" /bin/bash -c "cd /opt/treishvaam && ./scripts/auto_deploy.sh --force > /opt/treishvaam/deploy_pipeline.log 2>&1"
+        # Emancipate Engine B from the GitHub Runner's cgroup via systemd-run (Enforcing vboxuser context to prevent root lockouts)
+        sudo systemd-run --uid=vboxuser --gid=vboxuser --unit=treishvaam-deploy-$(date +%s) --description="Treishvaam Engine B Deploy" /bin/bash -c "cd /opt/treishvaam && ./scripts/auto_deploy.sh --force > /opt/treishvaam/deploy_pipeline.log 2>&1"
         
         echo "--> Watchdog detached successfully via systemd. The server will safely reboot the stack in the background. Telegram is now tracking the deployment status."
