@@ -142,6 +142,10 @@
 #     • Added a 3-attempt retry loop to the Telegram `curl` dispatch.
 #     • Removed stray `set -x` to prevent log pollution.
 #     • Reason: GitHub Actions `cancel-in-progress` caused a race condition where two deployments wrote to telemetry simultaneously, corrupting the JSON. `flock` mathematically guarantees single-thread execution. The network flap during `docker compose rm` dropped the Telegram HTTP packet; the retry loop guarantees delivery.
+#
+#   - EDITED (SIGPIPE Assassination Fix - 2026-07-06):
+#     • Removed 'exec > >(tee -a "$LOG_FILE") 2>&1' subshell redirection.
+#     • Reason: The deploy.yml workflow natively redirects standard output via systemd-run. The internal tee subshell created a fatal double-redirection I/O collision. During the heavy Tier 3 load, the fragile pipe collapsed, sending a SIGPIPE that silently killed the deployment script exactly before Tier 4.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -186,8 +190,6 @@ else
     _JQ_AVAILABLE=true
 fi
 # ─────────────────────────────────────────────────────────────────────────────
-
-exec > >(tee -a "$LOG_FILE") 2>&1
 
 # ── log_telemetry() ───────────────────────────────────────────────────────────
 # Emits a single NDJSON line to the telemetry file.
