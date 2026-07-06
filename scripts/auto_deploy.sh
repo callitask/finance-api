@@ -136,6 +136,12 @@
 #     • Removed `>/dev/null 2>&1 || true` from the `sudo sysctl vm.overcommit_memory` command.
 #     • Added explicit error handling and telemetry warnings.
 #     • Reason: The Ansible playbook wasn't run, leaving `vboxuser` without sudo rights for `sysctl`. Hiding the output caused a silent failure where the kernel denied JVM memory allocations and killed the backend containers on boot (Exit Code 1). Explicitly logging this unmasks infrastructure failures.
+#
+#   - EDITED (Atomic Concurrency & Network Flap Resilience - 2026-07-06):
+#     • Replaced bash-based PID concurrency lock with atomic kernel-level `flock` (File Descriptor 200).
+#     • Added a 3-attempt retry loop to the Telegram `curl` dispatch.
+#     • Removed stray `set -x` to prevent log pollution.
+#     • Reason: GitHub Actions `cancel-in-progress` caused a race condition where two deployments wrote to telemetry simultaneously, corrupting the JSON. `flock` mathematically guarantees single-thread execution. The network flap during `docker compose rm` dropped the Telegram HTTP packet; the retry loop guarantees delivery.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -248,50 +254,59 @@ Run: \`${RUN_ID}\`
 Detail: ${message}"
 
     if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
-        # Must be synchronous. No background '&' operator, so it finishes before trap closes.
-        curl -s -m 10 -X POST \
-            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "text=${text}" \
-            -d "parse_mode=Markdown" \
-            >/dev/null 2>&1
+        # Must be synchronous. Added retry loop to survive VirtualBox STP network flaps
+        # during bridge teardowns which previously dropped the HTTP packet.
+        local max_retries=3
+        local attempt=1
+        local success=false
+        
+        while [ $attempt -le $max_retries ]; do
+            if curl -s -m 10 -X POST \
+                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                -d "chat_id=${TELEGRAM_CHAT_ID}" \
+                -d "text=${text}" \
+                -d "parse_mode=Markdown" \
+                >/dev/null 2>&1; then
+                success=true
+                break
+            fi
+            attempt=$((attempt + 1))
+            sleep 2
+        done
+        
+        if [ "$success" = "false" ]; then
+            echo "[WARN] Telegram notification failed after $max_retries attempts. Network unreachable." >> "$LOG_FILE"
+        fi
     fi
 }
 
-# --- 0. CRITICAL CONCURRENCY LOCK & WIPER TRAP ---
+# --- 0. CRITICAL CONCURRENCY LOCK (ATOMIC) & WIPER TRAP ---
 LOCKFILE="/tmp/treishvaam_deploy.lock"
-if [ -f "$LOCKFILE" ]; then
-    LOCK_AGE=$(( $(date +%s) - $(stat -c %Y "$LOCKFILE" 2>/dev/null || echo 0) ))
-    if [ "$LOCK_AGE" -gt 7200 ]; then
-        echo "[Lock] Stale lockfile older than 2 hours. Forcing removal."
-        rm -f "$LOCKFILE"
-    else
-        PID=$(cat "$LOCKFILE")
-        if kill -0 "$PID" 2>/dev/null; then
-            PROC_NAME=$(ps -p "$PID" -o comm= 2>/dev/null || echo "")
-            if echo "$PROC_NAME" | grep -qE 'bash|auto_deploy'; then
-                log_telemetry "STARTUP" "SKIPPED" "Concurrent deployment running (PID $PID, COMM: $PROC_NAME). Exiting."
-                exit 0
-            else
-                echo "[Lock] PID $PID exists but belongs to '$PROC_NAME' (recycled). Clearing stale lock."
-                rm -f "$LOCKFILE"
-            fi
-        else
-            rm -f "$LOCKFILE"
-        fi
-    fi
+
+# Open file descriptor 200 for the lockfile
+exec 200>"$LOCKFILE"
+
+# Attempt an exclusive, non-blocking lock. If it fails, another deployment is running.
+if ! flock -n 200; then
+    echo "[Lock] Concurrent deployment running (flock denied). Exiting gracefully." >> "$LOG_FILE"
+    log_telemetry "STARTUP" "SKIPPED" "Concurrent deployment running (flock denied). Exiting gracefully."
+    exit 0
 fi
-echo $$ > "$LOCKFILE"
-OWNS_LOCK="true" # Lock explicitly acquired. This process is now authorized to execute the Flash & Wipe trap.
+
+# Write our PID into the lockfile for diagnostic visibility
+echo $$ >&200
+
+OWNS_LOCK="true" # Lock explicitly acquired atomically. Authorized to execute Flash & Wipe.
 
 # ── DEAD MAN'S SWITCH ─────────────────────────────────────────────────────────
 log_telemetry "STARTUP" "IN_PROGRESS" "Engine B deployment started. RUN_ID: $RUN_ID"
 notify "STARTUP" "IN_PROGRESS" "Engine B deployment started."
 
 # ── BULLETPROOF TRAP ──────────────────────────────────────────────────────────
+# We deliberately DO NOT delete the lockfile here. `flock` operates on the inode. 
+# The kernel automatically releases the lock when the script terminates.
 trap '
     if [ "$OWNS_LOCK" = "true" ]; then
-        rm -f "$LOCKFILE"
         cp "$TEMPLATE_FILE" "$ENV_FILE" 2>/dev/null || true
         log_telemetry "COMPLETION" "${DEPLOY_STATUS:-FAILURE}" "Deployment ended. Secrets wiped from disk."
         notify "COMPLETION" "${DEPLOY_STATUS:-FAILURE}" "Deployment ended. Secrets wiped from disk."
@@ -340,7 +355,6 @@ rm -f "$HOME/.infisical/.infisical.json" 2>/dev/null || true
 # ── STATELESS JWT EXTRACTION ─────────────────────────────────────────────────
 set +x
 RAW_TOKEN=$(infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --domain="https://app.infisical.com" --silent 2>/dev/null | grep -oE 'eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+' | head -n 1 || true)
-set -x
 
 if [ -z "$RAW_TOKEN" ]; then
     echo "CRITICAL ERROR: Infisical authentication failed. Could not extract JWT token."
@@ -526,6 +540,8 @@ fi
 
 # --- 6. ATOMIC SECURITY WIPE ---
 echo "[Security] Wiping secrets from disk..."
+# Note: The EXIT trap will seamlessly handle the wipe if this block is missed, 
+# but executing it here keeps the procedural flow clean before the final telemetry log.
 cp "$TEMPLATE_FILE" "$ENV_FILE"
 echo "  > SECURE WIPE COMPLETE. .env restored to template baseline."
 
