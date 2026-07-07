@@ -10,9 +10,11 @@
  * <p>Security Constraints: - Must never manually hardcode Redis credentials. - Must securely inject
  * Spring's RedisProperties to ensure environment parity with Spring Data.
  *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Created Bucket4jConfig to expose a
- * ProxyManager<byte[]> backed by Lettuce/Redis. • Why: Required for migrating RateLimitingFilter to
- * a distributed cache to prevent bypasses via IP rotation across instances (SEC-02).
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+ *
+ * <p>- ADDED: • Created Bucket4jConfig to expose a ProxyManager<byte[]> backed by Lettuce/Redis. •
+ * Why: Required for migrating RateLimitingFilter to a distributed cache to prevent bypasses via IP
+ * rotation across instances (SEC-02).
  *
  * <p>- EDITED (Hotfix): • Changed return type of proxyManager from ProxyManager<String> to
  * ProxyManager<byte[]> to match Bucket4j 8.x Lettuce native key requirement. • Explicitly declared
@@ -53,6 +55,13 @@
  * namespace is evaluated first, eliminating unauthenticated HELLO command crashes during Lettuce
  * initialization.
  *
+ * <p>- EDITED (Property Shadowing NOAUTH Fix - 2026-07-07): • Prioritized explicit parsing of
+ * `SPRING_DATA_REDIS_URL` over fragmented properties. • Why: Spring Boot was shadowing the password
+ * environment variable with an empty string from `application.properties`, causing Bucket4j to
+ * initialize Lettuce without credentials and triggering a `NOAUTH` crash on the `HELLO` handshake.
+ * Parsing the fully qualified OS URL mathematically guarantees the authenticated string is passed
+ * to Redis.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -82,20 +91,35 @@ public class Bucket4jConfig {
     @Bean(destroyMethod = "shutdown")
     public RedisClient bucket4jRedisClient(
             RedisProperties properties,
+            @Value("${spring.data.redis.url:${SPRING_DATA_REDIS_URL:${REDIS_URL:}}}")
+                    String redisUrl,
             @Value(
                             "${spring.data.redis.password:${SPRING_DATA_REDIS_PASSWORD:${SPRING_REDIS_PASSWORD:}}}")
                     String redisPassword,
             ClientResources clientResources) {
-        RedisURI.Builder uriBuilder =
-                RedisURI.builder().withHost(properties.getHost()).withPort(properties.getPort());
 
-        if (redisPassword != null && !redisPassword.isEmpty()) {
-            uriBuilder.withPassword(redisPassword.toCharArray());
-        } else if (properties.getPassword() != null && !properties.getPassword().isEmpty()) {
-            uriBuilder.withPassword(properties.getPassword().toCharArray());
+        RedisURI redisUri;
+
+        // Priority 1: Directly parse the fully authenticated URL injected by Engine B.
+        // This completely bypasses Spring Boot's property shadowing (empty string overrides).
+        if (redisUrl != null && !redisUrl.trim().isEmpty()) {
+            redisUri = RedisURI.create(redisUrl);
+        } else {
+            // Priority 2: Fallback to fragmented properties for local development
+            RedisURI.Builder uriBuilder =
+                    RedisURI.builder()
+                            .withHost(properties.getHost())
+                            .withPort(properties.getPort());
+
+            if (redisPassword != null && !redisPassword.isEmpty()) {
+                uriBuilder.withPassword(redisPassword.toCharArray());
+            } else if (properties.getPassword() != null && !properties.getPassword().isEmpty()) {
+                uriBuilder.withPassword(properties.getPassword().toCharArray());
+            }
+            redisUri = uriBuilder.build();
         }
 
-        return RedisClient.create(clientResources, uriBuilder.build());
+        return RedisClient.create(clientResources, redisUri);
     }
 
     @Bean
