@@ -24,6 +24,10 @@
 #  * • Created color-coded deployment watcher.
 #  * • Reason: Engineers were flying blind or forced to use complex Loki queries to watch deployments. This restores standard `tail -f` visibility with semantic color highlighting.
 #  * • Date/Phase: 2026-06-25
+#  *
+#  * - EDITED (Phase 4 Remediation Integration - 2026-07-07):
+#  * • Verified formatting and semantic grep targets.
+#  * • Reason: Ensuring compatibility with the expanded logs introduced by Engine B's autonomous TCP Zombie Runner fixes and STP VirtualBox loop debugging.
 #  */
 
 echo "🔍 Watching Treishvaam deployment pipeline..."
@@ -45,15 +49,18 @@ if [ ! -f "$LOG_FILE" ]; then
     exit 1
 fi
 
+# Trap Ctrl+C to exit cleanly
+trap "echo -e '\n${CYAN}Watch ended.${NC}'; exit 0" INT
+
 tail -f "$LOG_FILE" | while IFS= read -r line; do
-    if echo "$line" | grep -qiE 'error|fail|critical|denied|exception'; then
+    if echo "$line" | grep -qiE 'error|fail|critical|denied|exception|noauth|zombie'; then
         echo -e "${RED}[ERROR]   $line${NC}"
     elif echo "$line" | grep -qiE 'success|complete|healthy|done'; then
         echo -e "${GREEN}[OK]      $line${NC}"
-    elif echo "$line" | grep -qiE 'warning|notice|wait|skipping|stale'; then
+    elif echo "$line" | grep -qiE 'warning|notice|wait|skipping|stale|retry'; then
         echo -e "${YELLOW}[WARN]    $line${NC}"
-    elif echo "$line" | grep -qiE 'container|image|network|volume'; then
-        echo -e "${CYAN}[DOCKER]  $line${NC}"
+    elif echo "$line" | grep -qiE 'container|image|network|volume|systemctl|runner'; then
+        echo -e "${CYAN}[SYSTEM]  $line${NC}"
     else
         echo "          $line"
     fi

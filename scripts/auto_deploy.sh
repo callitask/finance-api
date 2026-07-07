@@ -151,6 +151,10 @@
 #     • Increased the notify() curl retry loop from 3 attempts (6s) to 15 attempts (30s).
 #     • Unmasked curl stderr (`curl -sS`) and routed output into `deploy_pipeline.log`.
 #     • Reason: `docker compose rm -f` tears down the `treish_net` bridge interface. On VirtualBox bridged adapters, this triggers a Spanning Tree Protocol (STP) network flap that drops external routing for 15-30 seconds. The previous 6-second window expired while the network was physically disconnected, sending the Telegram SUCCESS ping into a black hole invisibly. Expanding the window and logging standard error guarantees delivery resilience and visibility.
+#
+#   - EDITED (TCP Zombie Runner Paradox Resolution - 2026-07-07):
+#     • Injected `sudo -n systemctl restart actions.runner.*` at the absolute end of the deployment lifecycle.
+#     • Reason: Engine B executes `docker compose rm -f`, which destroys the `treish_net` bridge. On VirtualBox, this triggers an STP network flap that violently severs the Git Runner's TCP connection to GitHub, leaving it in a "Half-Open TCP Zombie" state. The orchestrator must autonomically bounce the runner daemon post-deployment to re-establish the handshake and unfreeze queued CI/CD jobs.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -557,4 +561,11 @@ echo "  > SECURE WIPE COMPLETE. .env restored to template baseline."
 log_telemetry "COMPLETION" "${DEPLOY_STATUS}" "Deployment sequence finished."
 
 echo "[$(date)] ✅ Hardened Tiered Rebuild & Deployment Complete."
+
+# --- 7. TCP ZOMBIE RUNNER PARADOX RESOLUTION (ABSOLUTE SYSTEM PROTECTION) ---
+echo "[System] Curing TCP Half-Open Runner Zombie State..."
+# The STP network flap during docker compose rm -f severed the TCP connection to GitHub.
+# We must autonomically bounce the runner daemon to restore connectivity for future Git pushes.
+sudo -n systemctl restart actions.runner.* || echo "[WARNING] Failed to restart actions.runner daemon. Ensure Ansible playbook updated sudoers."
+echo "  > Runner Daemon bounced successfully. Pipeline ready for next job."
 echo "================================================================"

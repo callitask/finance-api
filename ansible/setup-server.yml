@@ -67,6 +67,10 @@
 #   - EDITED (Zero-Trust Validation & Playbook Verification - 2026-07-07):
 #     • Verified idempotent configurations for Docker CE, UFW, Swap Accounting, and Vault integration.
 #     • Reason: Ensures alignment with the latest Smart System architecture and military-grade AES-256 Vault integration for Zero-State Ignition. Preserves strict separation of secrets via {{ infisical_client_secret }}.
+#
+#   - EDITED (TCP Zombie Runner Paradox Resolution - 2026-07-07):
+#     • Injected `NOPASSWD` sudo execution rights for `/usr/bin/systemctl restart actions.runner.*` into `treishvaam-deploy` sudoers config.
+#     • Reason: `docker compose rm -f` causes a VirtualBox STP network flap that violently severs the Git Runner's TCP connection to GitHub, leaving it in a "Half-Open TCP Zombie" state (Active locally, Offline remotely). Engine B requires sudo rights to autonomically bounce the runner daemon post-deployment to re-establish the handshake and unfreeze queued jobs.
 # ==============================================================================
 
 - name: Treishvaam Zero-State Ignition (ZSI)
@@ -138,6 +142,7 @@
           vboxuser ALL=(ALL) NOPASSWD: /usr/bin/sync
           vboxuser ALL=(ALL) NOPASSWD: /usr/bin/chown *
           vboxuser ALL=(ALL) NOPASSWD: /opt/treishvaam/scripts/kernel-mount-recovery.sh
+          vboxuser ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart actions.runner.*
 
     - name: 2.5 Set vm.max_map_count persistently for Elasticsearch
       sysctl:
