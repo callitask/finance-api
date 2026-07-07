@@ -146,6 +146,11 @@
 #   - EDITED (SIGPIPE Assassination Fix - 2026-07-06):
 #     • Removed 'exec > >(tee -a "$LOG_FILE") 2>&1' subshell redirection.
 #     • Reason: The deploy.yml workflow natively redirects standard output via systemd-run. The internal tee subshell created a fatal double-redirection I/O collision. During the heavy Tier 3 load, the fragile pipe collapsed, sending a SIGPIPE that silently killed the deployment script exactly before Tier 4.
+#
+#   - EDITED (Telegram Silent Drop & VirtualBox STP Flap Fix - 2026-07-07):
+#     • Increased the notify() curl retry loop from 3 attempts (6s) to 15 attempts (30s).
+#     • Unmasked curl stderr (`curl -sS`) and routed output into `deploy_pipeline.log`.
+#     • Reason: `docker compose rm -f` tears down the `treish_net` bridge interface. On VirtualBox bridged adapters, this triggers a Spanning Tree Protocol (STP) network flap that drops external routing for 15-30 seconds. The previous 6-second window expired while the network was physically disconnected, sending the Telegram SUCCESS ping into a black hole invisibly. Expanding the window and logging standard error guarantees delivery resilience and visibility.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -256,28 +261,30 @@ Run: \`${RUN_ID}\`
 Detail: ${message}"
 
     if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
-        # Must be synchronous. Added retry loop to survive VirtualBox STP network flaps
-        # during bridge teardowns which previously dropped the HTTP packet.
-        local max_retries=3
+        # Must be synchronous. Added expanded 15-attempt retry loop to survive VirtualBox 
+        # STP network flaps during bridge teardowns which take 15-30 seconds to stabilize.
+        local max_retries=15
         local attempt=1
         local success=false
         
         while [ $attempt -le $max_retries ]; do
-            if curl -s -m 10 -X POST \
+            # Using -sS suppresses progress meters but unmasks errors directly to log file
+            if curl -sS -m 10 -X POST \
                 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
                 -d "chat_id=${TELEGRAM_CHAT_ID}" \
                 -d "text=${text}" \
                 -d "parse_mode=Markdown" \
-                >/dev/null 2>&1; then
+                >> "$LOG_FILE" 2>&1; then
                 success=true
                 break
             fi
+            echo "[WARN] Telegram network flap (Attempt $attempt/$max_retries). Retrying in 2s..." >> "$LOG_FILE"
             attempt=$((attempt + 1))
             sleep 2
         done
         
         if [ "$success" = "false" ]; then
-            echo "[WARN] Telegram notification failed after $max_retries attempts. Network unreachable." >> "$LOG_FILE"
+            echo "[CRITICAL WARN] Telegram notification failed after $max_retries attempts. Network unreachable." >> "$LOG_FILE"
         fi
     fi
 }
