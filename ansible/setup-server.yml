@@ -63,6 +63,10 @@
 #     • Injected `vm.overcommit_memory=1` persistently into sysctl configurations.
 #     • Updated sudoers to allow `auto_deploy.sh` to trigger the sysctl override gracefully at runtime.
 #     • Reason: The Linux kernel was denying container allocations on the 4.8GB host, resulting in silent Exit Code 1 compose aborts during the build/boot phase. This natively authorizes Docker to bypass the heuristic block, resolving the Engine B panic loops permanently.
+#
+#   - EDITED (Zero-Trust Validation & Playbook Verification - 2026-07-07):
+#     • Verified idempotent configurations for Docker CE, UFW, Swap Accounting, and Vault integration.
+#     • Reason: Ensures alignment with the latest Smart System architecture and military-grade AES-256 Vault integration for Zero-State Ignition. Preserves strict separation of secrets via {{ infisical_client_secret }}.
 # ==============================================================================
 
 - name: Treishvaam Zero-State Ignition (ZSI)
