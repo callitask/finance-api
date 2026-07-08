@@ -164,9 +164,10 @@
 #     • Migrated Telegram parse_mode from `Markdown` to `HTML` and injected `--data-urlencode` into the curl payload parameters.
 #     • Reason: Telegram's Markdown parser is extremely brittle. Emitting an `IN_PROGRESS` state caused the parser to interpret the underscore as an unclosed italic block, resulting in a fatal `400 Bad Request: can't parse entities` error and silent notification drops. HTML tags with url-encoded payloads mathematically guarantee text safety over the network.
 #
-#   - EDITED (Session 5 Diagnostics - Ignition Smoothing & OOM Prevention - 2026-07-09):
-#     • Fragmented Tier 3 (which previously ignited 9 containers simultaneously) into sub-tiers 3A, 3B, and 3C, separated by 10-second `drop_caches` buffers.
-#     • Reason: Firing 9 heavy enterprise containers instantly caused a catastrophic Kernel I/O starvation spike. The Docker socket deadlocked (`copy stream failed: reading from a closed fifo`), and Ubuntu's `systemd-oomd` assassinated the `treishvaam-deploy` process tree to protect host stability via a `SIGKILL` (bypassing the EXIT trap). Smoothing the ignition curve mathematically prevents daemon cardiac arrest.
+#   - EDITED (Session 4 Diagnostics - Build/Boot Decoupling & Expanded Buffers - 2026-07-08):
+#     • Separated the heavy Go/Java compilation phases (`docker compose build`) into a new Tier 0 sequence *before* any databases are booted.
+#     • Increased `sleep` limits from 10s to 15s between all tiers.
+#     • Reason: Compiling heavy microservices *while* orchestrating 15 other containers caused the Docker daemon to exhaust file descriptors and violently crash. When systemd restarted the crashed daemon, it simultaneously booted all 21 containers instantly, severing the Engine B socket connection and resulting in a silent failure without a terminal Telegram ping. Pre-compiling code in isolation prevents I/O starvation and respects inter-container dependencies during actual ignition.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -326,8 +327,6 @@ OWNS_LOCK="true" # Lock explicitly acquired atomically. Authorized to execute Fl
 
 # ── DEAD MAN'S SWITCH ─────────────────────────────────────────────────────────
 log_telemetry "STARTUP" "IN_PROGRESS" "Engine B deployment started. RUN_ID: $RUN_ID"
-# [Fix: 2026-07-08] The `notify "STARTUP"` ping has been explicitly moved below 
-# the Infisical Injection sequence to guarantee TELEGRAM_BOT_TOKEN availability.
 
 # ── BULLETPROOF TRAP ──────────────────────────────────────────────────────────
 # We deliberately DO NOT delete the lockfile here. `flock` operates on the inode. 
@@ -435,7 +434,7 @@ sudo -n chown $(id -u):$(id -g) .env 2>/dev/null || true
 echo "[System] Aggressive build cache cleanup (preventing disk exhaustion)..."
 docker image prune -f
 docker builder prune --filter until=24h -f
-log_telemetry "CACHE_CLEANUP" "SUCCESS" "Build cache pruned. $(docker system df --format 'table {{.Type}}\t{{.Size}}\t{{.Reclaimable}}' 2>/dev/null | tail -n +2 | tr '\n' '|')"
+log_telemetry "CACHE_CLEANUP" "SUCCESS" "Build cache pruned."
 
 echo "[System] Executing Non-Disruptive OS Memory Recovery..."
 sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
@@ -454,7 +453,6 @@ if [ -n "$GHOST_NODES" ]; then
     if ! docker rm -f $GHOST_NODES 2>/dev/null; then
         echo "  > [WARNING] Standard purge failed (Kernel lock suspected). Engaging Autonomic Mount Recovery..."
         sudo -n /opt/treishvaam/scripts/kernel-mount-recovery.sh || echo "  > [CRITICAL] Autonomic recovery failed. Proceeding with caution..."
-        # Structural 15s network-stabilization buffer to absorb Spanning Tree Protocol (STP) network adapter flaps
         echo "  > Waiting 15 seconds for VirtualBox network bridge to stabilize..."
         sleep 15
     fi
@@ -464,70 +462,26 @@ log_telemetry "GHOST_PRUNE" "SUCCESS" "Dead/Limbo container ghost metadata purge
 echo "[Docker] Executing Non-Disruptive State Healing..."
 docker compose rm -f || true
 
-# --- 4. ORCHESTRATOR-DRIVEN HEALTH-GATED TIERED IGNITION MATRIX ---
+# --- 4. ORCHESTRATOR-DRIVEN DECOUPLED IGNITION MATRIX ---
 echo "[Docker] Applying Hardened Tiered Ignition Sequence..."
 log_telemetry "STAGGERED_IGNITION" "IN_PROGRESS" "Beginning orchestrator-driven tiered ignition sequence."
 
-# ── TIER 1: Core Data Foundation ──
-echo "[Ignition - Tier 1] Starting Core Database and Caching layers..."
-docker compose up -d --no-deps treishvaam-db keycloak-db treishvaam-redis redis minio
+# ── TIER 0: Pre-Compilation Phase (Build/Boot Decoupling) ──
+echo "[Ignition - Tier 0] Pre-compiling heavy microservices (Isolating CPU/RAM spikes)..."
+log_telemetry "STAGGERED_IGNITION" "IN_PROGRESS" "Executing Tier 0 Compilation to prevent Docker Daemon I/O deadlock."
 
-echo "[Ignition - Tier 1] Reclaiming volatile memory allocations..."
-sleep 10
-sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
-
-# ── TIER 2: Queue & Analytics Infrastructure ──
-echo "[Ignition - Tier 2] Starting Search Engine and Messaging pipelines..."
-docker compose up -d --no-deps elasticsearch rabbitmq wazuh-manager
-
-echo "[Ignition - Tier 2] Reclaiming volatile memory allocations..."
-sleep 10
-sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
-
-# ── TIER 3: Security & Utility Sub-Tiers (Ignition Smoothing) ──
-log_telemetry "STAGGERED_IGNITION" "IN_PROGRESS" "Fragmenting Tier 3 to prevent Docker Daemon I/O deadlock."
-
-# ── TIER 3A: Cryptographic & Boundary Security ──
-echo "[Ignition - Tier 3A] Evaluating Cryptographic & Boundary Security..."
 ZKP_HASH=$(find ./aegis/zkp-service -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | awk '{print $1}' || echo "unknown")
 ZKP_LAST_SHA_FILE="/opt/treishvaam/.zkp_last_built_sha"
 ZKP_LAST_SHA=$(cat "$ZKP_LAST_SHA_FILE" 2>/dev/null || echo "none")
 
-if [ "$ZKP_HASH" = "$ZKP_LAST_SHA" ] && [ "$ZKP_HASH" != "unknown" ]; then
-    echo "  > ZKP service unchanged (Hash: $ZKP_HASH). Skipping rebuild."
-    docker compose up -d --no-deps aegis-zkp-service
-else
-    echo "  > ZKP service changed. Rebuilding Go binary..."
-    docker compose up -d --build --no-deps aegis-zkp-service
+if [ "$ZKP_HASH" != "$ZKP_LAST_SHA" ] || [ "$ZKP_HASH" = "unknown" ]; then
+    echo "  > ZKP service changed. Compiling Go binary..."
+    docker compose build aegis-zkp-service
     echo "$ZKP_HASH" > "$ZKP_LAST_SHA_FILE"
 fi
 
-echo "  > Igniting canary and permission boundaries..."
-docker compose up -d --no-deps aegis-canary-server permission-fixer
-
-echo "[Ignition - Tier 3A] Reclaiming volatile memory allocations..."
-sleep 10
-sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
-
-# ── TIER 3B: Host Introspection & Data Continuity ──
-echo "[Ignition - Tier 3B] Igniting Host Introspection & Continuity..."
-docker compose up -d --no-deps wazuh-agent backup-service tunnel
-
-echo "[Ignition - Tier 3B] Reclaiming volatile memory allocations..."
-sleep 10
-sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
-
-# ── TIER 3C: Observability Pipeline ──
-echo "[Ignition - Tier 3C] Igniting Observability Stack..."
-docker compose up -d --no-deps promtail prometheus tempo grafana
-
-echo "[Ignition - Tier 3C] Reclaiming volatile memory allocations..."
-sleep 10
-sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
-
-# ── TIER 4: Application Execution Layer ──
-echo "[Ignition - Tier 4] Rebuilding and firing Core Java Application layer (1 replica)..."
-docker compose up -d --build --no-deps --scale backend=1 backend
+echo "  > Compiling Java Backend Image..."
+docker compose build backend
 BUILD_EXIT_CODE=$?
 
 if [ $BUILD_EXIT_CODE -ne 0 ]; then
@@ -536,15 +490,62 @@ if [ $BUILD_EXIT_CODE -ne 0 ]; then
     notify "STAGGERED_IGNITION" "FAILURE" "Application build tier failed (OOM/Syntax error). Aborting."
     exit 1
 fi
-sleep 5
+
+echo "[Ignition - Tier 0] Reclaiming volatile memory allocations..."
+sleep 15
+sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
+
+# ── TIER 1: Core Data Foundation ──
+echo "[Ignition - Tier 1] Starting Core Database and Caching layers..."
+docker compose up -d --no-deps treishvaam-db keycloak-db treishvaam-redis redis minio aegis-canary-redis
+
+echo "[Ignition - Tier 1] Reclaiming volatile memory allocations..."
+sleep 15
+sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
+
+# ── TIER 2: Queue & Analytics Infrastructure ──
+echo "[Ignition - Tier 2] Starting Search Engine and Messaging pipelines..."
+docker compose up -d --no-deps elasticsearch rabbitmq wazuh-manager
+
+echo "[Ignition - Tier 2] Reclaiming volatile memory allocations..."
+sleep 15
+sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
+
+# ── TIER 3A: Cryptographic & Boundary Security ──
+echo "[Ignition - Tier 3A] Evaluating Cryptographic & Boundary Security..."
+docker compose up -d --no-deps aegis-zkp-service aegis-canary-server permission-fixer
+
+echo "[Ignition - Tier 3A] Reclaiming volatile memory allocations..."
+sleep 15
+sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
+
+# ── TIER 3B: Host Introspection & Data Continuity ──
+echo "[Ignition - Tier 3B] Igniting Host Introspection & Continuity..."
+docker compose up -d --no-deps wazuh-agent backup-service tunnel
+
+echo "[Ignition - Tier 3B] Reclaiming volatile memory allocations..."
+sleep 15
+sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
+
+# ── TIER 3C: Observability Pipeline ──
+echo "[Ignition - Tier 3C] Igniting Observability Stack..."
+docker compose up -d --no-deps promtail prometheus tempo grafana
+
+echo "[Ignition - Tier 3C] Reclaiming volatile memory allocations..."
+sleep 15
+sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
+
+# ── TIER 4: Application Execution Layer ──
+echo "[Ignition - Tier 4] Firing Core Java Application layer (1 replica)..."
+docker compose up -d --no-deps --scale backend=1 backend
+
+echo "[System] Stabilizing application layer (Waiting 15s)..."
+sleep 15
 
 # ── TIER 5: Edge Web proxies ──
 echo "[Ignition - Tier 5] Igniting reverse routing layer..."
 docker compose up -d --force-recreate --no-deps nginx envoy-sidecar
 log_telemetry "APPLICATION_TIER" "SUCCESS" "Tiered cluster ignition completed successfully."
-
-echo "[System] Stabilizing application layer (Waiting 10s)..."
-sleep 10
 
 # --- 5. POST-DEPLOYMENT HEALTH VERIFICATION ---
 echo "[Health] Verifying deployment health..."
@@ -590,8 +591,6 @@ fi
 
 # --- 6. ATOMIC SECURITY WIPE ---
 echo "[Security] Wiping secrets from disk..."
-# Note: The EXIT trap will seamlessly handle the wipe if this block is missed, 
-# but executing it here keeps the procedural flow clean before the final telemetry log.
 cp "$TEMPLATE_FILE" "$ENV_FILE"
 echo "  > SECURE WIPE COMPLETE. .env restored to template baseline."
 
@@ -601,8 +600,6 @@ echo "[$(date)] ✅ Hardened Tiered Rebuild & Deployment Complete."
 
 # --- 7. TCP ZOMBIE RUNNER PARADOX RESOLUTION (ABSOLUTE SYSTEM PROTECTION) ---
 echo "[System] Curing TCP Half-Open Runner Zombie State..."
-# The STP network flap during docker compose rm -f severed the TCP connection to GitHub.
-# We must autonomically bounce the runner daemon to restore connectivity for future Git pushes.
-sudo -n systemctl restart actions.runner.* || echo "[WARNING] Failed to restart actions.runner daemon. Ensure Ansible playbook updated sudoers."
+sudo -n systemctl restart actions.runner.* || echo "[WARNING] Failed to restart actions.runner daemon."
 echo "  > Runner Daemon bounced successfully. Pipeline ready for next job."
 echo "================================================================"
