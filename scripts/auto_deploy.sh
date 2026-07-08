@@ -163,6 +163,10 @@
 #   - EDITED (Session 3 Diagnostics - Telegram Markdown Corruption Fix - 2026-07-08):
 #     • Migrated Telegram parse_mode from `Markdown` to `HTML` and injected `--data-urlencode` into the curl payload parameters.
 #     • Reason: Telegram's Markdown parser is extremely brittle. Emitting an `IN_PROGRESS` state caused the parser to interpret the underscore as an unclosed italic block, resulting in a fatal `400 Bad Request: can't parse entities` error and silent notification drops. HTML tags with url-encoded payloads mathematically guarantee text safety over the network.
+#
+#   - EDITED (Session 5 Diagnostics - Ignition Smoothing & OOM Prevention - 2026-07-09):
+#     • Fragmented Tier 3 (which previously ignited 9 containers simultaneously) into sub-tiers 3A, 3B, and 3C, separated by 10-second `drop_caches` buffers.
+#     • Reason: Firing 9 heavy enterprise containers instantly caused a catastrophic Kernel I/O starvation spike. The Docker socket deadlocked (`copy stream failed: reading from a closed fifo`), and Ubuntu's `systemd-oomd` assassinated the `treishvaam-deploy` process tree to protect host stability via a `SIGKILL` (bypassing the EXIT trap). Smoothing the ignition curve mathematically prevents daemon cardiac arrest.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -480,8 +484,11 @@ echo "[Ignition - Tier 2] Reclaiming volatile memory allocations..."
 sleep 10
 sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
 
-# ── TIER 3: Security Foundations & Utilities ──
-echo "[Ignition - Tier 3] Evaluating Cryptographic Microservices..."
+# ── TIER 3: Security & Utility Sub-Tiers (Ignition Smoothing) ──
+log_telemetry "STAGGERED_IGNITION" "IN_PROGRESS" "Fragmenting Tier 3 to prevent Docker Daemon I/O deadlock."
+
+# ── TIER 3A: Cryptographic & Boundary Security ──
+echo "[Ignition - Tier 3A] Evaluating Cryptographic & Boundary Security..."
 ZKP_HASH=$(find ./aegis/zkp-service -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | awk '{print $1}' || echo "unknown")
 ZKP_LAST_SHA_FILE="/opt/treishvaam/.zkp_last_built_sha"
 ZKP_LAST_SHA=$(cat "$ZKP_LAST_SHA_FILE" 2>/dev/null || echo "none")
@@ -495,10 +502,26 @@ else
     echo "$ZKP_HASH" > "$ZKP_LAST_SHA_FILE"
 fi
 
-echo "  > Igniting collateral security and diagnostic utility systems..."
-docker compose up -d --no-deps aegis-canary-server wazuh-agent promtail prometheus tempo grafana backup-service tunnel permission-fixer
+echo "  > Igniting canary and permission boundaries..."
+docker compose up -d --no-deps aegis-canary-server permission-fixer
 
-echo "[Ignition - Tier 3] Reclaiming volatile memory allocations..."
+echo "[Ignition - Tier 3A] Reclaiming volatile memory allocations..."
+sleep 10
+sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
+
+# ── TIER 3B: Host Introspection & Data Continuity ──
+echo "[Ignition - Tier 3B] Igniting Host Introspection & Continuity..."
+docker compose up -d --no-deps wazuh-agent backup-service tunnel
+
+echo "[Ignition - Tier 3B] Reclaiming volatile memory allocations..."
+sleep 10
+sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
+
+# ── TIER 3C: Observability Pipeline ──
+echo "[Ignition - Tier 3C] Igniting Observability Stack..."
+docker compose up -d --no-deps promtail prometheus tempo grafana
+
+echo "[Ignition - Tier 3C] Reclaiming volatile memory allocations..."
 sleep 10
 sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
 
