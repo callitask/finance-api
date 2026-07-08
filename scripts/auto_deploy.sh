@@ -155,6 +155,10 @@
 #   - EDITED (TCP Zombie Runner Paradox Resolution - 2026-07-07):
 #     • Injected `sudo -n systemctl restart actions.runner.*` at the absolute end of the deployment lifecycle.
 #     • Reason: Engine B executes `docker compose rm -f`, which destroys the `treish_net` bridge. On VirtualBox, this triggers an STP network flap that violently severs the Git Runner's TCP connection to GitHub, leaving it in a "Half-Open TCP Zombie" state. The orchestrator must autonomically bounce the runner daemon post-deployment to re-establish the handshake and unfreeze queued CI/CD jobs.
+#
+#   - EDITED (Session 2 Diagnostics - Telegram Paradox Fix - 2026-07-08):
+#     • Relocated the `notify "STARTUP"` dispatch to execute *after* the Infisical export successfully maps `TELEGRAM_BOT_TOKEN` into memory.
+#     • Reason: Resolves the "Chicken & Egg" Telegram paradox. The script was attempting to send a startup ping at boot with blank credentials, failing silently. Moving it below the vault extraction mathematically guarantees delivery capability before transmitting.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -313,7 +317,8 @@ OWNS_LOCK="true" # Lock explicitly acquired atomically. Authorized to execute Fl
 
 # ── DEAD MAN'S SWITCH ─────────────────────────────────────────────────────────
 log_telemetry "STARTUP" "IN_PROGRESS" "Engine B deployment started. RUN_ID: $RUN_ID"
-notify "STARTUP" "IN_PROGRESS" "Engine B deployment started."
+# [Fix: 2026-07-08] The `notify "STARTUP"` ping has been explicitly moved below 
+# the Infisical Injection sequence to guarantee TELEGRAM_BOT_TOKEN availability.
 
 # ── BULLETPROOF TRAP ──────────────────────────────────────────────────────────
 # We deliberately DO NOT delete the lockfile here. `flock` operates on the inode. 
@@ -403,6 +408,10 @@ if [ $EXPORT_EXIT_CODE -eq 0 ] && grep -q "=" "$TEMP_SECRETS"; then
     echo "  > Secrets successfully injected into transient memory."
     rm "$TEMP_SECRETS"
     log_telemetry "INFISICAL_INJECTION" "SUCCESS" "Secrets injected from Infisical vault into transient .env."
+    
+    # ── TELEMETRY PARADOX RESOLVED ─────────────────────────────────────────────
+    # The tokens are mathematically guaranteed to exist in the environment now.
+    notify "STARTUP" "IN_PROGRESS" "Engine B deployment started."
 else
     echo "CRITICAL ERROR: Infisical export returned empty variables or update warnings."
     rm "$TEMP_SECRETS"

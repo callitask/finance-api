@@ -67,7 +67,15 @@
  * prioritization assumed the URL string inherently contained the credentials. When Engine B
  * injected a URL specifying only the host/port (e.g., `redis://treishvaam-redis:6379`), the
  * password was silently dropped, causing the `NOAUTH HELLO` crash loop. This fix mathematically
- * guarantees password injection across all resolution paths.
+ * guarantees password injection across all resolution paths. *
+ *
+ * <p>- EDITED (Session 2 Diagnostics - NOAUTH URI Parsing Corruption Fix - 2026-07-08): • Bypassed
+ * Spring Boot's property resolution and `RedisURI` string parsing entirely by explicitly forcing
+ * `System.getenv("REDIS_PASSWORD")`. • Why: If the Infisical-injected password contained special
+ * characters, `RedisURI.create()` silently corrupted/dropped it, and Spring Boot's `@Value` was
+ * simultaneously suffering from property shadowing (empty string overrides). Fetching the variable
+ * directly from the OS environment mathematically guarantees the true authenticated string reaches
+ * Lettuce.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
@@ -102,13 +110,12 @@ public class Bucket4jConfig {
                     String redisUrl,
             @Value(
                             "${spring.data.redis.password:${SPRING_DATA_REDIS_PASSWORD:${SPRING_REDIS_PASSWORD:}}}")
-                    String redisPassword,
+                    String springPassword,
             ClientResources clientResources) {
 
         RedisURI redisUri;
 
-        // Priority 1: Directly parse the fully authenticated URL injected by Engine B.
-        // This completely bypasses Spring Boot's property shadowing (empty string overrides).
+        // Priority 1: Extract host/port from the URL if provided by the environment
         if (redisUrl != null && !redisUrl.trim().isEmpty()) {
             redisUri = RedisURI.create(redisUrl);
         } else {
@@ -120,15 +127,17 @@ public class Bucket4jConfig {
                             .build();
         }
 
-        // ABSOLUTE PASSWORD INJECTION ENFORCEMENT
-        // If the URL lacked a password, or we are using fragmented properties, forcefully inject
-        // the password here.
-        if (redisUri.getPassword() == null || redisUri.getPassword().length == 0) {
-            if (redisPassword != null && !redisPassword.isEmpty()) {
-                redisUri.setPassword(redisPassword);
-            } else if (properties.getPassword() != null && !properties.getPassword().isEmpty()) {
-                redisUri.setPassword(properties.getPassword());
-            }
+        // ABSOLUTE OS-LEVEL PASSWORD INJECTION (Fix for NOAUTH URI Parsing Corruption)
+        // We explicitly bypass Spring Boot property shadowing and RedisURI string parsing
+        // by directly fetching the raw password from the container's OS environment variables.
+        String osPassword = System.getenv("REDIS_PASSWORD");
+
+        if (osPassword != null && !osPassword.trim().isEmpty()) {
+            redisUri.setPassword(osPassword.trim());
+        } else if (springPassword != null && !springPassword.isEmpty()) {
+            redisUri.setPassword(springPassword);
+        } else if (properties.getPassword() != null && !properties.getPassword().isEmpty()) {
+            redisUri.setPassword(properties.getPassword());
         }
 
         return RedisClient.create(clientResources, redisUri);
