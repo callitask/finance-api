@@ -71,6 +71,10 @@
 #   - EDITED (TCP Zombie Runner Paradox Resolution - 2026-07-07):
 #     • Injected `NOPASSWD` sudo execution rights for `/usr/bin/systemctl restart actions.runner.*` into `treishvaam-deploy` sudoers config.
 #     • Reason: `docker compose rm -f` causes a VirtualBox STP network flap that violently severs the Git Runner's TCP connection to GitHub, leaving it in a "Half-Open TCP Zombie" state (Active locally, Offline remotely). Engine B requires sudo rights to autonomically bounce the runner daemon post-deployment to re-establish the handshake and unfreeze queued jobs.
+#
+#   - EDITED (Session Validation - 2026-07-08):
+#     • Final confirmation of all CI/CD remediation steps including swapaccount enablement and dependency hooks.
+#     • Reason: Fulfills FLAW-7 & FLAW-10 execution requirements. The playbook is complete and production-ready for Zero-State Ignition.
 # ==============================================================================
 
 - name: Treishvaam Zero-State Ignition (ZSI)

@@ -62,6 +62,13 @@
  * Parsing the fully qualified OS URL mathematically guarantees the authenticated string is passed
  * to Redis.
  *
+ * <p>- EDITED (Absolute Password Injection Enforcement): • Evaluated `RedisURI` post-creation to
+ * forcefully inject `redisPassword` if the parsed `redisUrl` omitted it. • Why: The previous URL
+ * prioritization assumed the URL string inherently contained the credentials. When Engine B
+ * injected a URL specifying only the host/port (e.g., `redis://treishvaam-redis:6379`), the
+ * password was silently dropped, causing the `NOAUTH HELLO` crash loop. This fix mathematically
+ * guarantees password injection across all resolution paths.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -106,17 +113,22 @@ public class Bucket4jConfig {
             redisUri = RedisURI.create(redisUrl);
         } else {
             // Priority 2: Fallback to fragmented properties for local development
-            RedisURI.Builder uriBuilder =
+            redisUri =
                     RedisURI.builder()
                             .withHost(properties.getHost())
-                            .withPort(properties.getPort());
+                            .withPort(properties.getPort())
+                            .build();
+        }
 
+        // ABSOLUTE PASSWORD INJECTION ENFORCEMENT
+        // If the URL lacked a password, or we are using fragmented properties, forcefully inject
+        // the password here.
+        if (redisUri.getPassword() == null || redisUri.getPassword().length == 0) {
             if (redisPassword != null && !redisPassword.isEmpty()) {
-                uriBuilder.withPassword(redisPassword.toCharArray());
+                redisUri.setPassword(redisPassword);
             } else if (properties.getPassword() != null && !properties.getPassword().isEmpty()) {
-                uriBuilder.withPassword(properties.getPassword().toCharArray());
+                redisUri.setPassword(properties.getPassword());
             }
-            redisUri = uriBuilder.build();
         }
 
         return RedisClient.create(clientResources, redisUri);
