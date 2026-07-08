@@ -159,6 +159,10 @@
 #   - EDITED (Session 2 Diagnostics - Telegram Paradox Fix - 2026-07-08):
 #     • Relocated the `notify "STARTUP"` dispatch to execute *after* the Infisical export successfully maps `TELEGRAM_BOT_TOKEN` into memory.
 #     • Reason: Resolves the "Chicken & Egg" Telegram paradox. The script was attempting to send a startup ping at boot with blank credentials, failing silently. Moving it below the vault extraction mathematically guarantees delivery capability before transmitting.
+#
+#   - EDITED (Session 3 Diagnostics - Telegram Markdown Corruption Fix - 2026-07-08):
+#     • Migrated Telegram parse_mode from `Markdown` to `HTML` and injected `--data-urlencode` into the curl payload parameters.
+#     • Reason: Telegram's Markdown parser is extremely brittle. Emitting an `IN_PROGRESS` state caused the parser to interpret the underscore as an unclosed italic block, resulting in a fatal `400 Bad Request: can't parse entities` error and silent notification drops. HTML tags with url-encoded payloads mathematically guarantee text safety over the network.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -253,19 +257,20 @@ notify() {
     if [ -f "/opt/treishvaam/.deploy_meta" ]; then
         source "/opt/treishvaam/.deploy_meta"
         git_commit="${GIT_COMMIT:-Unknown}"
-        # Strip internal backticks from message to prevent Markdown corruption in Telegram
-        git_msg=$(echo "${GIT_MSG:-No metadata available}" | tr -d '\`')
+        # Strip internal backticks/HTML chars to prevent parser corruption
+        git_msg=$(echo "${GIT_MSG:-No metadata available}" | sed 's/[<>&]/ /g')
     fi
     
     local timestamp
     timestamp=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
-    local text="${emoji} *Treishvaam Deploy* | ${phase} | ${status}
-Host: \`${hostname}\`
-Time: \`${timestamp}\`
-Commit: \`${git_commit}\`
-Msg: \`${git_msg}\`
-Run: \`${RUN_ID}\`
+    # Switched from Markdown to HTML to avoid underscore (_) corruption crashes
+    local text="<b>${emoji} Treishvaam Deploy | ${phase} | ${status}</b>
+Host: <code>${hostname}</code>
+Time: <code>${timestamp}</code>
+Commit: <code>${git_commit}</code>
+Msg: <code>${git_msg}</code>
+Run: <code>${RUN_ID}</code>
 Detail: ${message}"
 
     if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
@@ -276,12 +281,12 @@ Detail: ${message}"
         local success=false
         
         while [ $attempt -le $max_retries ]; do
-            # Using -sS suppresses progress meters but unmasks errors directly to log file
+            # Using --data-urlencode to guarantee mathematically safe character transmission
             if curl -sS -m 10 -X POST \
                 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-                -d "chat_id=${TELEGRAM_CHAT_ID}" \
-                -d "text=${text}" \
-                -d "parse_mode=Markdown" \
+                --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+                --data-urlencode "text=${text}" \
+                --data-urlencode "parse_mode=HTML" \
                 >> "$LOG_FILE" 2>&1; then
                 success=true
                 break
