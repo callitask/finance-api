@@ -172,6 +172,11 @@
 #   - EDITED (Session 5 Diagnostics - True Build/Boot Decoupling & Socket Drop Eradication - 2026-07-09):
 #     • Moved the Tier 0 `docker compose build` sequence to execute strictly *before* `docker compose rm -f`.
 #     • Reason: The Docker daemon was crashing from file descriptor exhaustion because Engine B was tearing down the network bridge and booting new containers while simultaneously running heavy Go/Java builds. Shifting the build phase before container teardown isolates the CPU/RAM spike, mathematically preventing the `dockerd` socket drop that silently assassinated Engine B.
+#
+#   - EDITED (Session 6 Diagnostics - Containerd Alpine Deadlock & Syntax Fix - 2026-07-09):
+#     • Removed redundant `aegis-canary-redis` container name from Tier 1 array, leaving only the correct `redis` service name to fix a Compose syntax warning.
+#     • Extracted `permission-fixer` from Tier 3A and isolated it into a dedicated Tier 3.5 sequence.
+#     • Reason: Booting an Alpine container that performs heavy `chown` I/O concurrently with ZKP/Canary overlayfs mounting instantly deadlocked the `containerd` storage driver. Executing the permission fix in absolute isolation guarantees stable disk writes.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -505,7 +510,7 @@ log_telemetry "STAGGERED_IGNITION" "IN_PROGRESS" "Beginning orchestrator-driven 
 
 # ── TIER 1: Core Data Foundation ──
 echo "[Ignition - Tier 1] Starting Core Database and Caching layers..."
-docker compose up -d --no-deps treishvaam-db keycloak-db treishvaam-redis redis minio aegis-canary-redis
+docker compose up -d --no-deps treishvaam-db keycloak-db treishvaam-redis redis minio
 
 echo "[Ignition - Tier 1] Reclaiming volatile memory allocations..."
 sleep 15
@@ -521,7 +526,7 @@ sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
 
 # ── TIER 3A: Cryptographic & Boundary Security ──
 echo "[Ignition - Tier 3A] Evaluating Cryptographic & Boundary Security..."
-docker compose up -d --no-deps aegis-zkp-service aegis-canary-server permission-fixer
+docker compose up -d --no-deps aegis-zkp-service aegis-canary-server
 
 echo "[Ignition - Tier 3A] Reclaiming volatile memory allocations..."
 sleep 15
@@ -540,6 +545,14 @@ echo "[Ignition - Tier 3C] Igniting Observability Stack..."
 docker compose up -d --no-deps promtail prometheus tempo grafana
 
 echo "[Ignition - Tier 3C] Reclaiming volatile memory allocations..."
+sleep 15
+sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
+
+# ── TIER 3.5: Isolated Storage Permissions ──
+echo "[Ignition - Tier 3.5] Executing isolated storage permission repair..."
+docker compose up -d --no-deps permission-fixer
+
+echo "[Ignition - Tier 3.5] Reclaiming volatile memory allocations..."
 sleep 15
 sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
 
