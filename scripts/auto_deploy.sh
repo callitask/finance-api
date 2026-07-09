@@ -168,6 +168,10 @@
 #     • Separated the heavy Go/Java compilation phases (`docker compose build`) into a new Tier 0 sequence *before* any databases are booted.
 #     • Increased `sleep` limits from 10s to 15s between all tiers.
 #     • Reason: Compiling heavy microservices *while* orchestrating 15 other containers caused the Docker daemon to exhaust file descriptors and violently crash. When systemd restarted the crashed daemon, it simultaneously booted all 21 containers instantly, severing the Engine B socket connection and resulting in a silent failure without a terminal Telegram ping. Pre-compiling code in isolation prevents I/O starvation and respects inter-container dependencies during actual ignition.
+#
+#   - EDITED (Session 5 Diagnostics - True Build/Boot Decoupling & Socket Drop Eradication - 2026-07-09):
+#     • Moved the Tier 0 `docker compose build` sequence to execute strictly *before* `docker compose rm -f`.
+#     • Reason: The Docker daemon was crashing from file descriptor exhaustion because Engine B was tearing down the network bridge and booting new containers while simultaneously running heavy Go/Java builds. Shifting the build phase before container teardown isolates the CPU/RAM spike, mathematically preventing the `dockerd` socket drop that silently assassinated Engine B.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -459,16 +463,12 @@ if [ -n "$GHOST_NODES" ]; then
 fi
 log_telemetry "GHOST_PRUNE" "SUCCESS" "Dead/Limbo container ghost metadata purged."
 
-echo "[Docker] Executing Non-Disruptive State Healing..."
-docker compose rm -f || true
 
-# --- 4. ORCHESTRATOR-DRIVEN DECOUPLED IGNITION MATRIX ---
-echo "[Docker] Applying Hardened Tiered Ignition Sequence..."
-log_telemetry "STAGGERED_IGNITION" "IN_PROGRESS" "Beginning orchestrator-driven tiered ignition sequence."
-
-# ── TIER 0: Pre-Compilation Phase (Build/Boot Decoupling) ──
-echo "[Ignition - Tier 0] Pre-compiling heavy microservices (Isolating CPU/RAM spikes)..."
-log_telemetry "STAGGERED_IGNITION" "IN_PROGRESS" "Executing Tier 0 Compilation to prevent Docker Daemon I/O deadlock."
+# --- 3.5. PRE-FLIGHT COMPILATION (TRUE BUILD/BOOT DECOUPLING) ---
+# Compiling happens BEFORE tearing down the old containers/network to prevent 
+# dockerd socket drops caused by massive simultaneous file-descriptor exhaustion.
+echo "[Docker] Pre-compiling heavy microservices (Isolating CPU/RAM spikes)..."
+log_telemetry "PRE_COMPILATION" "IN_PROGRESS" "Executing Tier 0 Compilation before container teardown."
 
 ZKP_HASH=$(find ./aegis/zkp-service -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | awk '{print $1}' || echo "unknown")
 ZKP_LAST_SHA_FILE="/opt/treishvaam/.zkp_last_built_sha"
@@ -486,14 +486,22 @@ BUILD_EXIT_CODE=$?
 
 if [ $BUILD_EXIT_CODE -ne 0 ]; then
     echo "CRITICAL ERROR: Application build tier failed (Exit Code: $BUILD_EXIT_CODE)."
-    log_telemetry "STAGGERED_IGNITION" "FAILURE" "Docker compose build tier failed with exit code $BUILD_EXIT_CODE."
-    notify "STAGGERED_IGNITION" "FAILURE" "Application build tier failed (OOM/Syntax error). Aborting."
+    log_telemetry "PRE_COMPILATION" "FAILURE" "Docker compose build tier failed with exit code $BUILD_EXIT_CODE."
+    notify "PRE_COMPILATION" "FAILURE" "Application build tier failed (OOM/Syntax error). Aborting."
     exit 1
 fi
 
-echo "[Ignition - Tier 0] Reclaiming volatile memory allocations..."
+echo "[Docker] Reclaiming volatile memory allocations post-build..."
 sleep 15
 sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
+
+
+# --- 4. STATE HEALING & TIERED IGNITION MATRIX ---
+echo "[Docker] Executing Non-Disruptive State Healing (Teardown)..."
+docker compose rm -f || true
+
+echo "[Docker] Applying Hardened Tiered Ignition Sequence..."
+log_telemetry "STAGGERED_IGNITION" "IN_PROGRESS" "Beginning orchestrator-driven tiered ignition sequence."
 
 # ── TIER 1: Core Data Foundation ──
 echo "[Ignition - Tier 1] Starting Core Database and Caching layers..."
