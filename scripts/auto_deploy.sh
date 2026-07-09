@@ -177,6 +177,10 @@
 #     • Removed redundant `aegis-canary-redis` container name from Tier 1 array, leaving only the correct `redis` service name to fix a Compose syntax warning.
 #     • Extracted `permission-fixer` from Tier 3A and isolated it into a dedicated Tier 3.5 sequence.
 #     • Reason: Booting an Alpine container that performs heavy `chown` I/O concurrently with ZKP/Canary overlayfs mounting instantly deadlocked the `containerd` storage driver. Executing the permission fix in absolute isolation guarantees stable disk writes.
+#
+#   - EDITED (Session 7 Diagnostics - S6-Overlay Host Suicide Trap Fix - 2026-07-09):
+#     • Injected a pre-emptive `docker rm -f wazuh-agent` sequence before Compose state healing.
+#     • Reason: The Wazuh agent runs with `pid: host`. When `docker compose rm` issues a SIGTERM to recreate the container, the S6-Overlay process manager initiates a teardown that sends `kill -1` to all visible processes. This literally commanded the Ubuntu host to shut down `dockerd` and Engine B. Utilizing `rm -f` (SIGKILL) bypasses S6-Overlay's teardown, neutralizing the trap while preserving the security container's host visibility.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -502,6 +506,12 @@ sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
 
 
 # --- 4. STATE HEALING & TIERED IGNITION MATRIX ---
+echo "[Docker] Preventing S6-Overlay Host Suicide Trap..."
+# Pre-emptive SIGKILL (rm -f) prevents S6-Overlay in pid:host from 
+# receiving SIGTERM and sending kill -1 to the host daemon.
+docker rm -f wazuh-agent 2>/dev/null || true
+log_telemetry "PRE_HEALING" "SUCCESS" "Pre-emptive SIGKILL sent to wazuh-agent to prevent host kernel suicide."
+
 echo "[Docker] Executing Non-Disruptive State Healing (Teardown)..."
 docker compose rm -f || true
 
