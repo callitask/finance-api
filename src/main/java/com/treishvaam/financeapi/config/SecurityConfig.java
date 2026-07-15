@@ -98,6 +98,11 @@
  * spoofing bypasses while correctly feeding downstream rate-limiters the true user IP instead of
  * the Cloudflare node.
  *
+ * <p>- EDITED (Analytics 401 Stabilization): • Appended explicit `/api/v1/analytics/event` to the
+ * POST permitAll array. • Why: Defends against Spring Boot 3 strict path-matching anomalies where
+ * the wildcard `/**` occasionally fails to map exact leaf endpoints for anonymous POST bodies,
+ * resolving the 401 Unauthorized telemetry lockout.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -274,6 +279,7 @@ public class SecurityConfig {
                                         .requestMatchers(
                                                 HttpMethod.POST,
                                                 "/api/v1/analytics",
+                                                "/api/v1/analytics/event", // EXPLICIT ADDITION
                                                 "/api/v1/analytics/**",
                                                 "/api/v1/aegis/telemetry")
                                         .permitAll()
