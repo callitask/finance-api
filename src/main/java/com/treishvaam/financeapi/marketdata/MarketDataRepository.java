@@ -30,7 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Future AI Guidance: - Maintain `@Modifying` and `@Query` annotations for bulk deletions.
  *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED (Vol 2 - Database Lock Fix): • Converted
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED (Vol 2 - Database Lock Fix): • Converted
  * `deleteByType` from an implicit JPA derived query to an explicit `@Modifying` `@Query` to perform
  * single-pass atomic deletions, preventing optimistic locking exceptions when scheduled and manual
  * jobs overlap.
