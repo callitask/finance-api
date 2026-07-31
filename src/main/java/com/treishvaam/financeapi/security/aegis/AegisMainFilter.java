@@ -14,12 +14,20 @@
  * • Connected Temporal Path manager to catch obfuscation bypass attempts. - EDITED: • Phase 3.2 ADA
  * Update: Updated deceptionFilter.servePoisonedResponse() calls to pass the HttpServletRequest
  * object, ensuring the Deception Engine has full context for strategy selection. • What behavior
- * must remain unchanged: L2-PPO and L8-BCSM routing logic. - EDITED (Session - MTD Unwrapping Fix):
- * ROOT CAUSE: Authenticated requests to `/api/v1/auth/me` and `/api/v1/analytics` returned 500
- * Internal Server Error. Cloudflare Edge translated routes to obfuscated temporal URIs, but
- * `AegisMainFilter` didn't wrap the request to pass the resolved canonical path downstream. FIX:
- * Implemented `CanonicalPathRequestWrapper` so downstream Spring MVC controllers and Spring
- * Security filter chains receive the resolved canonical URI.
+ * must remain unchanged: L2-PPO and L8-BCSM routing logic. - EDITED (Current Phase - AEGIS L2-PPO
+ * Canonical Path Unwrapping Fix): ROOT CAUSE: Authenticated requests to `/api/v1/auth/me` and
+ * `/api/v1/analytics` returned 500 Internal Server Error. Cloudflare Edge translated routes to
+ * obfuscated temporal URIs, but `AegisMainFilter` didn't wrap the request to pass the resolved
+ * canonical path downstream. FIX: Implemented `CanonicalPathRequestWrapper` so downstream Spring
+ * MVC controllers and Spring Security filter chains receive the resolved canonical URI. - EDITED
+ * (Session - MTD Spring 6 Path Caching Fix): ROOT CAUSE: Spring Boot 3 / Spring 6 caches the parsed
+ * `RequestPath` early in the filter chain (`ServletRequestPathUtils.PATH`).
+ * `CanonicalPathRequestWrapper` alone failed because `DispatcherServlet` read the cached temporal
+ * path `/api/v1/node/<hex>` instead of calling `getRequestURI()` on the wrapper, causing
+ * `NoResourceFoundException` (500 Internal Server Error). FIX: Evicted Spring's cached path
+ * attributes (`removeAttribute`) and implemented internal Servlet Forward Dispatch
+ * (`request.getRequestDispatcher(resolvedPath).forward()`) to force Spring MVC to cleanly
+ * re-evaluate the canonical path.
  */
 package com.treishvaam.financeapi.security.aegis;
 
@@ -87,17 +95,30 @@ public class AegisMainFilter extends OncePerRequestFilter {
                 case WARN: // Warn just logs, still allows traffic
                     request.setAttribute("AEGIS_DECISION", decision.name());
 
-                    // ZERO-TRUST MTD UNWRAPPING (L2-PPO):
-                    // Wrap the request so Spring Security authorization filters and Spring MVC
-                    // controllers
-                    // evaluate the canonical URI (/api/v1/auth/me) instead of the temporal URI
-                    // (/api/v1/node/<hex>).
-                    HttpServletRequest targetRequest = request;
+                    // ZERO-TRUST MTD UNWRAPPING FOR SPRING BOOT 3 / SPRING 6:
+                    // If the incoming URI was an MTD temporal route (/api/v1/node/<hex>),
+                    // we must evict Spring's cached RequestPath attributes and use Forward Dispatch
+                    // so DispatcherServlet cleanly maps to the canonical controller
+                    // (/api/v1/analytics).
                     if (resolvedPath != null && !rawUri.equals(resolvedPath)) {
-                        targetRequest = new CanonicalPathRequestWrapper(request, resolvedPath);
+                        // Evict Spring 6 / Spring Boot 3 path pattern caches
+                        request.removeAttribute(
+                                "org.springframework.web.util.ServletRequestPathUtils.PATH");
+                        request.removeAttribute(
+                                "org.springframework.web.servlet.HandlerMapping.lookupPath");
+
+                        // Wrap request to expose canonical URI attributes to downstream filters
+                        HttpServletRequest wrappedRequest =
+                                new CanonicalPathRequestWrapper(request, resolvedPath);
+
+                        // Internal Servlet Forward guarantees Spring MVC routes to canonical
+                        // endpoint
+                        request.getRequestDispatcher(resolvedPath)
+                                .forward(wrappedRequest, response);
+                        return;
                     }
 
-                    filterChain.doFilter(targetRequest, response);
+                    filterChain.doFilter(request, response);
                     return;
 
                 case BLOCK:
