@@ -26,7 +26,11 @@
  * `cloudflareEdgeSyncService.pushManifestToCloudflareKv(rawJson)` to `rotateManifest()` to close
  * the Airgap and actively sync state to the Edge worker. • FIXED `resolveCanonicalPath()` to use
  * `.startsWith()` and `.replaceFirst()` instead of exact string matching, resolving the post-login
- * infinite deception loop.
+ * infinite deception loop. - EDITED (BUG_FIX_REPORT_001 - Public Telemetry Beacon Exemption): •
+ * Added explicit prefix bypass in `resolveCanonicalPath()` for `/api/v1/analytics/event` and
+ * `/api/v1/aegis/telemetry`. Why: Public telemetry beacons hitting the canonical path were matching
+ * the `/api/v1/analytics` obfuscation target prefix, triggering false-positive "DECEPTION" canary
+ * token poisoning and breaking analytics collection.
  */
 package com.treishvaam.financeapi.security.aegis.mtd;
 
@@ -126,6 +130,12 @@ public class AegisTemporalPathManager {
             if (requestUri.startsWith(exclusion)) {
                 return requestUri;
             }
+        }
+
+        // Explicitly bypass public telemetry beacons from MTD deception evaluation
+        if (requestUri.startsWith("/api/v1/analytics/event")
+                || requestUri.startsWith("/api/v1/aegis/telemetry")) {
+            return requestUri;
         }
 
         // If it's a temporal path, resolve to canonical using prefix matching

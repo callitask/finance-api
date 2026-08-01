@@ -27,7 +27,14 @@
  * `NoResourceFoundException` (500 Internal Server Error). FIX: Evicted Spring's cached path
  * attributes (`removeAttribute`) and implemented internal Servlet Forward Dispatch
  * (`request.getRequestDispatcher(resolvedPath).forward()`) to force Spring MVC to cleanly
- * re-evaluate the canonical path.
+ * re-evaluate the canonical path. - EDITED (BUG_FIX_REPORT_001 - Security Chain Continuity & JWT
+ * Preservation): ROOT CAUSE: Executing `request.getRequestDispatcher(resolvedPath).forward()`
+ * bypassed downstream Spring Security filters (specifically `BearerTokenAuthenticationFilter` and
+ * `AuthorizationFilter`), stripping JWT authentication context and causing 500/401 errors on
+ * protected MTD routes. FIX: Replaced `.forward()` with `filterChain.doFilter(wrappedRequest,
+ * response)`. In combination with path attribute eviction and `CanonicalPathRequestWrapper`,
+ * downstream security filters receive the unwrapped canonical URI while executing full JWT
+ * authentication and authorization checks.
  */
 package com.treishvaam.financeapi.security.aegis;
 
@@ -55,8 +62,7 @@ public class AegisMainFilter extends OncePerRequestFilter {
 
     private final AegisBcsm bcsm;
     private final AegisTemporalPathManager temporalPathManager;
-    private final AegisDeceptionFilter
-            deceptionFilter; // Re-using Phase 2's Deception Filter for payload generation
+    private final AegisDeceptionFilter deceptionFilter;
     private final TarpitManager tarpitManager;
 
     public AegisMainFilter(
@@ -87,7 +93,7 @@ public class AegisMainFilter extends OncePerRequestFilter {
             }
 
             // 2. Byzantine Consensus Evaluation (L8-BCSM)
-            String sessionId = request.getSession().getId(); // Or extract from custom header
+            String sessionId = request.getSession().getId();
             SecurityDecision decision = bcsm.evaluate(request, sessionId);
 
             switch (decision) {
@@ -97,9 +103,8 @@ public class AegisMainFilter extends OncePerRequestFilter {
 
                     // ZERO-TRUST MTD UNWRAPPING FOR SPRING BOOT 3 / SPRING 6:
                     // If the incoming URI was an MTD temporal route (/api/v1/node/<hex>),
-                    // we must evict Spring's cached RequestPath attributes and use Forward Dispatch
-                    // so DispatcherServlet cleanly maps to the canonical controller
-                    // (/api/v1/analytics).
+                    // we must evict Spring's cached RequestPath attributes and wrap the request
+                    // so downstream Spring Security and Spring MVC evaluate the canonical path.
                     if (resolvedPath != null && !rawUri.equals(resolvedPath)) {
                         // Evict Spring 6 / Spring Boot 3 path pattern caches
                         request.removeAttribute(
@@ -111,10 +116,9 @@ public class AegisMainFilter extends OncePerRequestFilter {
                         HttpServletRequest wrappedRequest =
                                 new CanonicalPathRequestWrapper(request, resolvedPath);
 
-                        // Internal Servlet Forward guarantees Spring MVC routes to canonical
-                        // endpoint
-                        request.getRequestDispatcher(resolvedPath)
-                                .forward(wrappedRequest, response);
+                        // Delegate to filterChain so downstream JWT Auth & Spring MVC process the
+                        // canonical URI
+                        filterChain.doFilter(wrappedRequest, response);
                         return;
                     }
 
