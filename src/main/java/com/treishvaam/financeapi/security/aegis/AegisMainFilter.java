@@ -34,7 +34,14 @@
  * protected MTD routes. FIX: Replaced `.forward()` with `filterChain.doFilter(wrappedRequest,
  * response)`. In combination with path attribute eviction and `CanonicalPathRequestWrapper`,
  * downstream security filters receive the unwrapped canonical URI while executing full JWT
- * authentication and authorization checks.
+ * authentication and authorization checks. - EDITED (Incident 27 Fix - Spring 6 Parsed RequestPath
+ * Exception): ROOT CAUSE: Replacing `.forward()` with `filterChain.doFilter()` resolved the JWT
+ * auth bypass, but caused a 500 Internal Server Error on canonical endpoints. Spring MVC 6 strictly
+ * requires a cached `RequestPath`. Evicting the old path attributes without re-parsing the new
+ * wrapped request caused `DispatcherServlet` to throw `IllegalArgumentException: Expected parsed
+ * RequestPath`. FIX: Injected `ServletRequestPathUtils.parseAndCache(wrappedRequest)` immediately
+ * after wrapping. This safely regenerates the Spring 6 routing cache using the unwrapped canonical
+ * URI, allowing `DispatcherServlet` to route successfully without 500 errors.
  */
 package com.treishvaam.financeapi.security.aegis;
 
@@ -53,6 +60,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.ServletRequestPathUtils;
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
@@ -115,6 +123,9 @@ public class AegisMainFilter extends OncePerRequestFilter {
                         // Wrap request to expose canonical URI attributes to downstream filters
                         HttpServletRequest wrappedRequest =
                                 new CanonicalPathRequestWrapper(request, resolvedPath);
+
+                        // Re-parse and cache the new canonical path for Spring 6 DispatcherServlet
+                        ServletRequestPathUtils.parseAndCache(wrappedRequest);
 
                         // Delegate to filterChain so downstream JWT Auth & Spring MVC process the
                         // canonical URI

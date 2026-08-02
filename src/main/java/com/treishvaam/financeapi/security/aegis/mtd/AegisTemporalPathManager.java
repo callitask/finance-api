@@ -30,7 +30,12 @@
  * Added explicit prefix bypass in `resolveCanonicalPath()` for `/api/v1/analytics/event` and
  * `/api/v1/aegis/telemetry`. Why: Public telemetry beacons hitting the canonical path were matching
  * the `/api/v1/analytics` obfuscation target prefix, triggering false-positive "DECEPTION" canary
- * token poisoning and breaking analytics collection.
+ * token poisoning and breaking analytics collection. - EDITED (Incident 28 - MTD Base Path
+ * Resolution & String Collision Fix): • Upgraded `resolveCanonicalPath()` string-matching logic to
+ * use strict equality (`.equals()`) and path boundary matching (`.startsWith(prefix + "/")`). Why:
+ * Previous `.startsWith()` implementation failed edge-cases on exact base paths (resulting in 500
+ * Internal Server Errors) and introduced severe substring collision vulnerabilities where a route
+ * like `/api/v1/admin-panel` could falsely trigger the `/api/v1/admin` deception honeypot.
  */
 package com.treishvaam.financeapi.security.aegis.mtd;
 
@@ -125,9 +130,9 @@ public class AegisTemporalPathManager {
     }
 
     public String resolveCanonicalPath(String requestUri) {
-        // Bypass SEO routes immediately
+        // Bypass SEO routes immediately (Safe boundary match)
         for (String exclusion : SEO_EXCLUSIONS) {
-            if (requestUri.startsWith(exclusion)) {
+            if (requestUri.equals(exclusion) || requestUri.startsWith(exclusion + "/")) {
                 return requestUri;
             }
         }
@@ -138,18 +143,23 @@ public class AegisTemporalPathManager {
             return requestUri;
         }
 
-        // If it's a temporal path, resolve to canonical using prefix matching
+        // If it's a temporal path, resolve to canonical using safe exact or slash-suffixed prefix
+        // matching
         for (Map.Entry<String, String> entry : reverseLookup.entrySet()) {
             String temporalPrefix = entry.getKey();
             String canonicalTarget = entry.getValue();
-            if (requestUri.startsWith(temporalPrefix)) {
+
+            if (requestUri.equals(temporalPrefix)) {
+                return canonicalTarget;
+            } else if (requestUri.startsWith(temporalPrefix + "/")) {
                 return requestUri.replaceFirst(temporalPrefix, canonicalTarget);
             }
         }
 
         // If it's trying to access a canonical path directly when it should be obfuscated
+        // Upgraded to secure boundary match to prevent substring collision traps
         for (String target : OBFUSCATION_TARGETS) {
-            if (requestUri.startsWith(target)) {
+            if (requestUri.equals(target) || requestUri.startsWith(target + "/")) {
                 return "DECEPTION"; // Triggers L4-ADA
             }
         }
