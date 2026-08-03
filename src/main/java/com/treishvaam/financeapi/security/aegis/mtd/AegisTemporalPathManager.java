@@ -35,7 +35,13 @@
  * use strict equality (`.equals()`) and path boundary matching (`.startsWith(prefix + "/")`). Why:
  * Previous `.startsWith()` implementation failed edge-cases on exact base paths (resulting in 500
  * Internal Server Errors) and introduced severe substring collision vulnerabilities where a route
- * like `/api/v1/admin-panel` could falsely trigger the `/api/v1/admin` deception honeypot.
+ * like `/api/v1/admin-panel` could falsely trigger the `/api/v1/admin` deception honeypot. - EDITED
+ * (Incident 30 - MTD Split-Brain Replica Desynchronization Fix): • Refactored `rotateManifest()` to
+ * use a distributed Redis lock (`setIfAbsent`) and cache (`RedisTemplate`). Why: Scaling the
+ * backend to 2 replicas caused an in-memory split-brain where isolated JVM heaps generated entirely
+ * different temporal paths on boot. The Edge Worker routed traffic using Replica B's paths, causing
+ * 500 `NoResourceFoundException` crashes when Nginx load-balanced to Replica A. Redis now enforces
+ * a single source of truth across the cluster.
  */
 package com.treishvaam.financeapi.security.aegis.mtd;
 
@@ -44,12 +50,14 @@ import com.treishvaam.financeapi.security.aegis.crypto.AegisEntropyManager;
 import com.treishvaam.financeapi.security.aegis.crypto.AegisPqcJwtService;
 import jakarta.annotation.PostConstruct;
 import java.math.BigInteger;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -72,9 +80,13 @@ public class AegisTemporalPathManager {
         "/api/v1/admin", "/api/v1/auth", "/api/v1/users", "/api/v1/dashboard", "/api/v1/analytics"
     };
 
+    private static final String REDIS_MANIFEST_KEY = "aegis:mtd:manifest";
+    private static final String REDIS_LOCK_KEY = "aegis:mtd:lock";
+
     private final AegisEntropyManager entropyManager;
     private final AegisPqcJwtService pqcJwtService;
     private final CloudflareEdgeSyncService cloudflareEdgeSyncService;
+    private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Map: Canonical -> Temporal
@@ -87,10 +99,12 @@ public class AegisTemporalPathManager {
     public AegisTemporalPathManager(
             AegisEntropyManager entropyManager,
             AegisPqcJwtService pqcJwtService,
-            CloudflareEdgeSyncService cloudflareEdgeSyncService) {
+            CloudflareEdgeSyncService cloudflareEdgeSyncService,
+            RedisTemplate<String, String> redisTemplate) {
         this.entropyManager = entropyManager;
         this.pqcJwtService = pqcJwtService;
         this.cloudflareEdgeSyncService = cloudflareEdgeSyncService;
+        this.redisTemplate = redisTemplate;
     }
 
     @PostConstruct
@@ -100,6 +114,71 @@ public class AegisTemporalPathManager {
 
     public void rotateManifest() {
         log.info("AEGIS L2-PPO: Rotating Temporal Endpoint Manifest...");
+
+        try {
+            // Check if manifest already exists in Redis (from a sibling replica)
+            String existingJson = redisTemplate.opsForValue().get(REDIS_MANIFEST_KEY);
+            if (existingJson != null) {
+                log.info(
+                        "AEGIS L2-PPO: Existing manifest found in Redis. Synchronizing local state.");
+                loadManifestFromJson(existingJson);
+                return;
+            }
+
+            // If not found, acquire a distributed lock to generate the cluster's manifest
+            Boolean acquired =
+                    redisTemplate
+                            .opsForValue()
+                            .setIfAbsent(REDIS_LOCK_KEY, "LOCKED", Duration.ofSeconds(30));
+            if (Boolean.TRUE.equals(acquired)) {
+                try {
+                    log.info(
+                            "AEGIS L2-PPO: Distributed lock acquired. Generating new cluster manifest.");
+                    generateNewManifest();
+                } finally {
+                    redisTemplate.delete(REDIS_LOCK_KEY);
+                }
+            } else {
+                log.info(
+                        "AEGIS L2-PPO: Sibling replica is generating the manifest. Waiting for sync...");
+                Thread.sleep(2000);
+                String newJson = redisTemplate.opsForValue().get(REDIS_MANIFEST_KEY);
+                if (newJson != null) {
+                    loadManifestFromJson(newJson);
+                } else {
+                    log.error(
+                            "AEGIS L2-PPO: Failed to sync manifest from Redis after wait. Generating fallback.");
+                    generateNewManifest();
+                }
+            }
+        } catch (Exception e) {
+            log.error("AEGIS L2-PPO: Redis sync failed. Generating isolated local manifest.", e);
+            generateNewManifest();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void loadManifestFromJson(String json) {
+        try {
+            Map<String, Object> manifestData = objectMapper.readValue(json, Map.class);
+            Map<String, String> paths = (Map<String, String>) manifestData.get("paths");
+
+            currentManifest.clear();
+            reverseLookup.clear();
+
+            for (Map.Entry<String, String> entry : paths.entrySet()) {
+                currentManifest.put(entry.getKey(), entry.getValue());
+                reverseLookup.put(entry.getValue(), entry.getKey());
+            }
+
+            this.signedManifestJson = pqcJwtService.issueHybridToken(json, "SYSTEM", "MANIFEST");
+            log.info("AEGIS L2-PPO: Local state synchronized successfully from cluster truth.");
+        } catch (Exception e) {
+            log.error("AEGIS L2-PPO: Failed to load manifest from JSON", e);
+        }
+    }
+
+    private void generateNewManifest() {
         currentManifest.clear();
         reverseLookup.clear();
 
@@ -112,18 +191,21 @@ public class AegisTemporalPathManager {
         }
 
         try {
-            // Create a JSON representation and sign it with PQC for the Frontend/Workers
             Map<String, Object> manifestData =
                     Map.of("paths", currentManifest, "issuedAt", Instant.now().toEpochMilli());
 
             String rawJson = objectMapper.writeValueAsString(manifestData);
+
+            // Store in Redis with a 24-hour TTL to force a daily rotation natively
+            redisTemplate.opsForValue().set(REDIS_MANIFEST_KEY, rawJson, Duration.ofHours(24));
+
             // Envelope it in a PQC signature to prevent Man-in-the-Middle manifest poisoning
             this.signedManifestJson = pqcJwtService.issueHybridToken(rawJson, "SYSTEM", "MANIFEST");
 
             // Push actively to Cloudflare Edge KV
             cloudflareEdgeSyncService.pushManifestToCloudflareKv(rawJson);
 
-            log.info("AEGIS L2-PPO: Manifest rotation complete. Secured with ML-DSA-87.");
+            log.info("AEGIS L2-PPO: New manifest generated, pushed to Redis & Cloudflare KV.");
         } catch (Exception e) {
             log.error("AEGIS L2-PPO: Failed to build signed manifest!", e);
         }
