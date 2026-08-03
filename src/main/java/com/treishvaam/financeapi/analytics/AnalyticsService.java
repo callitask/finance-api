@@ -47,6 +47,12 @@
  * to strictly enforce $0.00 cost architecture without stripping the code. • Data Unification: Added
  * `syncAegisTelemetryToAudienceVisits` to bridge the read/write gap, ensuring raw telemetry flows
  * into the Audience dashboard automatically.
+ *
+ * <p>- EDITED (Incident 32 - CI/CD Type Conversion Fix): • Fixed `incompatible types: int cannot be
+ * converted to java.lang.Long` compilation error in `syncAegisTelemetryToAudienceVisits`. Safely
+ * cast JPA aggregation returns (`SUM`, `COUNT`) using `((Number) row[X]).longValue()` to natively
+ * satisfy Hibernate Dialect variations and entity setter signatures without illegal primitive
+ * autoboxing constraints.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -230,8 +236,14 @@ public class AnalyticsService {
                     visit.setDeviceCategory((String) row[4]);
                     visit.setOperatingSystem((String) row[5]);
                     visit.setDeviceModel((String) row[6]);
-                    visit.setSessionDurationSeconds((int) (((Long) row[7]) / 1000));
-                    visit.setViews(((Long) row[8]).intValue());
+
+                    // Safely cast JPA aggregations utilizing Number to handle Long/BigInteger
+                    // dialect variations
+                    long durationMs = row[7] != null ? ((Number) row[7]).longValue() : 0L;
+                    int views = row[8] != null ? ((Number) row[8]).intValue() : 0;
+
+                    visit.setSessionDurationSeconds(durationMs / 1000L);
+                    visit.setViews(views);
                     visit.setSessionSource(
                             "Direct"); // Placeholder until GA4 enrichment overwrites it
 
