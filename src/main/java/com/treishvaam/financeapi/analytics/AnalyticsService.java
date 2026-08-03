@@ -39,6 +39,14 @@
  * `com.treishvaam.financeapi.repository.AnalyticsEventRepository`. • Corrected type mismatch:
  * `deleteEventsOlderThan` now correctly uses `Instant` and `ChronoUnit` and handles `void` return
  * type instead of `LocalDateTime` and `int`.
+ *
+ * <p>- EDITED (Incident 31 - DB Bottleneck & Feature Toggling): • Eliminated DB Bottleneck:
+ * Replaced the `IN(...)` parameter explosion query in `getHistoricalData` with
+ * `findAllFirstVisitDatesUpTo`, utilizing a high-speed database-level `GROUP BY`. • Free-Tier
+ * Compliance: Injected `${ga4.bigquery.enabled:false}` feature toggle into `queryBigQueryRawEvents`
+ * to strictly enforce $0.00 cost architecture without stripping the code. • Data Unification: Added
+ * `syncAegisTelemetryToAudienceVisits` to bridge the read/write gap, ensuring raw telemetry flows
+ * into the Audience dashboard automatically.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -56,10 +64,13 @@ import com.google.cloud.bigquery.FieldValueList;
 import com.google.cloud.bigquery.QueryJobConfiguration;
 import com.google.cloud.bigquery.TableResult;
 import com.treishvaam.financeapi.repository.AnalyticsEventRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.io.File;
 import java.io.FileInputStream;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -67,7 +78,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
@@ -100,6 +110,10 @@ public class AnalyticsService {
     @Value("${ga4.bigquery.dataset-id:#{null}}")
     private String bqDatasetId;
 
+    // Feature toggle to enforce Free-Tier Mandate. Defaults to false.
+    @Value("${ga4.bigquery.enabled:false}")
+    private boolean bigQueryEnabled;
+
     @Value("${ga4.initial-fetch-start-date:2024-01-01}")
     private String initialFetchStartDate;
 
@@ -107,6 +121,7 @@ public class AnalyticsService {
     private final AudienceVisitRepository audienceVisitRepository;
 
     @Autowired private AnalyticsEventRepository analyticsEventRepository;
+    @PersistenceContext private EntityManager entityManager;
 
     public AnalyticsService(AudienceVisitRepository audienceVisitRepository) {
         this.audienceVisitRepository = audienceVisitRepository;
@@ -169,8 +184,78 @@ public class AnalyticsService {
         }
     }
 
+    /**
+     * AI-CONTEXT: Telemetry Bridge — Synchronizes raw AEGIS/Faro RUM events into AudienceVisits.
+     * Prevents UI blindness by rolling up new `analytics_events` into the legacy dashboard format.
+     */
+    @Scheduled(cron = "0 45 2 * * *") // Runs after dailyIncrementalFetch
+    @Transactional
+    public void syncAegisTelemetryToAudienceVisits() {
+        logger.info("[AnalyticsBridge] Starting Daily AEGIS/Faro Telemetry Roll-Up...");
+        try {
+            // Retrieve recent events that might not be synced
+            Instant cutoff = Instant.now().minus(2, ChronoUnit.DAYS);
+
+            // Using EntityManager to execute a safe projection to prevent full table load
+            String queryStr =
+                    "SELECT a.sessionId, MIN(a.createdAt), MAX(a.countryCode), MAX(a.city), "
+                            + "MAX(a.deviceType), MAX(a.os), MAX(a.browser), SUM(a.timeOnPageMs), COUNT(a) "
+                            + "FROM AnalyticsEvent a WHERE a.createdAt > :cutoff GROUP BY a.sessionId";
+
+            List<Object[]> results =
+                    entityManager
+                            .createQuery(queryStr, Object[].class)
+                            .setParameter("cutoff", cutoff)
+                            .getResultList();
+
+            int syncedCount = 0;
+            for (Object[] row : results) {
+                String sessionId = (String) row[0];
+                if (sessionId == null
+                        || sessionId.isEmpty()
+                        || "Not available (GA4)".equals(sessionId)) continue;
+
+                LocalDate sessionDate = ((Instant) row[1]).atZone(ZoneId.of("UTC")).toLocalDate();
+
+                // Only sync if it doesn't already exist to prevent duplication
+                List<AudienceVisit> existing =
+                        audienceVisitRepository.findBySessionIdAndDate(sessionId, sessionDate);
+                if (existing.isEmpty()) {
+                    AudienceVisit visit = new AudienceVisit();
+                    visit.setSessionId(sessionId);
+                    visit.setSessionDate(sessionDate);
+                    visit.setClientId(sessionId); // Assuming clientId parity for 1st-party
+                    visit.setCountry((String) row[2]);
+                    visit.setCity((String) row[3]);
+                    visit.setDeviceCategory((String) row[4]);
+                    visit.setOperatingSystem((String) row[5]);
+                    visit.setDeviceModel((String) row[6]);
+                    visit.setSessionDurationSeconds((int) (((Long) row[7]) / 1000));
+                    visit.setViews(((Long) row[8]).intValue());
+                    visit.setSessionSource(
+                            "Direct"); // Placeholder until GA4 enrichment overwrites it
+
+                    audienceVisitRepository.save(visit);
+                    syncedCount++;
+                }
+            }
+            logger.info(
+                    "[AnalyticsBridge] Roll-Up Complete. Synced {} new telemetry sessions.",
+                    syncedCount);
+        } catch (Exception e) {
+            logger.error("[AnalyticsBridge] Failed to synchronize telemetry.", e);
+        }
+    }
+
     // PHASE 10: Unsampled BigQuery extraction layer
     public List<Map<String, Object>> queryBigQueryRawEvents(String dateStr) {
+        // Strict Feature Toggle Enforcement for Free-Tier Mandate
+        if (!bigQueryEnabled) {
+            logger.info(
+                    "[AnalyticsService] BigQuery integration is disabled via feature toggle to enforce Free-Tier Mandate.");
+            return Collections.emptyList();
+        }
+
         if (bqProjectId == null || bqDatasetId == null || credentialsPath == null) {
             logger.warn(
                     "BigQuery integration not fully configured. Missing Project ID or Dataset ID.");
@@ -491,20 +576,14 @@ public class AnalyticsService {
                         hasExcludes,
                         safeExcludes);
 
-        // Efficiently bulk-load first visit dates to prevent N+1 performance issues
-        List<String> distinctClientIds =
-                visits.stream()
-                        .map(AudienceVisit::getClientId)
-                        .filter(Objects::nonNull)
-                        .distinct()
-                        .toList();
-
+        // High-speed database-level first visit calculation (eliminates JVM IN parameter overhead)
         Map<String, LocalDate> firstVisitMap = new HashMap<>();
-        if (!distinctClientIds.isEmpty()) {
-            List<Object[]> batchResults =
-                    audienceVisitRepository.findFirstVisitDatesByClientIds(distinctClientIds);
-            for (Object[] row : batchResults) {
-                firstVisitMap.put((String) row[0], (LocalDate) row[1]);
+        List<Object[]> batchResults = audienceVisitRepository.findAllFirstVisitDatesUpTo(endDate);
+        for (Object[] row : batchResults) {
+            String clientId = (String) row[0];
+            LocalDate minDate = (LocalDate) row[1];
+            if (clientId != null && minDate != null) {
+                firstVisitMap.put(clientId, minDate);
             }
         }
 

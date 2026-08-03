@@ -15,6 +15,11 @@
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Upgraded single `clientId` to List
  * `targetClientIds`. • Added `deleteGA4DataForDateRange` with explicit Hibernate flushing. - EDITED
  * (LATEST): • Added `findFaroVisitsForEnrichment` to support the Smart Attribution Enrichment pool.
+ * - EDITED (Incident 31 - DB Bottleneck Eradication): • Added `findAllFirstVisitDatesUpTo`
+ * utilizing a parameter-free grouped index scan. • Why: The previous
+ * `findFirstVisitDatesByClientIds` used an expanding `IN (...)` clause which caused MariaDB parser
+ * lockups and Service Worker timeouts on large datasets. Replaced with native database-level `GROUP
+ * BY`.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -36,10 +41,17 @@ public interface AudienceVisitRepository extends JpaRepository<AudienceVisit, Lo
     List<AudienceVisit> findBySessionIdAndDate(
             @Param("sessionId") String sessionId, @Param("date") LocalDate date);
 
-    // Aggregation for First Visit Date mapping
+    // DEPRECATED: Causes IN (...) parameter explosion and Service Worker timeouts on large datasets
     @Query(
             "SELECT av.clientId, MIN(av.sessionDate) FROM AudienceVisit av WHERE av.clientId IN :clientIds GROUP BY av.clientId")
     List<Object[]> findFirstVisitDatesByClientIds(@Param("clientIds") List<String> clientIds);
+
+    // ENTERPRISE FIX: Optimized First-Visit Calculation (Zero JVM IN parameter overhead)
+    @Query(
+            "SELECT av.clientId, MIN(av.sessionDate) FROM AudienceVisit av "
+                    + "WHERE av.sessionDate <= :endDate AND av.clientId IS NOT NULL AND av.clientId != 'Not available (GA4)' "
+                    + "GROUP BY av.clientId")
+    List<Object[]> findAllFirstVisitDatesUpTo(@Param("endDate") LocalDate endDate);
 
     // Protected GA4 Wipe - Flushing enforces synchronous database execution
     @Modifying(clearAutomatically = true, flushAutomatically = true)
