@@ -15,7 +15,12 @@
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Added `clientId` and `excludeClientIds`
  * to endpoints to support targeted tracking and hiding specific user telemetry. - EDITED (LATEST):
- * • Changed `clientId` to List `targetClientIds`. • Added `refreshGA4Data` endpoint.
+ * • Changed `clientId` to List `targetClientIds`. • Added `refreshGA4Data` endpoint. - EDITED
+ * (Incident 33 - JPQL Empty String Sanitization): • Added `sanitizeParam` helper to convert empty
+ * strings `""` to `null`. • Why: Spring MVC binds empty URL parameters (e.g., `&country=`) as `""`.
+ * When passed to the repository, `"" IS NULL` evaluates to FALSE, causing the database to silently
+ * drop 100% of the rows and return an empty `[]` payload to the frontend. Sanitizing to `null`
+ * perfectly satisfies the JPQL filter logic.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -42,6 +47,11 @@ public class AnalyticsController {
         this.analyticsService = analyticsService;
     }
 
+    // Enterprise Parameter Sanitization: Prevents JPQL "IS NULL" filter drop
+    private String sanitizeParam(String param) {
+        return (param != null && !param.trim().isEmpty()) ? param.trim() : null;
+    }
+
     @GetMapping
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<List<AudienceDataDto>> getHistoricalAudienceData(
@@ -63,12 +73,12 @@ public class AnalyticsController {
 
         AudienceFilter filters =
                 AudienceFilter.builder()
-                        .country(country)
-                        .region(region)
-                        .city(city)
-                        .operatingSystem(operatingSystem)
-                        .osVersion(osVersion)
-                        .sessionSource(sessionSource)
+                        .country(sanitizeParam(country))
+                        .region(sanitizeParam(region))
+                        .city(sanitizeParam(city))
+                        .operatingSystem(sanitizeParam(operatingSystem))
+                        .osVersion(sanitizeParam(osVersion))
+                        .sessionSource(sanitizeParam(sessionSource))
                         .targetClientIds(targetClientIds)
                         .excludeClientIds(excludeClientIds)
                         .build();
@@ -99,12 +109,12 @@ public class AnalyticsController {
 
         AudienceFilter filters =
                 AudienceFilter.builder()
-                        .country(country)
-                        .region(region)
-                        .city(city)
-                        .operatingSystem(operatingSystem)
-                        .osVersion(osVersion)
-                        .sessionSource(sessionSource)
+                        .country(sanitizeParam(country))
+                        .region(sanitizeParam(region))
+                        .city(sanitizeParam(city))
+                        .operatingSystem(sanitizeParam(operatingSystem))
+                        .osVersion(sanitizeParam(osVersion))
+                        .sessionSource(sanitizeParam(sessionSource))
                         .targetClientIds(targetClientIds)
                         .excludeClientIds(excludeClientIds)
                         .build();

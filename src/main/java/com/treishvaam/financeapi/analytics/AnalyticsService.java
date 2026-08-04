@@ -53,6 +53,14 @@
  * cast JPA aggregation returns (`SUM`, `COUNT`) using `((Number) row[X]).longValue()` to natively
  * satisfy Hibernate Dialect variations and entity setter signatures without illegal primitive
  * autoboxing constraints.
+ *
+ * <p>- EDITED (Incident 34 - Telemetry Bridge Resilience & Timezone Alignment): • Added synchronous
+ * invocation of `syncAegisTelemetryToAudienceVisits()` to `@PostConstruct init()` to immediately
+ * backfill pending telemetry upon container reboot. • Upgraded telemetry roll-up schedule from
+ * daily cron to `@Scheduled(fixedDelay = 300000)` (5 mins). • Increased lookback window from 2 days
+ * to 7 days to cover weekend/holiday deployment gaps. • Aligned `sessionDate` parsing to
+ * `ZoneId.of("Asia/Kolkata")` to prevent evening IST telemetry from drifting across UTC midnight
+ * boundaries and falling out of frontend date-picker bounds.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -135,6 +143,13 @@ public class AnalyticsService {
 
     @PostConstruct
     public void init() {
+        try {
+            // Immediately synchronize pending AEGIS/Faro RUM telemetry on container boot
+            syncAegisTelemetryToAudienceVisits();
+        } catch (Exception e) {
+            logger.error("[AnalyticsService] Startup telemetry roll-up failed.", e);
+        }
+
         if (credentialsPath == null || credentialsPath.isEmpty()) {
             logger.warn("GA4 Credentials path is empty. Skipping client initialization.");
             this.analyticsDataClient = null;
@@ -191,16 +206,18 @@ public class AnalyticsService {
     }
 
     /**
-     * AI-CONTEXT: Telemetry Bridge — Synchronizes raw AEGIS/Faro RUM events into AudienceVisits.
-     * Prevents UI blindness by rolling up new `analytics_events` into the legacy dashboard format.
+     * AI-CONTEXT: Continuous Telemetry Bridge — Synchronizes raw AEGIS/Faro RUM events into
+     * AudienceVisits every 5 minutes. Prevents UI blindness by rolling up new `analytics_events`
+     * into the legacy dashboard format without 24h cron lag.
      */
-    @Scheduled(cron = "0 45 2 * * *") // Runs after dailyIncrementalFetch
+    @Scheduled(fixedDelay = 300000) // Executes every 5 minutes (300,000 ms)
     @Transactional
     public void syncAegisTelemetryToAudienceVisits() {
-        logger.info("[AnalyticsBridge] Starting Daily AEGIS/Faro Telemetry Roll-Up...");
+        logger.info("[AnalyticsBridge] Starting AEGIS/Faro Telemetry Roll-Up...");
         try {
-            // Retrieve recent events that might not be synced
-            Instant cutoff = Instant.now().minus(2, ChronoUnit.DAYS);
+            // Retrieve events from the last 7 days to ensure zero data drop across weekend/holiday
+            // restarts
+            Instant cutoff = Instant.now().minus(7, ChronoUnit.DAYS);
 
             // Using EntityManager to execute a safe projection to prevent full table load
             String queryStr =
@@ -221,7 +238,9 @@ public class AnalyticsService {
                         || sessionId.isEmpty()
                         || "Not available (GA4)".equals(sessionId)) continue;
 
-                LocalDate sessionDate = ((Instant) row[1]).atZone(ZoneId.of("UTC")).toLocalDate();
+                // Timezone-resilient conversion aligning with IST reporting zone
+                LocalDate sessionDate =
+                        ((Instant) row[1]).atZone(ZoneId.of("Asia/Kolkata")).toLocalDate();
 
                 // Only sync if it doesn't already exist to prevent duplication
                 List<AudienceVisit> existing =
