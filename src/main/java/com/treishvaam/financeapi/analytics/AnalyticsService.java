@@ -61,6 +61,11 @@
  * to 7 days to cover weekend/holiday deployment gaps. • Aligned `sessionDate` parsing to
  * `ZoneId.of("Asia/Kolkata")` to prevent evening IST telemetry from drifting across UTC midnight
  * boundaries and falling out of frontend date-picker bounds.
+ *
+ * <p>- EDITED (Incident 36 - Telemetry Fidelity & YAUAA Integration): • Integrated YAUAA engine to
+ * parse User-Agents locally, enforcing the $0.00 Free-Tier Mandate. Expanded JPQL query to natively
+ * extract path, referrer, and userAgent. Implemented native referrer domain resolution. Normalized
+ * `mapEntityToDto` string variations.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -82,6 +87,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.io.File;
 import java.io.FileInputStream;
+import java.net.URI;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -95,6 +101,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
+import nl.basjes.parse.useragent.UserAgent;
+import nl.basjes.parse.useragent.UserAgentAnalyzer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -133,6 +141,7 @@ public class AnalyticsService {
 
     private BetaAnalyticsDataClient analyticsDataClient;
     private final AudienceVisitRepository audienceVisitRepository;
+    private UserAgentAnalyzer uaa;
 
     @Autowired private AnalyticsEventRepository analyticsEventRepository;
     @PersistenceContext private EntityManager entityManager;
@@ -144,6 +153,10 @@ public class AnalyticsService {
     @PostConstruct
     public void init() {
         try {
+            // Initialize YAUAA as a singleton memory-efficient cache
+            this.uaa =
+                    UserAgentAnalyzer.newBuilder().hideMatcherLoadStats().withCache(10000).build();
+
             // Immediately synchronize pending AEGIS/Faro RUM telemetry on container boot
             syncAegisTelemetryToAudienceVisits();
         } catch (Exception e) {
@@ -222,7 +235,8 @@ public class AnalyticsService {
             // Using EntityManager to execute a safe projection to prevent full table load
             String queryStr =
                     "SELECT a.sessionId, MIN(a.createdAt), MAX(a.countryCode), MAX(a.city), "
-                            + "MAX(a.deviceType), MAX(a.os), MAX(a.browser), SUM(a.timeOnPageMs), COUNT(a) "
+                            + "MAX(a.deviceType), MAX(a.os), MAX(a.browser), SUM(a.timeOnPageMs), COUNT(a), "
+                            + "MIN(a.path), MAX(a.referrer), MAX(a.userAgent) "
                             + "FROM AnalyticsEvent a WHERE a.createdAt > :cutoff GROUP BY a.sessionId";
 
             List<Object[]> results =
@@ -253,8 +267,6 @@ public class AnalyticsService {
                     visit.setCountry((String) row[2]);
                     visit.setCity((String) row[3]);
                     visit.setDeviceCategory((String) row[4]);
-                    visit.setOperatingSystem((String) row[5]);
-                    visit.setDeviceModel((String) row[6]);
 
                     // Safely cast JPA aggregations utilizing Number to handle Long/BigInteger
                     // dialect variations
@@ -263,8 +275,16 @@ public class AnalyticsService {
 
                     visit.setSessionDurationSeconds(durationMs / 1000L);
                     visit.setViews(views);
-                    visit.setSessionSource(
-                            "Direct"); // Placeholder until GA4 enrichment overwrites it
+
+                    // --- YAUAA Enrichment & Domain Resolution ---
+                    String rawPath = (String) row[9];
+                    String rawReferrer = (String) row[10];
+                    String rawUserAgent = (String) row[11];
+
+                    visit.setLandingPage((rawPath != null && !rawPath.isEmpty()) ? rawPath : "/");
+                    visit.setSessionSource(resolveSessionSource(rawReferrer));
+                    enrichDeviceAndOsFromUserAgent(
+                            visit, (String) row[5], (String) row[6], rawUserAgent);
 
                     audienceVisitRepository.save(visit);
                     syncedCount++;
@@ -275,6 +295,59 @@ public class AnalyticsService {
                     syncedCount);
         } catch (Exception e) {
             logger.error("[AnalyticsBridge] Failed to synchronize telemetry.", e);
+        }
+    }
+
+    private String resolveSessionSource(String referrer) {
+        if (referrer == null
+                || referrer.trim().isEmpty()
+                || referrer.contains("treishvaamfinance.com")
+                || referrer.contains("treishvaamagro.com")
+                || referrer.contains("treishvaamgroup.com")) {
+            return "Direct";
+        }
+        String lower = referrer.toLowerCase();
+        if (lower.contains("google.com") || lower.contains("google.co")) return "Google Search";
+        if (lower.contains("linkedin.com")) return "LinkedIn";
+        if (lower.contains("github.com")) return "GitHub";
+        if (lower.contains("t.co") || lower.contains("twitter.com") || lower.contains("x.com"))
+            return "X (Twitter)";
+        try {
+            URI uri = new URI(referrer);
+            String host = uri.getHost();
+            return (host != null) ? host.replaceFirst("^www\\.", "") : "External Referral";
+        } catch (Exception e) {
+            return "External Referral";
+        }
+    }
+
+    private void enrichDeviceAndOsFromUserAgent(
+            AudienceVisit visit, String rawOs, String rawBrowser, String userAgentStr) {
+        if (userAgentStr != null && !userAgentStr.isEmpty() && uaa != null) {
+            UserAgent agent = uaa.parse(userAgentStr);
+            String osName = agent.getValue("OperatingSystemName");
+            String osVersion = agent.getValue("OperatingSystemVersion");
+            String deviceClass = agent.getValue("DeviceClass");
+            String agentName = agent.getValue("AgentName");
+
+            visit.setOperatingSystem(!"Unknown".equals(osName) ? osName : rawOs);
+            visit.setOsVersion(!"Unknown".equals(osVersion) ? osVersion : "N/A");
+
+            // Enhance the hardware model based on device class grouping
+            if ("Phone".equals(deviceClass)
+                    || "Tablet".equals(deviceClass)
+                    || "Mobile".equals(deviceClass)) {
+                String deviceName = agent.getValue("DeviceName");
+                visit.setDeviceModel(!"Unknown".equals(deviceName) ? deviceName : deviceClass);
+            } else if ("Desktop".equals(deviceClass)) {
+                visit.setDeviceModel("Desktop PC");
+            } else {
+                visit.setDeviceModel(rawBrowser != null ? rawBrowser : "Desktop PC");
+            }
+        } else {
+            visit.setOperatingSystem(rawOs != null ? rawOs : "Unknown OS");
+            visit.setOsVersion("10.0");
+            visit.setDeviceModel("Desktop PC");
         }
     }
 
@@ -733,8 +806,7 @@ public class AnalyticsService {
                         : null;
 
         // Explicitly enforce Z suffix (UTC) so Javascript parses it properly before converting to
-        // IST
-        // in UI
+        // IST in UI
         String formattedSessionStartTime =
                 entity.getCreatedAt() != null
                         ? entity.getCreatedAt().format(ISO_DATE_TIME) + "Z"
@@ -749,9 +821,9 @@ public class AnalyticsService {
 
         // Hardware & OS Sanitization Layer
         if (os != null) {
-            if (os.contains("Windows NT") || os.equals("Windows")) {
+            if (os.contains("Windows NT") || os.equals("Windows") || os.equals("Win32")) {
                 os = "Windows 10/11";
-            } else if (os.equals("Mac OS X")) {
+            } else if (os.equals("Mac OS X") || os.equals("Mac OS") || os.equals("macOS")) {
                 os = "macOS";
             }
         }
@@ -768,16 +840,22 @@ public class AnalyticsService {
         }
 
         // Apple Device Normalization
-        if (model != null && model.equalsIgnoreCase("iPhone")) {
+        if (model != null
+                && (model.equalsIgnoreCase("iPhone") || model.equalsIgnoreCase("Apple iPhone"))) {
             model = "Apple iPhone";
+        } else if (model != null
+                && (model.equalsIgnoreCase("iPad") || model.equalsIgnoreCase("Apple iPad"))) {
+            model = "Apple iPad";
         }
 
         // Smart Android Hardware Privacy Masking Fix (Google Chrome removes device info)
-        if ("Android".equalsIgnoreCase(os)) {
+        if ("Android".equalsIgnoreCase(os) || (os != null && os.contains("Android"))) {
             if ("N/A".equals(osVer) || "Unknown".equals(osVer) || osVer == null) {
                 osVer = "Version Masked";
             }
-            if ("Android Mobile".equalsIgnoreCase(model)
+            if (model == null
+                    || "Android Mobile".equalsIgnoreCase(model)
+                    || "Phone".equalsIgnoreCase(model)
                     || "N/A".equalsIgnoreCase(model)
                     || "Unknown".equalsIgnoreCase(model)) {
                 model = "Android Phone (Model Masked by Chrome)";
