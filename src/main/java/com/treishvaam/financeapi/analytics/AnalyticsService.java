@@ -89,6 +89,10 @@
  * `a.createdAt ASC` linear grouping. The first element in the collection mathematically guarantees
  * true chronological landing paths and referrers without expensive SQL subqueries. • Integrated
  * proper `timeOnPageMs` summation logic to support the restored frontend Faro tracking.
+ *
+ * <p>- EDITED (Incident 57/58/59 - JVM OOM Prevention): • Removed local instantiation of
+ * `UserAgentAnalyzer` in `@PostConstruct`. • Injected globally shared `UserAgentAnalyzer` bean via
+ * constructor to eliminate massive duplicate memory footprint.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -166,24 +170,23 @@ public class AnalyticsService {
     private BetaAnalyticsDataClient analyticsDataClient;
     private final AudienceVisitRepository audienceVisitRepository;
     private final TransactionTemplate transactionTemplate;
-    private UserAgentAnalyzer uaa;
+    private final UserAgentAnalyzer uaa;
 
     @Autowired private AnalyticsEventRepository analyticsEventRepository;
     @PersistenceContext private EntityManager entityManager;
 
     public AnalyticsService(
             AudienceVisitRepository audienceVisitRepository,
-            TransactionTemplate transactionTemplate) {
+            TransactionTemplate transactionTemplate,
+            UserAgentAnalyzer uaa) {
         this.audienceVisitRepository = audienceVisitRepository;
         this.transactionTemplate = transactionTemplate;
+        this.uaa = uaa;
     }
 
     @PostConstruct
     public void init() {
         try {
-            this.uaa =
-                    UserAgentAnalyzer.newBuilder().hideMatcherLoadStats().withCache(10000).build();
-
             syncAegisTelemetryToAudienceVisits();
         } catch (Exception e) {
             logger.error("[AnalyticsService] Startup telemetry roll-up failed.", e);
