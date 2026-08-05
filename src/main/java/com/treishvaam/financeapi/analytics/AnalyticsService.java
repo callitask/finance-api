@@ -67,9 +67,10 @@
  * extract path, referrer, and userAgent. Implemented native referrer domain resolution. Normalized
  * `mapEntityToDto` string variations.
  *
- * <p>- EDITED (Incident 43 - Compilation Fix): • Added missing `healHistoricalDataFidelity` method
- * natively using `entityManager.createQuery` to guarantee immunity against missing repository
- * methods. • Date: 2026-08-05
+ * <p>- EDITED (Incident 43 - Device Clustering & Fingerprint Roll-Up Fix): • Updated
+ * `syncAegisTelemetryToAudienceVisits` to extract `MAX(a.deviceFingerprint)` and persist it to
+ * `AudienceVisit`. Updated `mapEntityToDto` to correctly pass `deviceBrand` and `deviceClass` to
+ * `AudienceDataDto`. • Date: 2026-08-05
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -157,11 +158,9 @@ public class AnalyticsService {
     @PostConstruct
     public void init() {
         try {
-            // Initialize YAUAA as a singleton memory-efficient cache
             this.uaa =
                     UserAgentAnalyzer.newBuilder().hideMatcherLoadStats().withCache(10000).build();
 
-            // Immediately synchronize pending AEGIS/Faro RUM telemetry on container boot
             syncAegisTelemetryToAudienceVisits();
         } catch (Exception e) {
             logger.error("[AnalyticsService] Startup telemetry roll-up failed.", e);
@@ -226,7 +225,7 @@ public class AnalyticsService {
             String queryStr =
                     "SELECT a.sessionId, MIN(a.createdAt), MAX(a.countryCode), MAX(a.city), "
                             + "MAX(a.deviceType), MAX(a.os), MAX(a.browser), SUM(a.timeOnPageMs), COUNT(a), "
-                            + "MIN(a.path), MAX(a.referrer), MAX(a.userAgent) "
+                            + "MIN(a.path), MAX(a.referrer), MAX(a.userAgent), MAX(a.deviceFingerprint) "
                             + "FROM AnalyticsEvent a WHERE a.createdAt > :cutoff GROUP BY a.sessionId";
 
             List<Object[]> results =
@@ -265,9 +264,11 @@ public class AnalyticsService {
                     String rawPath = (String) row[9];
                     String rawReferrer = (String) row[10];
                     String rawUserAgent = (String) row[11];
+                    String deviceFingerprint = (String) row[12];
 
                     visit.setLandingPage((rawPath != null && !rawPath.isEmpty()) ? rawPath : "/");
                     visit.setSessionSource(resolveSessionSource(rawReferrer));
+                    visit.setDeviceFingerprint(deviceFingerprint);
                     enrichDeviceAndOsFromUserAgent(
                             visit, (String) row[5], (String) row[6], rawUserAgent);
 
@@ -313,15 +314,17 @@ public class AnalyticsService {
             String osName = agent.getValue("OperatingSystemName");
             String osVersion = agent.getValue("OperatingSystemVersion");
             String deviceClass = agent.getValue("DeviceClass");
-            String agentName = agent.getValue("AgentName");
+            String deviceName = agent.getValue("DeviceName");
+            String deviceBrand = agent.getValue("DeviceBrand");
 
             visit.setOperatingSystem(!"Unknown".equals(osName) ? osName : rawOs);
             visit.setOsVersion(!"Unknown".equals(osVersion) ? osVersion : "N/A");
+            visit.setDeviceClass(!"Unknown".equals(deviceClass) ? deviceClass : "Unknown");
+            visit.setDeviceBrand(!"Unknown".equals(deviceBrand) ? deviceBrand : "Unknown");
 
             if ("Phone".equals(deviceClass)
                     || "Tablet".equals(deviceClass)
                     || "Mobile".equals(deviceClass)) {
-                String deviceName = agent.getValue("DeviceName");
                 visit.setDeviceModel(!"Unknown".equals(deviceName) ? deviceName : deviceClass);
             } else if ("Desktop".equals(deviceClass)) {
                 visit.setDeviceModel("Desktop PC");
@@ -332,6 +335,8 @@ public class AnalyticsService {
             visit.setOperatingSystem(rawOs != null ? rawOs : "Unknown OS");
             visit.setOsVersion("10.0");
             visit.setDeviceModel("Desktop PC");
+            visit.setDeviceClass("Unknown");
+            visit.setDeviceBrand("Unknown");
         }
     }
 
@@ -786,8 +791,6 @@ public class AnalyticsService {
         String osVer = entity.getOsVersion();
         String model = entity.getDeviceModel();
 
-        // Detect Faro Chromium version leakage (kept to prevent raw Chromium 148 leaking as OS
-        // Version on desktop)
         if (osVer != null && osVer.matches("^\\d{2,3}\\.\\d+\\.\\d+\\.\\d+$")) {
             osVer = "N/A";
             if (model != null
@@ -798,7 +801,6 @@ public class AnalyticsService {
             }
         }
 
-        // Apple Device Normalization
         if (model != null
                 && (model.equalsIgnoreCase("iPhone") || model.equalsIgnoreCase("Apple iPhone"))) {
             model = "Apple iPhone";
@@ -807,7 +809,6 @@ public class AnalyticsService {
             model = "Apple iPad";
         }
 
-        // Smart Android Hardware Privacy Masking Fix
         if ("Android".equalsIgnoreCase(os) || (os != null && os.contains("Android"))) {
             if ("N/A".equals(osVer) || "Unknown".equals(osVer) || osVer == null) {
                 osVer = "Version Masked";
@@ -832,6 +833,9 @@ public class AnalyticsService {
                 .city(entity.getCity())
                 .deviceCategory(entity.getDeviceCategory())
                 .deviceModel(model)
+                .deviceBrand(entity.getDeviceBrand())
+                .deviceClass(entity.getDeviceClass())
+                .deviceFingerprint(entity.getDeviceFingerprint())
                 .operatingSystem(os)
                 .osVersion(osVer)
                 .screenResolution(entity.getScreenResolution())
@@ -859,7 +863,6 @@ public class AnalyticsService {
                             org.springframework.data.domain.PageRequest.of(page, batchSize));
 
             for (AudienceVisit visit : visitPage.getContent()) {
-                // Using entityManager to avoid missing repository method compilation errors
                 List<com.treishvaam.financeapi.model.AnalyticsEvent> rawEvents =
                         entityManager
                                 .createQuery(
@@ -888,7 +891,6 @@ public class AnalyticsService {
                 }
             }
 
-            // CRITICAL OOM PREVENTION: Flush transactions and explicitly clear EntityManager
             audienceVisitRepository.flush();
             entityManager.clear();
 
