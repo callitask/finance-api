@@ -24,6 +24,13 @@ package com.treishvaam.financeapi.security.aegis;
  * integration. Returning an empty `ResponseEntity.accepted().build()` caused JSON.parse exceptions
  * during the hydration cycle.
  *
+ * <p>- EDITED (Incident 52/53 - TCP Keepalive Closure Fix): • Changed return type from Map to
+ * String and explicitly injected the Content-Length header. • Why: Chromium explicitly forbids
+ * `Transfer-Encoding: chunked` for `keepalive: true` background sockets, violently severing the TCP
+ * connection (ERR_CONNECTION_CLOSED) when Tomcat dynamically serialized the Map. Explicitly
+ * declaring the byte length prevents chunking and allows the browser to close the connection
+ * gracefully.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -43,7 +50,7 @@ public class AegisTelemetryController {
     private static final Logger log = LoggerFactory.getLogger(AegisTelemetryController.class);
 
     @PostMapping("/telemetry")
-    public ResponseEntity<Map<String, String>> receiveTelemetry(
+    public ResponseEntity<String> receiveTelemetry(
             @RequestBody(required = false) Map<String, Object> payload) {
         // The actual biometric hash extraction and Shannon entropy validation occurs in the
         // AegisMainFilter and L5-BIE engine upstream in the security chain.
@@ -51,6 +58,13 @@ public class AegisTelemetryController {
         // errors.
         log.debug("AEGIS L5-BIE: Telemetry beacon successfully absorbed from frontend.");
 
-        return ResponseEntity.accepted().body(Map.of("status", "ok"));
+        String jsonResponse = "{\"status\":\"ok\"}";
+
+        return ResponseEntity.accepted()
+                .header(
+                        org.springframework.http.HttpHeaders.CONTENT_LENGTH,
+                        String.valueOf(jsonResponse.length()))
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .body(jsonResponse);
     }
 }
