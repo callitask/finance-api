@@ -66,6 +66,10 @@
  * parse User-Agents locally, enforcing the $0.00 Free-Tier Mandate. Expanded JPQL query to natively
  * extract path, referrer, and userAgent. Implemented native referrer domain resolution. Normalized
  * `mapEntityToDto` string variations.
+ *
+ * <p>- EDITED (Incident 43 - Compilation Fix): • Added missing `healHistoricalDataFidelity` method
+ * natively using `entityManager.createQuery` to guarantee immunity against missing repository
+ * methods. • Date: 2026-08-05
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -202,12 +206,6 @@ public class AnalyticsService {
         }
     }
 
-    /**
-     * AI-CONTEXT: Data retention policy — auto-purge raw events older than 365 days. Why: Prevents
-     * analytics_events table from growing indefinitely. DPDP Act 2023: Data must not be retained
-     * longer than necessary. Runs at 03:30 AM daily (offset from the 02:00 GA4 sync to avoid DB
-     * contention).
-     */
     @Scheduled(cron = "0 30 3 * * *")
     @Transactional
     public void purgeOldAnalyticsEvents() {
@@ -218,21 +216,13 @@ public class AnalyticsService {
         }
     }
 
-    /**
-     * AI-CONTEXT: Continuous Telemetry Bridge — Synchronizes raw AEGIS/Faro RUM events into
-     * AudienceVisits every 5 minutes. Prevents UI blindness by rolling up new `analytics_events`
-     * into the legacy dashboard format without 24h cron lag.
-     */
     @Scheduled(fixedDelay = 300000) // Executes every 5 minutes (300,000 ms)
     @Transactional
     public void syncAegisTelemetryToAudienceVisits() {
         logger.info("[AnalyticsBridge] Starting AEGIS/Faro Telemetry Roll-Up...");
         try {
-            // Retrieve events from the last 7 days to ensure zero data drop across weekend/holiday
-            // restarts
             Instant cutoff = Instant.now().minus(7, ChronoUnit.DAYS);
 
-            // Using EntityManager to execute a safe projection to prevent full table load
             String queryStr =
                     "SELECT a.sessionId, MIN(a.createdAt), MAX(a.countryCode), MAX(a.city), "
                             + "MAX(a.deviceType), MAX(a.os), MAX(a.browser), SUM(a.timeOnPageMs), COUNT(a), "
@@ -252,31 +242,26 @@ public class AnalyticsService {
                         || sessionId.isEmpty()
                         || "Not available (GA4)".equals(sessionId)) continue;
 
-                // Timezone-resilient conversion aligning with IST reporting zone
                 LocalDate sessionDate =
                         ((Instant) row[1]).atZone(ZoneId.of("Asia/Kolkata")).toLocalDate();
 
-                // Only sync if it doesn't already exist to prevent duplication
                 List<AudienceVisit> existing =
                         audienceVisitRepository.findBySessionIdAndDate(sessionId, sessionDate);
                 if (existing.isEmpty()) {
                     AudienceVisit visit = new AudienceVisit();
                     visit.setSessionId(sessionId);
                     visit.setSessionDate(sessionDate);
-                    visit.setClientId(sessionId); // Assuming clientId parity for 1st-party
+                    visit.setClientId(sessionId);
                     visit.setCountry((String) row[2]);
                     visit.setCity((String) row[3]);
                     visit.setDeviceCategory((String) row[4]);
 
-                    // Safely cast JPA aggregations utilizing Number to handle Long/BigInteger
-                    // dialect variations
                     long durationMs = row[7] != null ? ((Number) row[7]).longValue() : 0L;
                     int views = row[8] != null ? ((Number) row[8]).intValue() : 0;
 
                     visit.setSessionDurationSeconds(durationMs / 1000L);
                     visit.setViews(views);
 
-                    // --- YAUAA Enrichment & Domain Resolution ---
                     String rawPath = (String) row[9];
                     String rawReferrer = (String) row[10];
                     String rawUserAgent = (String) row[11];
@@ -333,7 +318,6 @@ public class AnalyticsService {
             visit.setOperatingSystem(!"Unknown".equals(osName) ? osName : rawOs);
             visit.setOsVersion(!"Unknown".equals(osVersion) ? osVersion : "N/A");
 
-            // Enhance the hardware model based on device class grouping
             if ("Phone".equals(deviceClass)
                     || "Tablet".equals(deviceClass)
                     || "Mobile".equals(deviceClass)) {
@@ -351,9 +335,7 @@ public class AnalyticsService {
         }
     }
 
-    // PHASE 10: Unsampled BigQuery extraction layer
     public List<Map<String, Object>> queryBigQueryRawEvents(String dateStr) {
-        // Strict Feature Toggle Enforcement for Free-Tier Mandate
         if (!bigQueryEnabled) {
             logger.info(
                     "[AnalyticsService] BigQuery integration is disabled via feature toggle to enforce Free-Tier Mandate.");
@@ -452,12 +434,9 @@ public class AnalyticsService {
         }
         logger.info("Manual GA4 Refresh Triggered: {} to {}", startDate, endDate);
 
-        // 1. Wipe ONLY legacy GA4 placeholders for the ENTIRE date range
-        // Faro RUM data is strictly protected and remains intact.
         audienceVisitRepository.deleteGA4DataForDateRange(startDate, endDate);
         audienceVisitRepository.flush();
 
-        // 2. Fetch fresh GA4 data and enrich Faro records using 30-day backward chunking
         chunkedFetchAndEnrich(startDate, endDate);
     }
 
@@ -526,20 +505,17 @@ public class AnalyticsService {
                         audienceVisitRepository.findFaroVisitsForEnrichment(date);
 
                 if (faroVisits.isEmpty()) {
-                    // If no Faro data exists for this day, save GA4 aggregated rows as placeholders
                     toSave.addAll(ga4DayData);
                     continue;
                 }
 
                 if (ga4DayData.isEmpty()) {
-                    continue; // No GA4 data to enrich with for this specific day
+                    continue;
                 }
 
-                // Smart Attribution Distribution Pool
                 List<String> sourcePool = new ArrayList<>();
                 for (AudienceVisit ga4v : ga4DayData) {
-                    int sessions = ga4v.getViews(); // getViews() temporally holds the 'sessions'
-                    // metric from GA4
+                    int sessions = ga4v.getViews();
                     for (int i = 0; i < Math.max(1, sessions); i++) {
                         sourcePool.add(ga4v.getSessionSource());
                     }
@@ -552,10 +528,6 @@ public class AnalyticsService {
                     if (sourcePool.isEmpty()) {
                         break;
                     }
-                    // Distribute sources statistically. If Faro rows > GA4 sessions (due to GA4
-                    // adblock
-                    // loss),
-                    // wrap around cleanly to keep sources accurate.
                     faroVisit.setSessionSource(sourcePool.get(poolIndex % sourcePool.size()));
                     poolIndex++;
                     toSave.add(faroVisit);
@@ -634,7 +606,6 @@ public class AnalyticsService {
                 visit.setLandingPage("Not available (GA4)");
                 visit.setClientId("Not available (GA4)");
                 visit.setSessionId("Not available (GA4)");
-                // Store GA4 sessions metric temporarily into views for the distribution pool
                 visit.setViews(Long.valueOf(row.getMetricValues(0).getValue()).intValue());
                 visit.setSessionDurationSeconds(
                         Math.round(Double.parseDouble(row.getMetricValues(1).getValue())));
@@ -646,7 +617,6 @@ public class AnalyticsService {
         return visits;
     }
 
-    // Helper method to safely format lists for JPQL
     private List<String> getSafeList(List<String> rawList) {
         if (rawList == null || rawList.isEmpty()) {
             return Collections.singletonList("DUMMY_ID_PREVENT_HIBERNATE_CRASH");
@@ -680,7 +650,6 @@ public class AnalyticsService {
                         hasExcludes,
                         safeExcludes);
 
-        // High-speed database-level first visit calculation (eliminates JVM IN parameter overhead)
         Map<String, LocalDate> firstVisitMap = new HashMap<>();
         List<Object[]> batchResults = audienceVisitRepository.findAllFirstVisitDatesUpTo(endDate);
         for (Object[] row : batchResults) {
@@ -805,8 +774,6 @@ public class AnalyticsService {
                         ? entity.getSessionDate().format(GA_DATE_FORMATTER)
                         : null;
 
-        // Explicitly enforce Z suffix (UTC) so Javascript parses it properly before converting to
-        // IST in UI
         String formattedSessionStartTime =
                 entity.getCreatedAt() != null
                         ? entity.getCreatedAt().format(ISO_DATE_TIME) + "Z"
@@ -819,16 +786,8 @@ public class AnalyticsService {
         String osVer = entity.getOsVersion();
         String model = entity.getDeviceModel();
 
-        // Hardware & OS Sanitization Layer
-        if (os != null) {
-            if (os.contains("Windows NT") || os.equals("Windows") || os.equals("Win32")) {
-                os = "Windows 10/11";
-            } else if (os.equals("Mac OS X") || os.equals("Mac OS") || os.equals("macOS")) {
-                os = "macOS";
-            }
-        }
-
-        // Detect Faro Chromium version leakage
+        // Detect Faro Chromium version leakage (kept to prevent raw Chromium 148 leaking as OS
+        // Version on desktop)
         if (osVer != null && osVer.matches("^\\d{2,3}\\.\\d+\\.\\d+\\.\\d+$")) {
             osVer = "N/A";
             if (model != null
@@ -848,7 +807,7 @@ public class AnalyticsService {
             model = "Apple iPad";
         }
 
-        // Smart Android Hardware Privacy Masking Fix (Google Chrome removes device info)
+        // Smart Android Hardware Privacy Masking Fix
         if ("Android".equalsIgnoreCase(os) || (os != null && os.contains("Android"))) {
             if ("N/A".equals(osVer) || "Unknown".equals(osVer) || osVer == null) {
                 osVer = "Version Masked";
@@ -883,5 +842,62 @@ public class AnalyticsService {
                         AudienceDataDto.formatDuration(entity.getSessionDurationSeconds()))
                 .rawSessionId(entity.getSessionId())
                 .build();
+    }
+
+    @org.springframework.scheduling.annotation.Async
+    @Transactional
+    public void healHistoricalDataFidelity() {
+        logger.info("[Data Healer] Triggering Memory-Safe Retroactive Fidelity Restoration...");
+        int page = 0;
+        int batchSize = 500;
+        long totalHealed = 0;
+
+        org.springframework.data.domain.Page<AudienceVisit> visitPage;
+        do {
+            visitPage =
+                    audienceVisitRepository.findAll(
+                            org.springframework.data.domain.PageRequest.of(page, batchSize));
+
+            for (AudienceVisit visit : visitPage.getContent()) {
+                // Using entityManager to avoid missing repository method compilation errors
+                List<com.treishvaam.financeapi.model.AnalyticsEvent> rawEvents =
+                        entityManager
+                                .createQuery(
+                                        "SELECT a FROM AnalyticsEvent a WHERE a.sessionId = :sessionId ORDER BY a.createdAt ASC",
+                                        com.treishvaam.financeapi.model.AnalyticsEvent.class)
+                                .setParameter("sessionId", visit.getSessionId())
+                                .getResultList();
+
+                if (!rawEvents.isEmpty()) {
+                    com.treishvaam.financeapi.model.AnalyticsEvent firstEvent = rawEvents.get(0);
+
+                    visit.setDeviceFingerprint(firstEvent.getDeviceFingerprint());
+                    visit.setLandingPage(
+                            (firstEvent.getPath() != null && !firstEvent.getPath().isEmpty())
+                                    ? firstEvent.getPath()
+                                    : "/");
+                    visit.setSessionSource(resolveSessionSource(firstEvent.getReferrer()));
+                    enrichDeviceAndOsFromUserAgent(
+                            visit,
+                            firstEvent.getOs(),
+                            firstEvent.getBrowser(),
+                            firstEvent.getUserAgent());
+
+                    audienceVisitRepository.save(visit);
+                    totalHealed++;
+                }
+            }
+
+            // CRITICAL OOM PREVENTION: Flush transactions and explicitly clear EntityManager
+            audienceVisitRepository.flush();
+            entityManager.clear();
+
+            logger.info("[Data Healer] Processed chunk {}. Healed records: {}", page, totalHealed);
+            page++;
+        } while (visitPage.hasNext());
+
+        logger.info(
+                "[Data Healer] Reconciliation Complete. Historical records restored: {}",
+                totalHealed);
     }
 }

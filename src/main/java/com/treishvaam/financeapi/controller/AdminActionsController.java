@@ -23,6 +23,10 @@
  * ZKP-gated /analytics/heal endpoint to trigger Memory-Safe Retroactive Fidelity Restoration. •
  * 2026-08-05 / Incident 41
  *
+ * <p>- EDITED (Incident 43 - Compilation Fix): • Fixed `verifyProof` method signature to pass 3
+ * arguments (`adminId`, `challengeId`, `proofDataHex`) to satisfy the AegisZkpServiceClient gRPC
+ * contract. • Date: 2026-08-05
+ *
  * <p>- STRATEGIC PIVOTS & FAILED ATTEMPTS (CRITICAL FOR FUTURE AI): • Strategy Attempted: N/A •
  * Failure Mode: N/A • Date/Phase: 2026-08-05 • Future AI Warning: N/A
  */
@@ -76,7 +80,8 @@ public class AdminActionsController {
     public ResponseEntity<?> healHistoricalAnalytics(
             @RequestHeader(value = "X-AEGIS-ZKP", required = true) String zkpProof) {
         // AEGIS Zero-Knowledge Proof validation
-        if (!aegisZkpService.verifyProof(zkpProof, "ANALYTICS_HEAL_ACTION")) {
+        // FIXED (Incident 43): Pass 3 arguments to satisfy the gRPC client signature
+        if (!aegisZkpService.verifyProof("system_admin", "ANALYTICS_HEAL_ACTION", zkpProof)) {
             logger.warn("[AEGIS] ZKP Validation Failed for Data Healer Trigger.");
             return ResponseEntity.status(403)
                     .body(Map.of("error", "ZKP Verification Failed. Zero-Trust lock active."));
