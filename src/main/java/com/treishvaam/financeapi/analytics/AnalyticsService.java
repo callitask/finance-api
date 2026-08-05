@@ -71,6 +71,11 @@
  * `syncAegisTelemetryToAudienceVisits` to extract `MAX(a.deviceFingerprint)` and persist it to
  * `AudienceVisit`. Updated `mapEntityToDto` to correctly pass `deviceBrand` and `deviceClass` to
  * `AudienceDataDto`. • Date: 2026-08-05
+ *
+ * <p>- EDITED (Incident 48/49 - Enterprise Data Healer Transaction Chunking): • Replaced
+ * massive @Transactional boundary with chunk-based TransactionTemplate. • Updated JPQL to
+ * bulk-aggregate metrics (timeOnPageMs, scrollDepth) to preserve data fidelity during healing
+ * without N+1 locks.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -115,6 +120,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class AnalyticsService {
@@ -146,13 +152,17 @@ public class AnalyticsService {
 
     private BetaAnalyticsDataClient analyticsDataClient;
     private final AudienceVisitRepository audienceVisitRepository;
+    private final TransactionTemplate transactionTemplate;
     private UserAgentAnalyzer uaa;
 
     @Autowired private AnalyticsEventRepository analyticsEventRepository;
     @PersistenceContext private EntityManager entityManager;
 
-    public AnalyticsService(AudienceVisitRepository audienceVisitRepository) {
+    public AnalyticsService(
+            AudienceVisitRepository audienceVisitRepository,
+            TransactionTemplate transactionTemplate) {
         this.audienceVisitRepository = audienceVisitRepository;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @PostConstruct
@@ -848,13 +858,11 @@ public class AnalyticsService {
                 .build();
     }
 
-    @org.springframework.scheduling.annotation.Async
-    @Transactional
     public void healHistoricalDataFidelity() {
         logger.info("[Data Healer] Triggering Memory-Safe Retroactive Fidelity Restoration...");
         int page = 0;
         int batchSize = 500;
-        long totalHealed = 0;
+        long[] totalHealed = {0}; // Array required for lambda scope modification
 
         org.springframework.data.domain.Page<AudienceVisit> visitPage;
         do {
@@ -862,44 +870,79 @@ public class AnalyticsService {
                     audienceVisitRepository.findAll(
                             org.springframework.data.domain.PageRequest.of(page, batchSize));
 
-            for (AudienceVisit visit : visitPage.getContent()) {
-                List<com.treishvaam.financeapi.model.AnalyticsEvent> rawEvents =
-                        entityManager
-                                .createQuery(
-                                        "SELECT a FROM AnalyticsEvent a WHERE a.sessionId = :sessionId ORDER BY a.createdAt ASC",
-                                        com.treishvaam.financeapi.model.AnalyticsEvent.class)
-                                .setParameter("sessionId", visit.getSessionId())
-                                .getResultList();
+            if (visitPage.isEmpty()) break;
 
-                if (!rawEvents.isEmpty()) {
-                    com.treishvaam.financeapi.model.AnalyticsEvent firstEvent = rawEvents.get(0);
+            transactionTemplate.execute(
+                    status -> {
+                        List<String> sessionIds =
+                                visitPage.getContent().stream()
+                                        .map(AudienceVisit::getSessionId)
+                                        .collect(Collectors.toList());
 
-                    visit.setDeviceFingerprint(firstEvent.getDeviceFingerprint());
-                    visit.setLandingPage(
-                            (firstEvent.getPath() != null && !firstEvent.getPath().isEmpty())
-                                    ? firstEvent.getPath()
-                                    : "/");
-                    visit.setSessionSource(resolveSessionSource(firstEvent.getReferrer()));
-                    enrichDeviceAndOsFromUserAgent(
-                            visit,
-                            firstEvent.getOs(),
-                            firstEvent.getBrowser(),
-                            firstEvent.getUserAgent());
+                        if (!sessionIds.isEmpty()) {
+                            List<Object[]> aggregatedEvents =
+                                    entityManager
+                                            .createQuery(
+                                                    "SELECT a.sessionId, MAX(a.deviceFingerprint), MIN(a.path), MAX(a.referrer), MAX(a.os), MAX(a.browser), MAX(a.userAgent), SUM(a.timeOnPageMs), MAX(a.scrollDepth) "
+                                                            + "FROM AnalyticsEvent a WHERE a.sessionId IN :sessionIds GROUP BY a.sessionId",
+                                                    Object[].class)
+                                            .setParameter("sessionIds", sessionIds)
+                                            .getResultList();
 
-                    audienceVisitRepository.save(visit);
-                    totalHealed++;
-                }
-            }
+                            Map<String, Object[]> aggregatedMap = new HashMap<>();
+                            for (Object[] row : aggregatedEvents) {
+                                aggregatedMap.put((String) row[0], row);
+                            }
 
-            audienceVisitRepository.flush();
-            entityManager.clear();
+                            for (AudienceVisit visit : visitPage.getContent()) {
+                                Object[] agg = aggregatedMap.get(visit.getSessionId());
+                                if (agg != null) {
+                                    String fingerprint = (String) agg[1];
+                                    String path = (String) agg[2];
+                                    String referrer = (String) agg[3];
+                                    String os = (String) agg[4];
+                                    String browser = (String) agg[5];
+                                    String userAgent = (String) agg[6];
+                                    Long timeOnPageMs = (Long) agg[7];
 
-            logger.info("[Data Healer] Processed chunk {}. Healed records: {}", page, totalHealed);
+                                    if (fingerprint != null && !fingerprint.trim().isEmpty()) {
+                                        visit.setDeviceFingerprint(fingerprint);
+                                    }
+                                    if (visit.getLandingPage() == null
+                                            || visit.getLandingPage().equals("Not available (GA4)")
+                                            || visit.getLandingPage().equals("/")) {
+                                        visit.setLandingPage(
+                                                (path != null && !path.trim().isEmpty())
+                                                        ? path
+                                                        : "/");
+                                    }
+                                    if (timeOnPageMs != null
+                                            && timeOnPageMs
+                                                    > (visit.getSessionDurationSeconds() * 1000L)) {
+                                        visit.setSessionDurationSeconds(timeOnPageMs / 1000L);
+                                    }
+
+                                    visit.setSessionSource(resolveSessionSource(referrer));
+                                    enrichDeviceAndOsFromUserAgent(visit, os, browser, userAgent);
+
+                                    audienceVisitRepository.save(visit);
+                                    totalHealed[0]++;
+                                }
+                            }
+                        }
+
+                        audienceVisitRepository.flush();
+                        entityManager.clear();
+                        return null;
+                    });
+
+            logger.info(
+                    "[Data Healer] Processed chunk {}. Healed records: {}", page, totalHealed[0]);
             page++;
         } while (visitPage.hasNext());
 
         logger.info(
                 "[Data Healer] Reconciliation Complete. Historical records restored: {}",
-                totalHealed);
+                totalHealed[0]);
     }
 }

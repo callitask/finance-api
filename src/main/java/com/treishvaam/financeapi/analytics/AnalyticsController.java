@@ -23,7 +23,9 @@
  * perfectly satisfies the JPQL filter logic. - EDITED (Incident 41 - Zero-Trust Device Clustering):
  * • Updated getHistoricalAudienceData to group flat AudienceDataDto into GroupedAudienceDataDto
  * based on deviceFingerprint. • Why: Aggregates incognito and standard sessions from the same
- * device into a single hardware profile without storing raw IPs. • Date: 2026-08-05
+ * device into a single hardware profile without storing raw IPs. • Date: 2026-08-05 - EDITED
+ * (Incident 48/49 - Legacy Hardware Isolation): • Refactored grouping logic to isolate legacy
+ * sessions via user/session ID fallbacks, preventing monolithic collapse of NULL fingerprints.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -90,15 +92,26 @@ public class AnalyticsController {
         List<AudienceDataDto> data =
                 analyticsService.getHistoricalData(finalStartDate, finalEndDate, filters);
 
-        // Group sessions by deviceFingerprint
+        // Group sessions by deviceFingerprint securely, isolating legacy NULL fingerprints
         Map<String, List<AudienceDataDto>> groupedMap =
                 data.stream()
                         .collect(
                                 Collectors.groupingBy(
-                                        dto ->
-                                                dto.getDeviceFingerprint() != null
-                                                        ? dto.getDeviceFingerprint()
-                                                        : "unknown-device"));
+                                        dto -> {
+                                            if (dto.getDeviceFingerprint() != null
+                                                    && !dto.getDeviceFingerprint()
+                                                            .trim()
+                                                            .isEmpty()) {
+                                                return dto.getDeviceFingerprint();
+                                            } else if (dto.getUserIdentifier() != null
+                                                    && !dto.getUserIdentifier().trim().isEmpty()
+                                                    && !dto.getUserIdentifier()
+                                                            .equals("Not available (GA4)")) {
+                                                return "legacy-" + dto.getUserIdentifier();
+                                            } else {
+                                                return "legacy-" + dto.getRawSessionId();
+                                            }
+                                        }));
 
         List<GroupedAudienceDataDto> groupedData =
                 groupedMap.entrySet().stream()
