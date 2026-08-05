@@ -27,6 +27,11 @@
  * `verifyZkpWithMicroservice` stub. • Injected the live `AegisZkpServiceClient`. • Implemented
  * `X-AEGIS-Test-Token` bypass mechanism specifically to unblock GitHub Actions CI/CD integrations.
  *
+ * <p>- EDITED (Incident 45 - Zero-Trust Precedence Fix): • Added path-scoped ZKP bypass for the
+ * analytics healer utilizing INTERNAL_API_SECRET_KEY. Intercepts X-AEGIS-ZKP header at the filter
+ * level to prevent 403 Forbidden errors while preserving global L3-ZKA integrity for other admin
+ * routes. • Date: 2026-08-05
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -38,6 +43,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -49,6 +55,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class AegisZkpAdminFilter extends OncePerRequestFilter {
 
     private final AegisZkpServiceClient zkpServiceClient;
+
+    @Value("${app.security.internal-secret:}")
+    private String internalSecret;
 
     public AegisZkpAdminFilter(AegisZkpServiceClient zkpServiceClient) {
         this.zkpServiceClient = zkpServiceClient;
@@ -70,6 +79,43 @@ public class AegisZkpAdminFilter extends OncePerRequestFilter {
         if ("true".equals(request.getHeader("X-AEGIS-Test-Token"))) {
             log.info("AEGIS L3-ZKA: Automation Pipeline bypass recognized for CI/CD framework.");
             filterChain.doFilter(request, response);
+            return;
+        }
+
+        // --- INCIDENT 45: PATH-SCOPED BYPASS & HEADER ALIGNMENT ---
+        // Specifically evaluate the analytics healer to catch the frontend's X-AEGIS-ZKP payload
+        if ("/api/v1/admin/actions/analytics/heal".equals(path)) {
+            String providedZkpOrSecret = request.getHeader("X-AEGIS-ZKP");
+
+            // 1. Check if it's the internal secret bypass
+            if (internalSecret != null
+                    && !internalSecret.isBlank()
+                    && internalSecret.equals(providedZkpOrSecret)) {
+                log.info("AEGIS L3-ZKA: Internal Secret Bypass authenticated for path: {}", path);
+                request.setAttribute("AEGIS_ZKP_VERIFIED", true);
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            // 2. Otherwise, treat it as a standard ZKP proof for this specific endpoint
+            if (providedZkpOrSecret != null && !providedZkpOrSecret.isBlank()) {
+                boolean isVerified =
+                        zkpServiceClient.verifyProof(
+                                "system_admin", "ANALYTICS_HEAL_ACTION", providedZkpOrSecret);
+                if (isVerified) {
+                    log.info("AEGIS L3-ZKA: ZKP Verification SUCCESS for Data Healer.");
+                    request.setAttribute("AEGIS_ZKP_VERIFIED", true);
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+            }
+
+            log.warn(
+                    "AEGIS L3-ZKA: ZKP Verification & Admin Bypass FAILED for Data Healer Trigger.");
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.getWriter()
+                    .write("{\"error\":\"ZKP Verification Failed. Zero-Trust lock active.\"}");
             return;
         }
 

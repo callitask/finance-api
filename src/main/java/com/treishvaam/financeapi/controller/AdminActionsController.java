@@ -28,6 +28,11 @@
  * to 3 parameters. Added secure fallback against INTERNAL_API_SECRET_KEY for seamless admin prompt
  * execution. • Date: 2026-08-05
  *
+ * <p>- EDITED (Incident 45 - Controller Dead Code Eradication): • Removed redundant ZKP
+ * verification and bypass logic from healHistoricalAnalytics. The AegisZkpAdminFilter now
+ * guarantees mathematical identity or secure bypass before execution reaches this method. • Date:
+ * 2026-08-05
+ *
  * <p>- STRATEGIC PIVOTS & FAILED ATTEMPTS (CRITICAL FOR FUTURE AI): • Strategy Attempted: N/A •
  * Failure Mode: N/A • Date/Phase: 2026-08-05 • Future AI Warning: N/A
  */
@@ -40,11 +45,9 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -57,10 +60,9 @@ public class AdminActionsController {
 
     @Autowired private SitemapService sitemapService;
     @Autowired private AnalyticsService analyticsService;
+    // Keep AegisZkpServiceClient imported in case it's needed for future admin actions, but unused
+    // in this specific method now.
     @Autowired private AegisZkpServiceClient aegisZkpService;
-
-    @Value("${app.security.internal-secret:}")
-    private String internalSecretKey;
 
     @PostMapping("/regenerate-sitemap")
     public ResponseEntity<?> regenerateSitemap() {
@@ -78,24 +80,11 @@ public class AdminActionsController {
     }
 
     @PostMapping("/analytics/heal")
-    public ResponseEntity<?> healHistoricalAnalytics(
-            @RequestHeader(value = "X-AEGIS-ZKP", required = true) String zkpProof) {
-        // Authenticate via gRPC ZKP service OR secure vault secret bypass fallback
-        boolean zkpValid =
-                aegisZkpService.verifyProof("system_admin", "ANALYTICS_HEAL_ACTION", zkpProof);
-        boolean bypassValid =
-                (internalSecretKey != null
-                        && !internalSecretKey.isBlank()
-                        && internalSecretKey.equals(zkpProof));
-
-        if (!zkpValid && !bypassValid) {
-            logger.warn("[AEGIS] ZKP Validation & Admin Bypass Failed for Data Healer Trigger.");
-            return ResponseEntity.status(403)
-                    .body(Map.of("error", "ZKP Verification Failed. Zero-Trust lock active."));
-        }
-
+    public ResponseEntity<?> healHistoricalAnalytics() {
+        // The AegisZkpAdminFilter guarantees mathematical identity or secure bypass before
+        // execution reaches this point.
         logger.info(
-                "Admin successfully authenticated via ZKP/Vault Secret. Triggering Retroactive Data Healer.");
+                "Admin successfully authenticated via Filter. Triggering Retroactive Data Healer.");
         analyticsService.healHistoricalDataFidelity();
         return ResponseEntity.ok(
                 Map.of("message", "Memory-safe historical data healing initiated in background."));
