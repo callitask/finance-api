@@ -76,6 +76,10 @@
  * massive @Transactional boundary with chunk-based TransactionTemplate. • Updated JPQL to
  * bulk-aggregate metrics (timeOnPageMs, scrollDepth) to preserve data fidelity during healing
  * without N+1 locks.
+ *
+ * <p>- EDITED (Incident 50 - CI/CD Compilation Fix): • Isolated the `visitPage` loop variable into
+ * a `final` local variable (`currentBatch`) before passing it to the `TransactionTemplate` lambda,
+ * resolving the 'effectively final' Maven compilation failure.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -872,10 +876,13 @@ public class AnalyticsService {
 
             if (visitPage.isEmpty()) break;
 
+            // Isolate the reassigned loop variable to safely pass it into the lambda closure
+            final org.springframework.data.domain.Page<AudienceVisit> currentBatch = visitPage;
+
             transactionTemplate.execute(
                     status -> {
                         List<String> sessionIds =
-                                visitPage.getContent().stream()
+                                currentBatch.getContent().stream()
                                         .map(AudienceVisit::getSessionId)
                                         .collect(Collectors.toList());
 
@@ -894,7 +901,7 @@ public class AnalyticsService {
                                 aggregatedMap.put((String) row[0], row);
                             }
 
-                            for (AudienceVisit visit : visitPage.getContent()) {
+                            for (AudienceVisit visit : currentBatch.getContent()) {
                                 Object[] agg = aggregatedMap.get(visit.getSessionId());
                                 if (agg != null) {
                                     String fingerprint = (String) agg[1];
