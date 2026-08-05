@@ -13,7 +13,10 @@ import java.time.Instant;
  * 'id'. • Why: Resolves a critical 500 Internal Server Error. The frontend Web Vitals telemetry
  * payload sends an 'id' string (e.g., "v2-123") and custom metric fields. Jackson attempted to
  * deserialize this string into the database Long PK, and crashed on the unmapped properties. These
- * annotations enforce strict mass-assignment protection and allow dynamic telemetry ingestion.
+ * annotations enforce strict mass-assignment protection and allow dynamic telemetry ingestion. -
+ * EDITED (Incident 41 - Zero-Trust Device Fingerprinting): • Added deviceFingerprint column and
+ * accessors mapped to V47 Liquibase schema. Added idx_analytics_fingerprint_jpa index. • Date:
+ * 2026-08-05
  */
 @Entity
 @Table(
@@ -21,7 +24,8 @@ import java.time.Instant;
         indexes = {
             @Index(name = "idx_analytics_session_jpa", columnList = "sessionId"),
             @Index(name = "idx_analytics_type_jpa", columnList = "eventType"),
-            @Index(name = "idx_analytics_timestamp_jpa", columnList = "createdAt")
+            @Index(name = "idx_analytics_timestamp_jpa", columnList = "createdAt"),
+            @Index(name = "idx_analytics_fingerprint_jpa", columnList = "deviceFingerprint")
         })
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class AnalyticsEvent {
@@ -63,6 +67,9 @@ public class AnalyticsEvent {
 
     @Column(length = 1000)
     private String userAgent;
+
+    @Column(name = "device_fingerprint", length = 64)
+    private String deviceFingerprint;
 
     private Integer scrollDepth;
 
@@ -174,6 +181,14 @@ public class AnalyticsEvent {
 
     public void setUserAgent(String userAgent) {
         this.userAgent = userAgent;
+    }
+
+    public String getDeviceFingerprint() {
+        return deviceFingerprint;
+    }
+
+    public void setDeviceFingerprint(String deviceFingerprint) {
+        this.deviceFingerprint = deviceFingerprint;
     }
 
     public Integer getScrollDepth() {

@@ -5,8 +5,38 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import org.hibernate.annotations.CreationTimestamp;
 
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - JPA Entity representing a summarized, unique session visit for the Audience
+ * Analytics Dashboard.
+ *
+ * <p>Scope: - Persists rolled-up telemetry data extracted from raw AnalyticsEvent logs.
+ *
+ * <p>Critical Dependencies: - Backend: Populated synchronously by AnalyticsService roll-up bridge.
+ *
+ * <p>Security Constraints: - Raw IPs must never be persisted here. Device clustering uses SHA3-256
+ * deviceFingerprint.
+ *
+ * <p>Non-Negotiables: - Entity fields must map precisely to Liquibase V47 schema expectations.
+ *
+ * <p>Change Intent: - Expand entity to support YAUAA extraction fidelity and Zero-Trust device
+ * clustering.
+ *
+ * <p>Future AI Guidance: - Do not remove the deviceFingerprint mapping; it is critical for
+ * ZKP-gated dashboard grouping.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Added deviceFingerprint, deviceBrand, and
+ * deviceClass fields mapped to V47 Liquibase schema. Added idx_audience_fingerprint_jpa index. •
+ * 2026-08-05 / Incident 41
+ *
+ * <p>- STRATEGIC PIVOTS & FAILED ATTEMPTS (CRITICAL FOR FUTURE AI): • Strategy Attempted: N/A •
+ * Failure Mode: N/A • Date/Phase: 2026-08-05 • Future AI Warning: N/A
+ */
 @Entity
-@Table(name = "audience_visits")
+@Table(
+        name = "audience_visits",
+        indexes = {@Index(name = "idx_audience_fingerprint_jpa", columnList = "deviceFingerprint")})
 public class AudienceVisit {
 
     @Id
@@ -40,6 +70,15 @@ public class AudienceVisit {
 
     @Column(name = "screen_resolution")
     private String screenResolution;
+
+    @Column(name = "device_fingerprint", length = 64)
+    private String deviceFingerprint;
+
+    @Column(name = "device_brand", length = 100)
+    private String deviceBrand;
+
+    @Column(name = "device_class", length = 100)
+    private String deviceClass;
 
     @Column(name = "session_duration_seconds")
     private Long sessionDurationSeconds;
@@ -152,6 +191,30 @@ public class AudienceVisit {
 
     public void setScreenResolution(String screenResolution) {
         this.screenResolution = screenResolution;
+    }
+
+    public String getDeviceFingerprint() {
+        return deviceFingerprint;
+    }
+
+    public void setDeviceFingerprint(String deviceFingerprint) {
+        this.deviceFingerprint = deviceFingerprint;
+    }
+
+    public String getDeviceBrand() {
+        return deviceBrand;
+    }
+
+    public void setDeviceBrand(String deviceBrand) {
+        this.deviceBrand = deviceBrand;
+    }
+
+    public String getDeviceClass() {
+        return deviceClass;
+    }
+
+    public void setDeviceClass(String deviceClass) {
+        this.deviceClass = deviceClass;
     }
 
     public Long getSessionDurationSeconds() {

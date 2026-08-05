@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+ * AI-CONTEXT:
+ *
+ * Purpose:
+ * - Liquibase migration V47 for audience telemetry fingerprinting and device metadata expansion.
+ *
+ * Scope:
+ * - Adds device_fingerprint, device_brand, and device_class columns to analytics_events and audience_visits tables.
+ * - Creates B-Tree performance indexes on device_fingerprint columns for sub-2ms GROUP BY queries.
+ *
+ * Critical Dependencies:
+ * - Backend: AnalyticsEvent and AudienceVisit JPA entities, AnalyticsService.
+ *
+ * Security Constraints:
+ * - device_fingerprint stores BouncyCastle SHA3-256 hashes only. Raw IPs are never persisted.
+ *
+ * Non-Negotiables:
+ * - Nullable columns to ensure zero-downtime backward compatibility.
+ *
+ * Change Intent:
+ * - Enable full-spectrum telemetry, Zero-Trust device grouping, and $0.00 Free-Tier analytics reconciliation.
+ *
+ * Future AI Guidance:
+ * - Maintain B-Tree indexes for fast GROUP BY device_fingerprint queries.
+ *
+ * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+ * - ADDED:
+ * • Created V47 Liquibase migration for device_fingerprint, device_brand, and device_class columns and indexes.
+ * • 2026-08-05 / Incident 41
+ *
+ * - STRATEGIC PIVOTS & FAILED ATTEMPTS (CRITICAL FOR FUTURE AI):
+ * • Strategy Attempted: N/A
+ * • Failure Mode: N/A
+ * • Date/Phase: 2026-08-05
+ * • Future AI Warning: N/A
+-->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="V47-1" author="aegis-security">
+        <addColumn tableName="analytics_events">
+            <column name="device_fingerprint" type="VARCHAR(64)"/>
+        </addColumn>
+        <addColumn tableName="audience_visits">
+            <column name="device_fingerprint" type="VARCHAR(64)"/>
+            <column name="device_brand" type="VARCHAR(100)"/>
+            <column name="device_class" type="VARCHAR(100)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="V47-2" author="aegis-security">
+        <createIndex tableName="analytics_events" indexName="idx_analytics_fingerprint">
+            <column name="device_fingerprint"/>
+        </createIndex>
+        <createIndex tableName="audience_visits" indexName="idx_audience_fingerprint">
+            <column name="device_fingerprint"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

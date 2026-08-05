@@ -19,7 +19,9 @@
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Added sessionStartTime (LocalDateTime)
  * and firstVisitDate (LocalDate) fields to provide temporal tracking resolution to the frontend. -
- * EDITED (LATEST): • Converted temporal fields to Strings to fix JS Date parsing crashes.
+ * EDITED (LATEST): • Converted temporal fields to Strings to fix JS Date parsing crashes. - EDITED
+ * (Incident 41): • Added deviceFingerprint, deviceBrand, and deviceClass fields to support
+ * Zero-Trust device grouping and YAUAA extraction fidelity. • Date: 2026-08-05
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -42,6 +44,9 @@ public class AudienceDataDto {
     private String timeOnSiteFormatted;
     private Integer views;
     private String rawSessionId;
+    private String deviceFingerprint;
+    private String deviceBrand;
+    private String deviceClass;
 
     public AudienceDataDto(
             Long id,
@@ -61,7 +66,10 @@ public class AudienceDataDto {
             String landingPage,
             String timeOnSiteFormatted,
             Integer views,
-            String rawSessionId) {
+            String rawSessionId,
+            String deviceFingerprint,
+            String deviceBrand,
+            String deviceClass) {
         this.id = id;
         this.sessionDate = sessionDate;
         this.sessionStartTime = sessionStartTime;
@@ -80,6 +88,9 @@ public class AudienceDataDto {
         this.timeOnSiteFormatted = timeOnSiteFormatted;
         this.views = views;
         this.rawSessionId = rawSessionId;
+        this.deviceFingerprint = deviceFingerprint;
+        this.deviceBrand = deviceBrand;
+        this.deviceClass = deviceClass;
     }
 
     public static String formatDuration(Long totalSeconds) {
@@ -165,6 +176,18 @@ public class AudienceDataDto {
         return rawSessionId;
     }
 
+    public String getDeviceFingerprint() {
+        return deviceFingerprint;
+    }
+
+    public String getDeviceBrand() {
+        return deviceBrand;
+    }
+
+    public String getDeviceClass() {
+        return deviceClass;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -188,6 +211,9 @@ public class AudienceDataDto {
         private String timeOnSiteFormatted;
         private Integer views;
         private String rawSessionId;
+        private String deviceFingerprint;
+        private String deviceBrand;
+        private String deviceClass;
 
         public Builder id(Long id) {
             this.id = id;
@@ -279,6 +305,21 @@ public class AudienceDataDto {
             return this;
         }
 
+        public Builder deviceFingerprint(String deviceFingerprint) {
+            this.deviceFingerprint = deviceFingerprint;
+            return this;
+        }
+
+        public Builder deviceBrand(String deviceBrand) {
+            this.deviceBrand = deviceBrand;
+            return this;
+        }
+
+        public Builder deviceClass(String deviceClass) {
+            this.deviceClass = deviceClass;
+            return this;
+        }
+
         public AudienceDataDto build() {
             return new AudienceDataDto(
                     id,
@@ -298,7 +339,10 @@ public class AudienceDataDto {
                     landingPage,
                     timeOnSiteFormatted,
                     views,
-                    rawSessionId);
+                    rawSessionId,
+                    deviceFingerprint,
+                    deviceBrand,
+                    deviceClass);
         }
     }
 }

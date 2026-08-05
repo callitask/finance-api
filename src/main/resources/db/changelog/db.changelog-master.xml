@@ -1,4 +1,39 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+ * AI-CONTEXT:
+ *
+ * Purpose:
+ * - Liquibase Master Changelog orchestrating all database migrations for the Treishvaam Finance platform.
+ *
+ * Scope:
+ * - Includes all ordered changelog files sequentially from V1 through V47.
+ *
+ * Critical Dependencies:
+ * - Backend: Liquibase core execution runner on Spring Boot startup.
+ *
+ * Security Constraints:
+ * - Order of execution must be strictly maintained to preserve schema integrity and constraints.
+ *
+ * Non-Negotiables:
+ * - Do not reorder, alter, or remove previous migration includes.
+ *
+ * Change Intent:
+ * - Register V47 migration for device fingerprinting, device brand, and device class columns and B-Tree indexes.
+ *
+ * Future AI Guidance:
+ * - Append future migration includes strictly at the bottom of the changelog list.
+ *
+ * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+ * - ADDED:
+ * • Included V47__add_fingerprint_and_device_metadata.xml in master changelog.
+ * • 2026-08-05 / Incident 41
+ *
+ * - STRATEGIC PIVOTS & FAILED ATTEMPTS (CRITICAL FOR FUTURE AI):
+ * • Strategy Attempted: N/A
+ * • Failure Mode: N/A
+ * • Date/Phase: 2026-08-05
+ * • Future AI Warning: N/A
+-->
 <databaseChangeLog
         xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -63,4 +98,5 @@
     <include file="db/changelog/V45__add_content_signature_to_blog_posts.xml"/>
     
     <include file="db/changelog/V46__create_analytics_events_table.xml"/>
+    <include file="db/changelog/V47__add_fingerprint_and_device_metadata.xml"/>
 </databaseChangeLog>

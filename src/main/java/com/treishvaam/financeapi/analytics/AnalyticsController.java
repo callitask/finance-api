@@ -20,13 +20,17 @@
  * strings `""` to `null`. • Why: Spring MVC binds empty URL parameters (e.g., `&country=`) as `""`.
  * When passed to the repository, `"" IS NULL` evaluates to FALSE, causing the database to silently
  * drop 100% of the rows and return an empty `[]` payload to the frontend. Sanitizing to `null`
- * perfectly satisfies the JPQL filter logic.
+ * perfectly satisfies the JPQL filter logic. - EDITED (Incident 41 - Zero-Trust Device Clustering):
+ * • Updated getHistoricalAudienceData to group flat AudienceDataDto into GroupedAudienceDataDto
+ * based on deviceFingerprint. • Why: Aggregates incognito and standard sessions from the same
+ * device into a single hardware profile without storing raw IPs. • Date: 2026-08-05
  */
 package com.treishvaam.financeapi.analytics;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -54,7 +58,7 @@ public class AnalyticsController {
 
     @GetMapping
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ResponseEntity<List<AudienceDataDto>> getHistoricalAudienceData(
+    public ResponseEntity<List<GroupedAudienceDataDto>> getHistoricalAudienceData(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
                     LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
@@ -85,7 +89,62 @@ public class AnalyticsController {
 
         List<AudienceDataDto> data =
                 analyticsService.getHistoricalData(finalStartDate, finalEndDate, filters);
-        return ResponseEntity.ok(data);
+
+        // Group sessions by deviceFingerprint
+        Map<String, List<AudienceDataDto>> groupedMap =
+                data.stream()
+                        .collect(
+                                Collectors.groupingBy(
+                                        dto ->
+                                                dto.getDeviceFingerprint() != null
+                                                        ? dto.getDeviceFingerprint()
+                                                        : "unknown-device"));
+
+        List<GroupedAudienceDataDto> groupedData =
+                groupedMap.entrySet().stream()
+                        .map(
+                                entry -> {
+                                    String fingerprint = entry.getKey();
+                                    List<AudienceDataDto> sessions = entry.getValue();
+
+                                    // Sort sessions newest first
+                                    sessions.sort(
+                                            (a, b) -> {
+                                                String timeA =
+                                                        a.getSessionStartTime() != null
+                                                                ? a.getSessionStartTime()
+                                                                : "";
+                                                String timeB =
+                                                        b.getSessionStartTime() != null
+                                                                ? b.getSessionStartTime()
+                                                                : "";
+                                                return timeB.compareTo(timeA);
+                                            });
+
+                                    AudienceDataDto latestSession = sessions.get(0);
+
+                                    return new GroupedAudienceDataDto(
+                                            fingerprint,
+                                            latestSession.getDeviceBrand(),
+                                            latestSession.getDeviceClass(),
+                                            latestSession.getDeviceModel(),
+                                            latestSession.getOperatingSystem(),
+                                            latestSession.getOsVersion(),
+                                            sessions.size(),
+                                            latestSession.getSessionStartTime() != null
+                                                    ? latestSession.getSessionStartTime()
+                                                    : latestSession.getSessionDate(),
+                                            sessions);
+                                })
+                        .sorted(
+                                (a, b) -> {
+                                    String timeA = a.getLastSeen() != null ? a.getLastSeen() : "";
+                                    String timeB = b.getLastSeen() != null ? b.getLastSeen() : "";
+                                    return timeB.compareTo(timeA);
+                                })
+                        .collect(Collectors.toList());
+
+        return ResponseEntity.ok(groupedData);
     }
 
     @GetMapping("/filters")
