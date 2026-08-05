@@ -80,6 +80,15 @@
  * <p>- EDITED (Incident 50 - CI/CD Compilation Fix): • Isolated the `visitPage` loop variable into
  * a `final` local variable (`currentBatch`) before passing it to the `TransactionTemplate` lambda,
  * resolving the 'effectively final' Maven compilation failure.
+ *
+ * <p>- EDITED (Incident 54/55 - Cron OOM Protection & Chronological Mapping Resolution): • Stripped
+ * `@Transactional` from `syncAegisTelemetryToAudienceVisits` and integrated `TransactionTemplate`
+ * chunking. Prevents scheduled background jobs from exhausting HikariCP connections and causing 504
+ * Gateway Timeouts. • Re-engineered JPQL string aggregation: Replaced `MIN(a.path)` (which
+ * incorrectly sorted URLs alphabetically, dropping valid landing pages) with an in-memory
+ * `a.createdAt ASC` linear grouping. The first element in the collection mathematically guarantees
+ * true chronological landing paths and referrers without expensive SQL subqueries. • Integrated
+ * proper `timeOnPageMs` summation logic to support the restored frontend Faro tracking.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -230,68 +239,169 @@ public class AnalyticsService {
     }
 
     @Scheduled(fixedDelay = 300000) // Executes every 5 minutes (300,000 ms)
-    @Transactional
     public void syncAegisTelemetryToAudienceVisits() {
         logger.info("[AnalyticsBridge] Starting AEGIS/Faro Telemetry Roll-Up...");
         try {
             Instant cutoff = Instant.now().minus(7, ChronoUnit.DAYS);
 
-            String queryStr =
-                    "SELECT a.sessionId, MIN(a.createdAt), MAX(a.countryCode), MAX(a.city), "
-                            + "MAX(a.deviceType), MAX(a.os), MAX(a.browser), SUM(a.timeOnPageMs), COUNT(a), "
-                            + "MIN(a.path), MAX(a.referrer), MAX(a.userAgent), MAX(a.deviceFingerprint) "
-                            + "FROM AnalyticsEvent a WHERE a.createdAt > :cutoff GROUP BY a.sessionId";
-
-            List<Object[]> results =
+            // 1. Fetch only the distinct session IDs in the time window to protect memory
+            List<String> activeSessionIds =
                     entityManager
-                            .createQuery(queryStr, Object[].class)
+                            .createQuery(
+                                    "SELECT DISTINCT a.sessionId FROM AnalyticsEvent a WHERE a.createdAt > :cutoff AND a.sessionId IS NOT NULL",
+                                    String.class)
                             .setParameter("cutoff", cutoff)
                             .getResultList();
 
-            int syncedCount = 0;
-            for (Object[] row : results) {
-                String sessionId = (String) row[0];
-                if (sessionId == null
-                        || sessionId.isEmpty()
-                        || "Not available (GA4)".equals(sessionId)) continue;
+            // Filter out GA4 dummy IDs to prevent pollution
+            activeSessionIds =
+                    activeSessionIds.stream()
+                            .filter(id -> !id.isEmpty() && !"Not available (GA4)".equals(id))
+                            .collect(Collectors.toList());
 
-                LocalDate sessionDate =
-                        ((Instant) row[1]).atZone(ZoneId.of("Asia/Kolkata")).toLocalDate();
-
-                List<AudienceVisit> existing =
-                        audienceVisitRepository.findBySessionIdAndDate(sessionId, sessionDate);
-                if (existing.isEmpty()) {
-                    AudienceVisit visit = new AudienceVisit();
-                    visit.setSessionId(sessionId);
-                    visit.setSessionDate(sessionDate);
-                    visit.setClientId(sessionId);
-                    visit.setCountry((String) row[2]);
-                    visit.setCity((String) row[3]);
-                    visit.setDeviceCategory((String) row[4]);
-
-                    long durationMs = row[7] != null ? ((Number) row[7]).longValue() : 0L;
-                    int views = row[8] != null ? ((Number) row[8]).intValue() : 0;
-
-                    visit.setSessionDurationSeconds(durationMs / 1000L);
-                    visit.setViews(views);
-
-                    String rawPath = (String) row[9];
-                    String rawReferrer = (String) row[10];
-                    String rawUserAgent = (String) row[11];
-                    String deviceFingerprint = (String) row[12];
-
-                    visit.setLandingPage((rawPath != null && !rawPath.isEmpty()) ? rawPath : "/");
-                    visit.setSessionSource(resolveSessionSource(rawReferrer));
-                    visit.setDeviceFingerprint(deviceFingerprint);
-                    enrichDeviceAndOsFromUserAgent(
-                            visit, (String) row[5], (String) row[6], rawUserAgent);
-
-                    audienceVisitRepository.save(visit);
-                    syncedCount++;
-                }
+            if (activeSessionIds.isEmpty()) {
+                logger.info("[AnalyticsBridge] No new telemetry to sync.");
+                return;
             }
+
+            int batchSize = 500;
+            int syncedCount = 0;
+
+            // 2. Process in Transactional Chunks to prevent 504 Timeouts and JVM OOM crashes
+            for (int i = 0; i < activeSessionIds.size(); i += batchSize) {
+                int end = Math.min(i + batchSize, activeSessionIds.size());
+                final List<String> batchIds = activeSessionIds.subList(i, end);
+
+                Integer chunkCount =
+                        transactionTemplate.execute(
+                                status -> {
+                                    int processedInChunk = 0;
+
+                                    // Fetch full events for this batch, ordered chronologically to
+                                    // bypass MIN(path) alphabetical flaws
+                                    List<com.treishvaam.financeapi.model.AnalyticsEvent> events =
+                                            entityManager
+                                                    .createQuery(
+                                                            "SELECT a FROM AnalyticsEvent a WHERE a.sessionId IN :ids ORDER BY a.sessionId, a.createdAt ASC",
+                                                            com.treishvaam.financeapi.model
+                                                                    .AnalyticsEvent.class)
+                                                    .setParameter("ids", batchIds)
+                                                    .getResultList();
+
+                                    // Group by Session ID linearly in memory
+                                    Map<
+                                                    String,
+                                                    List<
+                                                            com.treishvaam.financeapi.model
+                                                                    .AnalyticsEvent>>
+                                            sessionEventMap = new HashMap<>();
+                                    for (com.treishvaam.financeapi.model.AnalyticsEvent e :
+                                            events) {
+                                        sessionEventMap
+                                                .computeIfAbsent(
+                                                        e.getSessionId(), k -> new ArrayList<>())
+                                                .add(e);
+                                    }
+
+                                    for (Map.Entry<
+                                                    String,
+                                                    List<
+                                                            com.treishvaam.financeapi.model
+                                                                    .AnalyticsEvent>>
+                                            entry : sessionEventMap.entrySet()) {
+                                        String sessionId = entry.getKey();
+                                        List<com.treishvaam.financeapi.model.AnalyticsEvent>
+                                                userEvents = entry.getValue();
+
+                                        // The first event is mathematically guaranteed to be the
+                                        // chronological entry point
+                                        com.treishvaam.financeapi.model.AnalyticsEvent firstEvent =
+                                                userEvents.get(0);
+
+                                        LocalDate sessionDate =
+                                                firstEvent
+                                                        .getCreatedAt()
+                                                        .atZone(ZoneId.of("Asia/Kolkata"))
+                                                        .toLocalDate();
+
+                                        // Check if we need to create or update
+                                        List<AudienceVisit> existing =
+                                                audienceVisitRepository.findBySessionIdAndDate(
+                                                        sessionId, sessionDate);
+                                        AudienceVisit visit =
+                                                existing.isEmpty()
+                                                        ? new AudienceVisit()
+                                                        : existing.get(0);
+
+                                        visit.setSessionId(sessionId);
+                                        visit.setSessionDate(sessionDate);
+                                        visit.setClientId(sessionId);
+                                        visit.setCountry(firstEvent.getCountryCode());
+                                        visit.setCity(firstEvent.getCity());
+                                        visit.setDeviceCategory(firstEvent.getDeviceType());
+
+                                        // Aggregate Engagement Metrics correctly (Restores '0s'
+                                        // Engagement Time)
+                                        long totalDurationMs = 0;
+                                        for (com.treishvaam.financeapi.model.AnalyticsEvent evt :
+                                                userEvents) {
+                                            if (evt.getTimeOnPageMs() != null) {
+                                                totalDurationMs += evt.getTimeOnPageMs();
+                                            }
+                                        }
+
+                                        // Update metrics if higher than existing
+                                        long newDurationSecs = totalDurationMs / 1000L;
+                                        if (newDurationSecs > visit.getSessionDurationSeconds()) {
+                                            visit.setSessionDurationSeconds(newDurationSecs);
+                                        }
+                                        visit.setViews(
+                                                Math.max(visit.getViews(), userEvents.size()));
+
+                                        // Chronological Landing Page & Referrer
+                                        String rawPath = firstEvent.getPath();
+                                        String rawReferrer = firstEvent.getReferrer();
+                                        String rawUserAgent = firstEvent.getUserAgent();
+                                        String deviceFingerprint =
+                                                firstEvent.getDeviceFingerprint();
+
+                                        // Only set landing page if it hasn't been set, or if it was
+                                        // defaulted
+                                        if (visit.getLandingPage() == null
+                                                || visit.getLandingPage()
+                                                        .equals("Not available (GA4)")
+                                                || visit.getLandingPage().equals("/")) {
+                                            visit.setLandingPage(
+                                                    (rawPath != null && !rawPath.isEmpty())
+                                                            ? rawPath
+                                                            : "/");
+                                        }
+                                        visit.setSessionSource(resolveSessionSource(rawReferrer));
+
+                                        if (deviceFingerprint != null
+                                                && !deviceFingerprint.isEmpty()) {
+                                            visit.setDeviceFingerprint(deviceFingerprint);
+                                        }
+
+                                        enrichDeviceAndOsFromUserAgent(
+                                                visit,
+                                                firstEvent.getOs(),
+                                                firstEvent.getBrowser(),
+                                                rawUserAgent);
+
+                                        audienceVisitRepository.save(visit);
+                                        processedInChunk++;
+                                    }
+
+                                    audienceVisitRepository.flush();
+                                    entityManager.clear();
+                                    return processedInChunk;
+                                });
+                syncedCount += (chunkCount != null ? chunkCount : 0);
+            }
+
             logger.info(
-                    "[AnalyticsBridge] Roll-Up Complete. Synced {} new telemetry sessions.",
+                    "[AnalyticsBridge] Roll-Up Complete. Synced/Updated {} telemetry sessions.",
                     syncedCount);
         } catch (Exception e) {
             logger.error("[AnalyticsBridge] Failed to synchronize telemetry.", e);
@@ -862,6 +972,7 @@ public class AnalyticsService {
                 .build();
     }
 
+    @org.springframework.scheduling.annotation.Async
     public void healHistoricalDataFidelity() {
         logger.info("[Data Healer] Triggering Memory-Safe Retroactive Fidelity Restoration...");
         int page = 0;
