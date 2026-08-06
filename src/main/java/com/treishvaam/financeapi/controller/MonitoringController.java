@@ -17,13 +17,18 @@
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED (LATEST): • Restored hardware priority
  * logic. If YAUAA detects a distinct device (not Desktop), it forcibly overrides any generic
  * browser name sent by Faro.
+ *
+ * <p>- EDITED (Incident 61/62 - GitOps Stale Code Resolution): • Removed local instantiation of
+ * `UserAgentAnalyzer` in `@PostConstruct`. • Injected globally shared `UserAgentAnalyzer` bean via
+ * constructor. • Why: A previous partial commit left the rogue instantiation on the server, causing
+ * the JVM to OOM crash repeatedly by loading two massive YAUAA instances. This fully enforces the
+ * singleton architecture.
  */
 package com.treishvaam.financeapi.controller;
 
 import com.treishvaam.financeapi.analytics.AudienceVisit;
 import com.treishvaam.financeapi.analytics.AudienceVisitRepository;
 import com.treishvaam.financeapi.dto.FaroPayload;
-import jakarta.annotation.PostConstruct;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -53,19 +58,15 @@ public class MonitoringController {
 
     private final AudienceVisitRepository audienceVisitRepository;
     private final RestTemplate restTemplate;
-    private UserAgentAnalyzer uaa;
+    private final UserAgentAnalyzer uaa;
 
     public MonitoringController(
-            AudienceVisitRepository audienceVisitRepository, RestTemplateBuilder builder) {
+            AudienceVisitRepository audienceVisitRepository,
+            RestTemplateBuilder builder,
+            UserAgentAnalyzer uaa) {
         this.audienceVisitRepository = audienceVisitRepository;
         this.restTemplate = builder.build();
-    }
-
-    @PostConstruct
-    public void init() {
-        logger.info("Initializing UserAgentAnalyzer...");
-        this.uaa = UserAgentAnalyzer.newBuilder().hideMatcherLoadStats().withCache(10000).build();
-        logger.info("UserAgentAnalyzer initialized.");
+        this.uaa = uaa;
     }
 
     @PostMapping("/ingest")
