@@ -93,6 +93,11 @@
  * <p>- EDITED (Incident 57/58/59 - JVM OOM Prevention): • Removed local instantiation of
  * `UserAgentAnalyzer` in `@PostConstruct`. • Injected globally shared `UserAgentAnalyzer` bean via
  * constructor to eliminate massive duplicate memory footprint.
+ *
+ * <p>- EDITED (Incident 66 - Landing Page Override Fix): • Appended `a.id ASC` to the telemetry
+ * roll-up JPQL query. • Why: Resolves a chronological sorting failure where events inserted in the
+ * same millisecond caused MariaDB to sort non-deterministically, frequently allowing `/dashboard`
+ * to alphabetically override the true `/` entry point.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -281,11 +286,12 @@ public class AnalyticsService {
                                     int processedInChunk = 0;
 
                                     // Fetch full events for this batch, ordered chronologically to
-                                    // bypass MIN(path) alphabetical flaws
+                                    // bypass MIN(path) alphabetical flaws. a.id ASC prevents
+                                    // millisecond collisions.
                                     List<com.treishvaam.financeapi.model.AnalyticsEvent> events =
                                             entityManager
                                                     .createQuery(
-                                                            "SELECT a FROM AnalyticsEvent a WHERE a.sessionId IN :ids ORDER BY a.sessionId, a.createdAt ASC",
+                                                            "SELECT a FROM AnalyticsEvent a WHERE a.sessionId IN :ids ORDER BY a.sessionId, a.createdAt ASC, a.id ASC",
                                                             com.treishvaam.financeapi.model
                                                                     .AnalyticsEvent.class)
                                                     .setParameter("ids", batchIds)
