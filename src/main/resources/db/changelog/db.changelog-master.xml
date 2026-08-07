@@ -99,4 +99,5 @@
     
     <include file="db/changelog/V46__create_analytics_events_table.xml"/>
     <include file="db/changelog/V47__add_fingerprint_and_device_metadata.xml"/>
+    <include file="db/changelog/V48__add_telemetry_fields.xml"/>
 </databaseChangeLog>

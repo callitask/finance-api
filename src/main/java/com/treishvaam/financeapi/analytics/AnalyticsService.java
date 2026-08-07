@@ -107,6 +107,12 @@
  * <p>- EDITED (Incident 72 - High Entropy Client Hints): • Updated `enrichDeviceAndOsFromUserAgent`
  * and `syncAegisTelemetryToAudienceVisits` to dynamically evaluate the frontend `platformVersion`
  * hint.
+ *
+ * <p>- EDITED (Incident 74/Phase 7 - P0 Null Pointer & Data Fidelity): • Fixed P0
+ * NullPointerException in `syncAegisTelemetryToAudienceVisits` by implementing null-safe
+ * `visit.getSessionDurationSeconds()` unboxing. • Added `platformVersion` parameter to
+ * `enrichDeviceAndOsFromUserAgent` to accurately differentiate Windows 11 vs Windows 10 based on
+ * Client Hints. • Added `screenResolution` capture to the roll-up logic.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -368,13 +374,19 @@ public class AnalyticsService {
                                             }
                                         }
 
-                                        // Update metrics if higher than existing
+                                        // Update metrics if higher than existing (NULL SAFE P0 FIX)
                                         long newDurationSecs = totalDurationMs / 1000L;
-                                        if (newDurationSecs > visit.getSessionDurationSeconds()) {
+                                        long existingDuration =
+                                                visit.getSessionDurationSeconds() != null
+                                                        ? visit.getSessionDurationSeconds()
+                                                        : 0L;
+                                        if (newDurationSecs > existingDuration) {
                                             visit.setSessionDurationSeconds(newDurationSecs);
                                         }
-                                        visit.setViews(
-                                                Math.max(visit.getViews(), userEvents.size()));
+
+                                        int existingViews =
+                                                visit.getViews() != null ? visit.getViews() : 0;
+                                        visit.setViews(Math.max(existingViews, userEvents.size()));
 
                                         // Chronological Landing Page & Referrer
                                         String rawPath = firstEvent.getPath();
@@ -382,6 +394,8 @@ public class AnalyticsService {
                                         String rawUserAgent = firstEvent.getUserAgent();
                                         String deviceFingerprint =
                                                 firstEvent.getDeviceFingerprint();
+                                        String platformVersion = firstEvent.getPlatformVersion();
+                                        String screenResolution = firstEvent.getScreenResolution();
 
                                         // Only set landing page if it hasn't been set, or if it was
                                         // defaulted
@@ -401,11 +415,17 @@ public class AnalyticsService {
                                             visit.setDeviceFingerprint(deviceFingerprint);
                                         }
 
+                                        if (screenResolution != null
+                                                && !screenResolution.isEmpty()) {
+                                            visit.setScreenResolution(screenResolution);
+                                        }
+
                                         enrichDeviceAndOsFromUserAgent(
                                                 visit,
                                                 firstEvent.getOs(),
                                                 firstEvent.getBrowser(),
-                                                rawUserAgent);
+                                                rawUserAgent,
+                                                platformVersion);
 
                                         audienceVisitRepository.save(visit);
                                         processedInChunk++;
@@ -450,7 +470,11 @@ public class AnalyticsService {
     }
 
     private void enrichDeviceAndOsFromUserAgent(
-            AudienceVisit visit, String rawOs, String rawBrowser, String userAgentStr) {
+            AudienceVisit visit,
+            String rawOs,
+            String rawBrowser,
+            String userAgentStr,
+            String platformVersion) {
         if (userAgentStr != null && !userAgentStr.isEmpty() && uaa != null) {
             UserAgent agent = uaa.parse(userAgentStr);
             String osName = agent.getValue("OperatingSystemName");
@@ -472,17 +496,31 @@ public class AnalyticsService {
                             : "N/A";
 
             // Standardize Windows Frozen UA string issue
-            if (finalOs != null && finalOs.contains("Windows >=10")) {
-                finalOs = "Windows 10/11";
-                finalOsVer = "";
-            } else if (finalOs != null
-                    && finalOs.equals("Windows NT")
-                    && finalOsVer.startsWith("10")) {
-                finalOs = "Windows 10/11";
-                finalOsVer = "";
-            } else if (finalOs != null && finalOs.startsWith("Windows NT 6.1")) {
-                finalOs = "Windows 7";
-                finalOsVer = "";
+            if (platformVersion != null && !platformVersion.equals("Unknown")) {
+                try {
+                    int majorVer = Integer.parseInt(platformVersion.split("\\.")[0]);
+                    if (majorVer >= 13 && finalOs != null && finalOs.contains("Windows")) {
+                        finalOs = "Windows 11";
+                        finalOsVer = platformVersion;
+                    } else if (finalOs != null && finalOs.contains("Windows")) {
+                        finalOs = "Windows 10";
+                        finalOsVer = platformVersion;
+                    }
+                } catch (NumberFormatException ignored) {
+                }
+            } else {
+                if (finalOs != null && finalOs.contains("Windows >=10")) {
+                    finalOs = "Windows 10/11";
+                    finalOsVer = "";
+                } else if (finalOs != null
+                        && finalOs.equals("Windows NT")
+                        && finalOsVer.startsWith("10")) {
+                    finalOs = "Windows 10/11";
+                    finalOsVer = "";
+                } else if (finalOs != null && finalOs.startsWith("Windows NT 6.1")) {
+                    finalOs = "Windows 7";
+                    finalOsVer = "";
+                }
             }
 
             visit.setOperatingSystem(finalOs != null ? finalOs : "Unknown OS");
@@ -720,7 +758,7 @@ public class AnalyticsService {
 
                 List<String> sourcePool = new ArrayList<>();
                 for (AudienceVisit ga4v : ga4DayData) {
-                    int sessions = ga4v.getViews();
+                    int sessions = ga4v.getViews() != null ? ga4v.getViews() : 0;
                     for (int i = 0; i < Math.max(1, sessions); i++) {
                         sourcePool.add(ga4v.getSessionSource());
                     }
@@ -1110,14 +1148,19 @@ public class AnalyticsService {
                                                         ? path
                                                         : "/");
                                     }
-                                    if (timeOnPageMs != null
-                                            && timeOnPageMs
-                                                    > (visit.getSessionDurationSeconds() * 1000L)) {
-                                        visit.setSessionDurationSeconds(timeOnPageMs / 1000L);
+                                    if (timeOnPageMs != null) {
+                                        long existingDuration =
+                                                visit.getSessionDurationSeconds() != null
+                                                        ? visit.getSessionDurationSeconds()
+                                                        : 0L;
+                                        if (timeOnPageMs > (existingDuration * 1000L)) {
+                                            visit.setSessionDurationSeconds(timeOnPageMs / 1000L);
+                                        }
                                     }
 
                                     visit.setSessionSource(resolveSessionSource(referrer));
-                                    enrichDeviceAndOsFromUserAgent(visit, os, browser, userAgent);
+                                    enrichDeviceAndOsFromUserAgent(
+                                            visit, os, browser, userAgent, null);
 
                                     audienceVisitRepository.save(visit);
                                     totalHealed[0]++;

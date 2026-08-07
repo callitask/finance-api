@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import java.time.Instant;
+import java.util.Map;
 
 /**
  * AI-CONTEXT: Purpose: JPA Entity for First-Party Analytics tracking. Security Constraints: MUST
@@ -16,7 +17,9 @@ import java.time.Instant;
  * annotations enforce strict mass-assignment protection and allow dynamic telemetry ingestion. -
  * EDITED (Incident 41 - Zero-Trust Device Fingerprinting): • Added deviceFingerprint column and
  * accessors mapped to V47 Liquibase schema. Added idx_analytics_fingerprint_jpa index. • Date:
- * 2026-08-05
+ * 2026-08-05 - EDITED (Phase 7 - Data Fidelity Fix): • Added `screenResolution` and
+ * `platformVersion` fields to capture high-entropy hardware metrics. • Added `@Transient` map for
+ * `extra` payload extraction to bypass Jackson's `ignoreUnknown`.
  */
 @Entity
 @Table(
@@ -70,6 +73,16 @@ public class AnalyticsEvent {
 
     @Column(name = "device_fingerprint", length = 64)
     private String deviceFingerprint;
+
+    @Column(length = 50)
+    private String screenResolution;
+
+    @Column(length = 50)
+    private String platformVersion;
+
+    @Transient
+    @JsonProperty("extra")
+    private Map<String, Object> extra;
 
     private Integer scrollDepth;
 
@@ -189,6 +202,30 @@ public class AnalyticsEvent {
 
     public void setDeviceFingerprint(String deviceFingerprint) {
         this.deviceFingerprint = deviceFingerprint;
+    }
+
+    public String getScreenResolution() {
+        return screenResolution;
+    }
+
+    public void setScreenResolution(String screenResolution) {
+        this.screenResolution = screenResolution;
+    }
+
+    public String getPlatformVersion() {
+        return platformVersion;
+    }
+
+    public void setPlatformVersion(String platformVersion) {
+        this.platformVersion = platformVersion;
+    }
+
+    public Map<String, Object> getExtra() {
+        return extra;
+    }
+
+    public void setExtra(Map<String, Object> extra) {
+        this.extra = extra;
     }
 
     public Integer getScrollDepth() {

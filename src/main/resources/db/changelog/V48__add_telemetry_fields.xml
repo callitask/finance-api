@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                             http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="V48-add-telemetry-fields" author="treishvaam">
+        <comment>Adding High-Entropy Client Hint and Resolution telemetry columns to analytics_events table</comment>
+        <addColumn tableName="analytics_events">
+            <column name="screen_resolution" type="VARCHAR(50)"/>
+            <column name="platform_version" type="VARCHAR(50)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>
