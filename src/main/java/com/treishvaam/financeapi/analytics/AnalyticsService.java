@@ -113,6 +113,11 @@
  * `visit.getSessionDurationSeconds()` unboxing. • Added `platformVersion` parameter to
  * `enrichDeviceAndOsFromUserAgent` to accurately differentiate Windows 11 vs Windows 10 based on
  * Client Hints. • Added `screenResolution` capture to the roll-up logic.
+ *
+ * <p>- EDITED (Incident 76 - MariaDB Typed-NULL PreparedStatement Fix): • Replaced monolithic JPQL
+ * queries with dynamic JPA Specification CriteriaBuilder in `getHistoricalData` and
+ * `getFilterOptions`. • Added `getDistinctValues` helper to natively strip NULL elements from
+ * dropdown DTOs, preventing React render crashes on missing hardware telemetry.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -132,6 +137,10 @@ import com.google.cloud.bigquery.TableResult;
 import com.treishvaam.financeapi.repository.AnalyticsEventRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import java.io.File;
 import java.io.FileInputStream;
 import java.net.URI;
@@ -154,6 +163,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -860,38 +871,109 @@ public class AnalyticsService {
         return visits;
     }
 
-    private List<String> getSafeList(List<String> rawList) {
-        if (rawList == null || rawList.isEmpty()) {
-            return Collections.singletonList("DUMMY_ID_PREVENT_HIBERNATE_CRASH");
+    // --- DYNAMIC SPECIFICATION BUILDER (INCIDENT 76) ---
+    private Specification<AudienceVisit> createAudienceFilterSpec(
+            LocalDate startDate, LocalDate endDate, AudienceFilter filters, String excludeField) {
+        return (root, query, builder) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            // Unconditional Date Range filter
+            predicates.add(builder.between(root.get("sessionDate"), startDate, endDate));
+
+            if (!"country".equals(excludeField)
+                    && filters.getCountry() != null
+                    && !filters.getCountry().isEmpty()) {
+                predicates.add(builder.equal(root.get("country"), filters.getCountry()));
+            }
+            if (!"region".equals(excludeField)
+                    && filters.getRegion() != null
+                    && !filters.getRegion().isEmpty()) {
+                predicates.add(builder.equal(root.get("region"), filters.getRegion()));
+            }
+            if (!"city".equals(excludeField)
+                    && filters.getCity() != null
+                    && !filters.getCity().isEmpty()) {
+                predicates.add(builder.equal(root.get("city"), filters.getCity()));
+            }
+            if (!"operatingSystem".equals(excludeField)
+                    && filters.getOperatingSystem() != null
+                    && !filters.getOperatingSystem().isEmpty()) {
+                predicates.add(
+                        builder.equal(root.get("operatingSystem"), filters.getOperatingSystem()));
+            }
+            if (!"osVersion".equals(excludeField)
+                    && filters.getOsVersion() != null
+                    && !filters.getOsVersion().isEmpty()) {
+                predicates.add(builder.equal(root.get("osVersion"), filters.getOsVersion()));
+            }
+            if (!"sessionSource".equals(excludeField)
+                    && filters.getSessionSource() != null
+                    && !filters.getSessionSource().isEmpty()) {
+                predicates.add(
+                        builder.equal(root.get("sessionSource"), filters.getSessionSource()));
+            }
+
+            // Exclude clientId logic to preserve "target" and "exclude" matching mechanics
+            if (!"clientId".equals(excludeField)) {
+                if (filters.getTargetClientIds() != null
+                        && !filters.getTargetClientIds().isEmpty()) {
+                    predicates.add(root.get("clientId").in(filters.getTargetClientIds()));
+                }
+                if (filters.getExcludeClientIds() != null
+                        && !filters.getExcludeClientIds().isEmpty()) {
+                    predicates.add(
+                            builder.not(root.get("clientId").in(filters.getExcludeClientIds())));
+                }
+            }
+
+            return builder.and(predicates.toArray(new Predicate[0]));
+        };
+    }
+
+    private List<String> getDistinctValues(String columnName, Specification<AudienceVisit> spec) {
+        CriteriaBuilder builder = entityManager.getCriteriaBuilder();
+        CriteriaQuery<String> query = builder.createQuery(String.class);
+        Root<AudienceVisit> root = query.from(AudienceVisit.class);
+
+        query.select(root.get(columnName)).distinct(true);
+
+        Predicate predicate = spec.toPredicate(root, query, builder);
+        List<Predicate> finalPredicates = new ArrayList<>();
+        if (predicate != null) {
+            finalPredicates.add(predicate);
         }
-        return rawList;
+
+        // For clientId, mirror the old JPQL "clientId IS NOT NULL AND clientId != 'Not available
+        // (GA4)'" logic
+        if ("clientId".equals(columnName)) {
+            finalPredicates.add(builder.isNotNull(root.get(columnName)));
+            finalPredicates.add(builder.notEqual(root.get(columnName), "Not available (GA4)"));
+        }
+
+        if (!finalPredicates.isEmpty()) {
+            query.where(builder.and(finalPredicates.toArray(new Predicate[0])));
+        }
+
+        return entityManager
+                .createQuery(query)
+                .getResultStream()
+                .filter(
+                        val ->
+                                val != null
+                                        && !val.trim()
+                                                .isEmpty()) // Neutralize frontend null-pointer risk
+                // natively
+                .collect(Collectors.toList());
     }
 
     public List<AudienceDataDto> getHistoricalData(
             LocalDate startDate, LocalDate endDate, AudienceFilter filters) {
 
-        boolean hasTargets =
-                filters.getTargetClientIds() != null && !filters.getTargetClientIds().isEmpty();
-        List<String> safeTargets = getSafeList(filters.getTargetClientIds());
+        Specification<AudienceVisit> spec =
+                createAudienceFilterSpec(startDate, endDate, filters, null);
+        Sort sort = Sort.by(Sort.Direction.DESC, "sessionDate", "createdAt");
 
-        boolean hasExcludes =
-                filters.getExcludeClientIds() != null && !filters.getExcludeClientIds().isEmpty();
-        List<String> safeExcludes = getSafeList(filters.getExcludeClientIds());
-
-        List<AudienceVisit> visits =
-                audienceVisitRepository.findHistoricalDataWithFilters(
-                        startDate,
-                        endDate,
-                        filters.getCountry(),
-                        filters.getRegion(),
-                        filters.getCity(),
-                        filters.getOperatingSystem(),
-                        filters.getOsVersion(),
-                        filters.getSessionSource(),
-                        hasTargets,
-                        safeTargets,
-                        hasExcludes,
-                        safeExcludes);
+        List<AudienceVisit> visits = audienceVisitRepository.findAll(spec, sort);
 
         Map<String, LocalDate> firstVisitMap = new HashMap<>();
         List<Object[]> batchResults = audienceVisitRepository.findAllFirstVisitDatesUpTo(endDate);
@@ -911,103 +993,37 @@ public class AnalyticsService {
     public FilterOptionsDto getFilterOptions(
             LocalDate startDate, LocalDate endDate, AudienceFilter filters) {
 
-        boolean hasTargets =
-                filters.getTargetClientIds() != null && !filters.getTargetClientIds().isEmpty();
-        List<String> safeTargets = getSafeList(filters.getTargetClientIds());
-
-        boolean hasExcludes =
-                filters.getExcludeClientIds() != null && !filters.getExcludeClientIds().isEmpty();
-        List<String> safeExcludes = getSafeList(filters.getExcludeClientIds());
-
         return FilterOptionsDto.builder()
                 .countries(
-                        audienceVisitRepository.findDistinctCountries(
-                                startDate,
-                                endDate,
-                                filters.getRegion(),
-                                filters.getCity(),
-                                filters.getOperatingSystem(),
-                                filters.getOsVersion(),
-                                filters.getSessionSource(),
-                                hasTargets,
-                                safeTargets,
-                                hasExcludes,
-                                safeExcludes))
+                        getDistinctValues(
+                                "country",
+                                createAudienceFilterSpec(startDate, endDate, filters, "country")))
                 .regions(
-                        audienceVisitRepository.findDistinctRegions(
-                                startDate,
-                                endDate,
-                                filters.getCountry(),
-                                filters.getCity(),
-                                filters.getOperatingSystem(),
-                                filters.getOsVersion(),
-                                filters.getSessionSource(),
-                                hasTargets,
-                                safeTargets,
-                                hasExcludes,
-                                safeExcludes))
+                        getDistinctValues(
+                                "region",
+                                createAudienceFilterSpec(startDate, endDate, filters, "region")))
                 .cities(
-                        audienceVisitRepository.findDistinctCities(
-                                startDate,
-                                endDate,
-                                filters.getCountry(),
-                                filters.getRegion(),
-                                filters.getOperatingSystem(),
-                                filters.getOsVersion(),
-                                filters.getSessionSource(),
-                                hasTargets,
-                                safeTargets,
-                                hasExcludes,
-                                safeExcludes))
+                        getDistinctValues(
+                                "city",
+                                createAudienceFilterSpec(startDate, endDate, filters, "city")))
                 .operatingSystems(
-                        audienceVisitRepository.findDistinctOperatingSystems(
-                                startDate,
-                                endDate,
-                                filters.getCountry(),
-                                filters.getRegion(),
-                                filters.getCity(),
-                                filters.getOsVersion(),
-                                filters.getSessionSource(),
-                                hasTargets,
-                                safeTargets,
-                                hasExcludes,
-                                safeExcludes))
+                        getDistinctValues(
+                                "operatingSystem",
+                                createAudienceFilterSpec(
+                                        startDate, endDate, filters, "operatingSystem")))
                 .osVersions(
-                        audienceVisitRepository.findDistinctOsVersions(
-                                startDate,
-                                endDate,
-                                filters.getCountry(),
-                                filters.getRegion(),
-                                filters.getCity(),
-                                filters.getOperatingSystem(),
-                                filters.getSessionSource(),
-                                hasTargets,
-                                safeTargets,
-                                hasExcludes,
-                                safeExcludes))
+                        getDistinctValues(
+                                "osVersion",
+                                createAudienceFilterSpec(startDate, endDate, filters, "osVersion")))
                 .sessionSources(
-                        audienceVisitRepository.findDistinctSessionSources(
-                                startDate,
-                                endDate,
-                                filters.getCountry(),
-                                filters.getRegion(),
-                                filters.getCity(),
-                                filters.getOperatingSystem(),
-                                filters.getOsVersion(),
-                                hasTargets,
-                                safeTargets,
-                                hasExcludes,
-                                safeExcludes))
+                        getDistinctValues(
+                                "sessionSource",
+                                createAudienceFilterSpec(
+                                        startDate, endDate, filters, "sessionSource")))
                 .clientIds(
-                        audienceVisitRepository.findDistinctClientIds(
-                                startDate,
-                                endDate,
-                                filters.getCountry(),
-                                filters.getRegion(),
-                                filters.getCity(),
-                                filters.getOperatingSystem(),
-                                filters.getOsVersion(),
-                                filters.getSessionSource()))
+                        getDistinctValues(
+                                "clientId",
+                                createAudienceFilterSpec(startDate, endDate, filters, "clientId")))
                 .build();
     }
 
