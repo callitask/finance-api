@@ -23,6 +23,11 @@
  * constructor. • Why: A previous partial commit left the rogue instantiation on the server, causing
  * the JVM to OOM crash repeatedly by loading two massive YAUAA instances. This fully enforces the
  * singleton architecture.
+ *
+ * <p>- EDITED (Incident 71 - Hardware Granularity & OS Fallback Cleaning): • Standardized frozen
+ * Windows 10/11 UA string resolution. • Removed the hardcoded "Desktop PC" string overwrite that
+ * was permanently destroying Chrome/Edge tracking for all desktop users. • Cleaned up YAUAA `??`
+ * artifacts.
  */
 package com.treishvaam.financeapi.controller;
 
@@ -224,7 +229,7 @@ public class MonitoringController {
 
                 String os = "Unknown";
                 String osVer = "Unknown";
-                String devModel = "Desktop";
+                String devModel = "Desktop PC";
                 String devCat = "Desktop";
 
                 if (payload.getMeta().getBrowser() != null) {
@@ -246,6 +251,7 @@ public class MonitoringController {
                         String bestDevice = agent.getValue("DeviceName");
                         String deviceClass = agent.getValue("DeviceClass");
                         String agentName = agent.getValue("AgentName");
+                        String agentVersion = agent.getValue("AgentVersion");
 
                         if (bestOS != null
                                 && !bestOS.contains("??")
@@ -253,7 +259,7 @@ public class MonitoringController {
                             if (bestOS.contains("Windows >=10")
                                     || bestOS.contains("Windows NT 10.0")
                                     || bestOS.contains("Windows NT 11.0")) {
-                                os = "Windows 10/11";
+                                os = "Windows 10/11"; // YAUAA fallback for frozen UA string
                                 osVer = "";
                             } else if (bestOS.startsWith("Windows NT 6.1")) {
                                 os = "Windows 7";
@@ -272,25 +278,39 @@ public class MonitoringController {
                             os = simpleOS;
                         }
 
-                        // Strongly enforce device names for mobile over generic browser injections
-                        if (bestDevice != null
-                                && !bestDevice.contains("??")
-                                && !bestDevice.equalsIgnoreCase("Unknown")) {
-                            devModel = bestDevice;
-                        } else if (agentName != null
-                                && !agentName.contains("??")
-                                && !agentName.equalsIgnoreCase("Unknown")) {
-                            if (agentName.toLowerCase().contains("edge")) {
-                                devModel = "Edge";
-                            } else if (activeUserAgent.toLowerCase().contains("chrome")
-                                    && !activeUserAgent.toLowerCase().contains("edg")) {
-                                devModel = "Chrome";
-                            } else {
-                                devModel = agentName;
-                            }
+                        if ("Phone".equals(deviceClass)
+                                || "Tablet".equals(deviceClass)
+                                || "Mobile".equals(deviceClass)) {
+                            devModel =
+                                    (bestDevice != null
+                                                    && !bestDevice.contains("??")
+                                                    && !"Unknown".equalsIgnoreCase(bestDevice))
+                                            ? bestDevice
+                                            : deviceClass;
+                        } else {
+                            String browser =
+                                    (agentName != null
+                                                    && !agentName.contains("??")
+                                                    && !"Unknown".equalsIgnoreCase(agentName))
+                                            ? agentName
+                                            : "Desktop PC";
+                            if (browser.toLowerCase().contains("edge")) browser = "Edge";
+                            if (browser.toLowerCase().contains("chrome")
+                                    && !activeUserAgent.toLowerCase().contains("edg"))
+                                browser = "Chrome";
+
+                            String bVer =
+                                    (agentVersion != null
+                                                    && !agentVersion.contains("??")
+                                                    && !"Unknown".equalsIgnoreCase(agentVersion))
+                                            ? agentVersion.split("\\.")[0]
+                                            : "";
+                            devModel = (browser + " " + bVer).trim();
                         }
 
-                        if (deviceClass != null && !deviceClass.equalsIgnoreCase("Unknown")) {
+                        if (deviceClass != null
+                                && !deviceClass.equalsIgnoreCase("Unknown")
+                                && !deviceClass.contains("??")) {
                             devCat = deviceClass;
                         }
 

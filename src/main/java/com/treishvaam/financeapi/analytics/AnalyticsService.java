@@ -98,6 +98,11 @@
  * roll-up JPQL query. • Why: Resolves a chronological sorting failure where events inserted in the
  * same millisecond caused MariaDB to sort non-deterministically, frequently allowing `/dashboard`
  * to alphabetically override the true `/` entry point.
+ *
+ * <p>- EDITED (Incident 71 - Hardware Granularity & OS Fallback Cleaning): • Removed the hardcoded
+ * "Desktop PC" string overwrite in `enrichDeviceAndOsFromUserAgent()`. • Added YAUAA `??` artifact
+ * stripping to prevent corrupted strings from leaking into DB. • Mapped frozen Windows 10/11 UA
+ * strings predictably.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -449,25 +454,83 @@ public class AnalyticsService {
             String deviceClass = agent.getValue("DeviceClass");
             String deviceName = agent.getValue("DeviceName");
             String deviceBrand = agent.getValue("DeviceBrand");
+            String agentName = agent.getValue("AgentName");
+            String agentVersion = agent.getValue("AgentVersion");
 
-            visit.setOperatingSystem(!"Unknown".equals(osName) ? osName : rawOs);
-            visit.setOsVersion(!"Unknown".equals(osVersion) ? osVersion : "N/A");
-            visit.setDeviceClass(!"Unknown".equals(deviceClass) ? deviceClass : "Unknown");
-            visit.setDeviceBrand(!"Unknown".equals(deviceBrand) ? deviceBrand : "Unknown");
+            // Strip `??` YAUAA artifacts
+            String finalOs =
+                    (!"Unknown".equals(osName) && osName != null && !osName.contains("??"))
+                            ? osName
+                            : rawOs;
+            String finalOsVer =
+                    (!"Unknown".equals(osVersion) && osVersion != null && !osVersion.contains("??"))
+                            ? osVersion
+                            : "N/A";
 
+            // Standardize Windows Frozen UA string issue
+            if (finalOs != null && finalOs.contains("Windows >=10")) {
+                finalOs = "Windows 10/11";
+                finalOsVer = "";
+            } else if (finalOs != null
+                    && finalOs.equals("Windows NT")
+                    && finalOsVer.startsWith("10")) {
+                finalOs = "Windows 10/11";
+                finalOsVer = "";
+            } else if (finalOs != null && finalOs.startsWith("Windows NT 6.1")) {
+                finalOs = "Windows 7";
+                finalOsVer = "";
+            }
+
+            visit.setOperatingSystem(finalOs != null ? finalOs : "Unknown OS");
+            visit.setOsVersion(finalOsVer);
+            visit.setDeviceClass(
+                    !"Unknown".equals(deviceClass)
+                                    && deviceClass != null
+                                    && !deviceClass.contains("??")
+                            ? deviceClass
+                            : "Unknown");
+            visit.setDeviceBrand(
+                    !"Unknown".equals(deviceBrand)
+                                    && deviceBrand != null
+                                    && !deviceBrand.contains("??")
+                            ? deviceBrand
+                            : "Unknown");
+
+            // Preserve Browser for Desktops, Use Device Name for Mobile
             if ("Phone".equals(deviceClass)
                     || "Tablet".equals(deviceClass)
                     || "Mobile".equals(deviceClass)) {
-                visit.setDeviceModel(!"Unknown".equals(deviceName) ? deviceName : deviceClass);
-            } else if ("Desktop".equals(deviceClass)) {
-                visit.setDeviceModel("Desktop PC");
+                visit.setDeviceModel(
+                        (!"Unknown".equals(deviceName)
+                                        && deviceName != null
+                                        && !deviceName.contains("??"))
+                                ? deviceName
+                                : deviceClass);
             } else {
-                visit.setDeviceModel(rawBrowser != null ? rawBrowser : "Desktop PC");
+                // It's a Desktop or Unknown. Preserve the Browser Name! Do NOT overwrite with
+                // "Desktop PC".
+                String browser =
+                        (!"Unknown".equals(agentName)
+                                        && agentName != null
+                                        && !agentName.contains("??"))
+                                ? agentName
+                                : (rawBrowser != null ? rawBrowser : "Desktop PC");
+                if (browser.toLowerCase().contains("edge")) browser = "Edge";
+                if (browser.toLowerCase().contains("chrome")
+                        && !userAgentStr.toLowerCase().contains("edg")) browser = "Chrome";
+
+                String browserVersion =
+                        (!"Unknown".equals(agentVersion)
+                                        && agentVersion != null
+                                        && !agentVersion.contains("??"))
+                                ? agentVersion.split("\\.")[0]
+                                : "";
+                visit.setDeviceModel((browser + " " + browserVersion).trim());
             }
         } else {
             visit.setOperatingSystem(rawOs != null ? rawOs : "Unknown OS");
             visit.setOsVersion("10.0");
-            visit.setDeviceModel("Desktop PC");
+            visit.setDeviceModel(rawBrowser != null ? rawBrowser : "Desktop PC");
             visit.setDeviceClass("Unknown");
             visit.setDeviceBrand("Unknown");
         }
