@@ -28,6 +28,10 @@
  * Windows 10/11 UA string resolution. • Removed the hardcoded "Desktop PC" string overwrite that
  * was permanently destroying Chrome/Edge tracking for all desktop users. • Cleaned up YAUAA `??`
  * artifacts.
+ *
+ * <p>- EDITED (Incident 72 - High Entropy Client Hints): • Injected `platformVersion` extraction
+ * logic into `processAudienceAnalytics`. • Why: Identifies true Windows 11 devices by evaluating
+ * the Client Hints API string sent by the frontend, overriding the frozen User-Agent string.
  */
 package com.treishvaam.financeapi.controller;
 
@@ -242,6 +246,12 @@ public class MonitoringController {
                     activeUserAgent = payload.getExtra().get("userAgent");
                 }
 
+                String clientHintPlatform = "Unknown";
+                if (payload.getExtra() != null
+                        && payload.getExtra().containsKey("platformVersion")) {
+                    clientHintPlatform = payload.getExtra().get("platformVersion");
+                }
+
                 if (activeUserAgent != null && !activeUserAgent.isEmpty()) {
                     try {
                         UserAgent agent = uaa.parse(activeUserAgent);
@@ -259,8 +269,29 @@ public class MonitoringController {
                             if (bestOS.contains("Windows >=10")
                                     || bestOS.contains("Windows NT 10.0")
                                     || bestOS.contains("Windows NT 11.0")) {
-                                os = "Windows 10/11"; // YAUAA fallback for frozen UA string
-                                osVer = "";
+
+                                // Incident 72: High-Entropy Client Hints Override
+                                if (!clientHintPlatform.equals("Unknown")) {
+                                    try {
+                                        int majorVersion =
+                                                Integer.parseInt(
+                                                        clientHintPlatform.split("\\.")[0]);
+                                        if (majorVersion >= 13) {
+                                            os = "Windows 11";
+                                        } else {
+                                            os = "Windows 10";
+                                        }
+                                        osVer = ""; // We mapped the version directly into the name
+                                    } catch (NumberFormatException e) {
+                                        os = "Windows 10/11"; // Fallback if parsing fails
+                                        osVer = "";
+                                    }
+                                } else {
+                                    os = "Windows 10/11"; // Fallback if Client Hints are
+                                    // blocked/unsupported
+                                    osVer = "";
+                                }
+
                             } else if (bestOS.startsWith("Windows NT 6.1")) {
                                 os = "Windows 7";
                                 osVer = "";

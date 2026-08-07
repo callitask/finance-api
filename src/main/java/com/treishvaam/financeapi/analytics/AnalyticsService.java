@@ -103,6 +103,10 @@
  * "Desktop PC" string overwrite in `enrichDeviceAndOsFromUserAgent()`. • Added YAUAA `??` artifact
  * stripping to prevent corrupted strings from leaking into DB. • Mapped frozen Windows 10/11 UA
  * strings predictably.
+ *
+ * <p>- EDITED (Incident 72 - High Entropy Client Hints): • Updated `enrichDeviceAndOsFromUserAgent`
+ * and `syncAegisTelemetryToAudienceVisits` to dynamically evaluate the frontend `platformVersion`
+ * hint.
  */
 package com.treishvaam.financeapi.analytics;
 
