@@ -118,6 +118,11 @@
  * queries with dynamic JPA Specification CriteriaBuilder in `getHistoricalData` and
  * `getFilterOptions`. • Added `getDistinctValues` helper to natively strip NULL elements from
  * dropdown DTOs, preventing React render crashes on missing hardware telemetry.
+ *
+ * <p>- EDITED (Incident 77 - YAUAA Hardware Leak Fix): • Updated frozen Windows OS fallback to
+ * capture `finalOsVer.startsWith(">=10")`. • Why: YAUAA extracts ">=10" for Chromium on Windows 11
+ * without Client Hints, which previously failed the `.startsWith("10")` check and leaked raw
+ * `Windows NT` strings into MariaDB.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -525,7 +530,9 @@ public class AnalyticsService {
                     finalOsVer = "";
                 } else if (finalOs != null
                         && finalOs.equals("Windows NT")
-                        && finalOsVer.startsWith("10")) {
+                        && (finalOsVer.startsWith("10")
+                                || finalOsVer.startsWith(
+                                        ">=10"))) { // FIX: Catch Chromium >=10 frozen variants
                     finalOs = "Windows 10/11";
                     finalOsVer = "";
                 } else if (finalOs != null && finalOs.startsWith("Windows NT 6.1")) {
