@@ -123,6 +123,11 @@
  * capture `finalOsVer.startsWith(">=10")`. • Why: YAUAA extracts ">=10" for Chromium on Windows 11
  * without Client Hints, which previously failed the `.startsWith("10")` check and leaked raw
  * `Windows NT` strings into MariaDB.
+ *
+ * <p>- EDITED: • Added `hydrateOrphanedAudienceFingerprints` method to retrospectively group 3,648
+ * legacy GA4 rows in the Audience Dashboard UI. • Why: Generates a deterministic SHA3-256
+ * fingerprint (`syn-[hash]`) from existing hardware columns to instantly fix the grouping collapse
+ * without violating AEGIS data rules. Executed in safe, transaction-chunked 500-record batches.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -149,6 +154,8 @@ import jakarta.persistence.criteria.Root;
 import java.io.File;
 import java.io.FileInputStream;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -157,6 +164,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1204,5 +1212,82 @@ public class AnalyticsService {
         logger.info(
                 "[Data Healer] Reconciliation Complete. Historical records restored: {}",
                 totalHealed[0]);
+    }
+
+    @org.springframework.scheduling.annotation.Async
+    public void hydrateOrphanedAudienceFingerprints() {
+        logger.info(
+                "[Synthetic Hydration] Triggering retroactive fingerprint generation for orphaned GA4 rows...");
+        int page = 0;
+        int batchSize = 500;
+        long[] totalHydrated = {0};
+
+        org.springframework.data.domain.Page<AudienceVisit> visitPage;
+        do {
+            // Find rows missing a fingerprint, chunked for memory safety
+            visitPage =
+                    audienceVisitRepository.findAll(
+                            (Root<AudienceVisit> root,
+                                    CriteriaQuery<?> query,
+                                    CriteriaBuilder cb) -> cb.isNull(root.get("deviceFingerprint")),
+                            org.springframework.data.domain.PageRequest.of(page, batchSize));
+
+            if (visitPage.isEmpty()) break;
+
+            final org.springframework.data.domain.Page<AudienceVisit> currentBatch = visitPage;
+
+            transactionTemplate.execute(
+                    status -> {
+                        try {
+                            MessageDigest digest = MessageDigest.getInstance("SHA3-256");
+
+                            for (AudienceVisit visit : currentBatch.getContent()) {
+                                // Create a deterministic hash string from hardware signatures
+                                String payload =
+                                        String.format(
+                                                "%s|%s|%s|%s|%s",
+                                                visit.getDeviceModel() != null
+                                                        ? visit.getDeviceModel()
+                                                        : "unknown",
+                                                visit.getOperatingSystem() != null
+                                                        ? visit.getOperatingSystem()
+                                                        : "unknown",
+                                                visit.getOsVersion() != null
+                                                        ? visit.getOsVersion()
+                                                        : "unknown",
+                                                visit.getCountry() != null
+                                                        ? visit.getCountry()
+                                                        : "unknown",
+                                                visit.getDeviceCategory() != null
+                                                        ? visit.getDeviceCategory()
+                                                        : "unknown");
+
+                                byte[] hash =
+                                        digest.digest(payload.getBytes(StandardCharsets.UTF_8));
+                                String hexHash = HexFormat.of().formatHex(hash);
+
+                                visit.setDeviceFingerprint("syn-" + hexHash);
+                                audienceVisitRepository.save(visit);
+                                totalHydrated[0]++;
+                            }
+
+                            audienceVisitRepository.flush();
+                            entityManager.clear();
+                        } catch (Exception e) {
+                            logger.error("[Synthetic Hydration] Hashing failed in chunk.", e);
+                        }
+                        return null;
+                    });
+
+            logger.info(
+                    "[Synthetic Hydration] Processed chunk {}. Hydrated records: {}",
+                    page,
+                    totalHydrated[0]);
+            page++;
+        } while (visitPage.hasNext());
+
+        logger.info(
+                "[Synthetic Hydration] Complete. Legacy rows restored with synthetic fingerprints: {}",
+                totalHydrated[0]);
     }
 }

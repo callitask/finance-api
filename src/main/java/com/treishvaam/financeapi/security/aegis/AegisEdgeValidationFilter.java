@@ -51,6 +51,11 @@ package com.treishvaam.financeapi.security.aegis;
  * cryptographic math would permanently fail. Adding the colons perfectly aligns the verification
  * string with the Edge signature, resolving the 403 Forbidden loop and stopping the AEGIS Deception
  * Engine from falsely trapping legitimate traffic.
+ *
+ * <p>- EDITED: • Modified AegisEdgeValidationFilter to downgrade missing header warnings from
+ * 172.18.* Docker bridge to DEBUG level. • Why: Silences log spam from Envoy/Prometheus probes
+ * without globally exempting the subnet, which would violate Rule 21 and allow direct-IP bypasses
+ * through Nginx.
  */
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -108,9 +113,15 @@ public class AegisEdgeValidationFilter extends OncePerRequestFilter {
         String providedTimestamp = request.getHeader(TIMESTAMP_HEADER);
 
         if (providedSignature == null || providedTimestamp == null) {
-            logger.warn(
-                    "AEGIS BLOCK: Missing Edge Validation Headers from IP: {}",
-                    request.getRemoteAddr());
+            if (request.getRemoteAddr() != null && request.getRemoteAddr().startsWith("172.18.")) {
+                logger.debug(
+                        "AEGIS SILENT DROP: Internal Docker bridge traffic from {} lacking edge headers.",
+                        request.getRemoteAddr());
+            } else {
+                logger.warn(
+                        "AEGIS BLOCK: Missing Edge Validation Headers from IP: {}",
+                        request.getRemoteAddr());
+            }
             response.sendError(
                     HttpServletResponse.SC_FORBIDDEN,
                     "Origin Access Denied - Direct IP Access Blocked");
