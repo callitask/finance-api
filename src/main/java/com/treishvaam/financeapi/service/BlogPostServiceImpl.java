@@ -30,6 +30,11 @@ package com.treishvaam.financeapi.service;
  * EDITED (Phase 2): • Autowired `ContentIntegrityService`. • Added signature computation to
  * `persistPost` during the PostStatus.PUBLISHED phase. • Added signature verification to
  * `findByUrlArticleId` and `findPostForUrl` to enable tamper detection on public reads.
+ *
+ * <p>- EDITED (Phase 3 - Enterprise Video Pipeline): • Expanded the `save()` method to process
+ * `MultipartFile videoFile`. • Implemented native `java.nio.file.Files` streaming to safely drop
+ * raw videos into the `/app/uploads/raw` Docker volume. • Published async RabbitMQ tasks to
+ * `video.transcode.queue` strictly decoupled from the main HTTP thread.
  */
 import com.treishvaam.finance.messaging.MessagePublisher;
 import com.treishvaam.financeapi.config.CachingConfig;
@@ -48,6 +53,10 @@ import com.treishvaam.financeapi.security.ContentIntegrityService;
 import com.treishvaam.financeapi.service.ImageService.ImageMetadataDto;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -237,7 +246,8 @@ public class BlogPostServiceImpl implements BlogPostService {
             BlogPost blogPost,
             List<MultipartFile> newThumbnails,
             List<PostThumbnailDto> thumbnailDtos,
-            MultipartFile coverImage) {
+            MultipartFile coverImage,
+            MultipartFile videoFile) {
 
         if (coverImage != null && !coverImage.isEmpty()) {
             ImageMetadataDto coverMetadata = imageService.saveImageAndGetMetadata(coverImage);
@@ -286,6 +296,29 @@ public class BlogPostServiceImpl implements BlogPostService {
         }
 
         BlogPost savedPost = persistPost(blogPost, finalThumbnails);
+
+        // Phase 3: Raw Video Storage and Async Transcoder Pipeline Handoff
+        if (videoFile != null && !videoFile.isEmpty()) {
+            try {
+                Path rawDir = Paths.get("/app/uploads/raw");
+                if (!Files.exists(rawDir)) {
+                    Files.createDirectories(rawDir);
+                }
+                Path filePath = rawDir.resolve(savedPost.getId() + ".mp4");
+                Files.copy(
+                        videoFile.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
+
+                logger.info(
+                        "Raw video payload securely stored at volume path: {}. Queueing transcode event.",
+                        filePath);
+                messagePublisher.publishVideoTranscodeEvent(savedPost.getId());
+            } catch (Exception e) {
+                logger.error(
+                        "Failed to save raw video file for post ID: {}. Pipeline aborted.",
+                        savedPost.getId(),
+                        e);
+            }
+        }
 
         if (savedPost.getStatus() == PostStatus.PUBLISHED) {
             try {

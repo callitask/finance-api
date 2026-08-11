@@ -7,6 +7,10 @@
 #  * - ADDED: Phase 2 Smart Transcoder Architecture. 
 #  *   Why: Offloads heavy CPU work from Tomcat into a contained, elastic process loop.
 #  *
+#  * - EDITED (Phase 3 - Video Transcoder Optimization):
+#  *   Uncommented FFmpeg subprocess execution and directed stdout/stderr to DEVNULL.
+#  *   Reason: Prevents Python memory bloat and protects the 384MB Docker RAM limit while processing video.
+#  *
 #  * - DO-NOT-DELETE RULE:
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
@@ -47,7 +51,6 @@ def process_video(ch, method, properties, body):
             "nice", "-n", "19", 
             "ffmpeg", "-y", 
             "-i", input_file,
-            # Placeholder parameters for HLS generation scaffold
             "-profile:v", "main",
             "-crf", "20",
             "-sc_threshold", "0",
@@ -69,13 +72,10 @@ def process_video(ch, method, properties, body):
         else:
             logger.info("ENABLE_4K_TRANSCODING is FALSE. Hard-capping resolution at 1080p.")
 
-        # Simulate processing / Execute subprocess in real deployment
-        # result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
-        # if result.returncode != 0:
-        #     raise RuntimeError(f"FFmpeg failed: {result.stderr}")
-        
-        # Simulation delay representing transcoding time
-        time.sleep(2) 
+        logger.info("Executing FFmpeg...")
+        result = subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if result.returncode != 0:
+            raise RuntimeError(f"FFmpeg failed with exit code: {result.returncode}")
         
         logger.info(f"Processing complete for {video_id}. Dropping RAM and returning to idle sleep.")
         ch.basic_ack(delivery_tag=method.delivery_tag)

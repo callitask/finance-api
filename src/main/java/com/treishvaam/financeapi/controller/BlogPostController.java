@@ -1,5 +1,27 @@
 package com.treishvaam.financeapi.controller;
 
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - REST Controller for managing Blog Posts and News articles.
+ *
+ * <p>Scope: - Handles CRUD operations, draft management, sharing, and video/image file routing.
+ *
+ * <p>Critical Dependencies: - Backend: BlogPostService, LinkedInService, ObjectMapper.
+ *
+ * <p>Security Constraints: - All mutation endpoints MUST enforce @PreAuthorize gates. - Files must
+ * be strictly processed via MultipartFile boundaries to prevent payload injection.
+ *
+ * <p>Non-Negotiables: - Optimistic locking must be enforced on updates via the `version` parameter.
+ *
+ * <p>Change Intent: - Added `videoFile` ingestion capabilities to support the new Enterprise HLS
+ * Video pipeline.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED (Phase 3 - Enterprise Video Pipeline): •
+ * Injected `@RequestParam(value = "videoFile", required = false) MultipartFile videoFile` into
+ * `createPost` and `updatePost`. • Why: Bridges the frontend `FormData` video uploads into the Java
+ * Service layer for raw storage and async HLS transcoding without bypassing security gates.
+ */
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treishvaam.financeapi.dto.BlogPostDto;
@@ -136,6 +158,7 @@ public class BlogPostController {
             @RequestParam(value = "thumbnailOrientation", required = false)
                     String thumbnailOrientation,
             @RequestParam(value = "coverImage", required = false) MultipartFile coverImage,
+            @RequestParam(value = "videoFile", required = false) MultipartFile videoFile,
             @RequestParam(value = "coverImageAltText", required = false) String coverImageAltText,
             @RequestParam(value = "layoutStyle", defaultValue = "DEFAULT") String layoutStyle,
             @RequestParam(value = "layoutGroupId", required = false) String layoutGroupId)
@@ -178,7 +201,7 @@ public class BlogPostController {
                                 new TypeReference<List<PostThumbnailDto>>() {})
                         : List.of();
         BlogPost savedPost =
-                blogPostService.save(newPost, newThumbnails, thumbnailDtos, coverImage);
+                blogPostService.save(newPost, newThumbnails, thumbnailDtos, coverImage, videoFile);
         return ResponseEntity.status(HttpStatus.CREATED).body(savedPost);
     }
 
@@ -222,6 +245,7 @@ public class BlogPostController {
             @RequestParam(value = "thumbnailOrientation", required = false)
                     String thumbnailOrientation,
             @RequestParam(value = "coverImage", required = false) MultipartFile coverImage,
+            @RequestParam(value = "videoFile", required = false) MultipartFile videoFile,
             @RequestParam(value = "coverImageAltText", required = false) String coverImageAltText,
             @RequestParam(value = "layoutStyle", defaultValue = "DEFAULT") String layoutStyle,
             @RequestParam(value = "layoutGroupId", required = false) String layoutGroupId)
@@ -276,7 +300,8 @@ public class BlogPostController {
                                 new TypeReference<List<PostThumbnailDto>>() {})
                         : List.of();
         BlogPost updatedPost =
-                blogPostService.save(existingPost, newThumbnails, thumbnailDtos, coverImage);
+                blogPostService.save(
+                        existingPost, newThumbnails, thumbnailDtos, coverImage, videoFile);
         return ResponseEntity.ok(updatedPost);
     }
 

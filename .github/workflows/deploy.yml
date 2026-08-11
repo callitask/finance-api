@@ -146,6 +146,10 @@
 #   • Injected `--no-block` into the `systemd-run` execution command.
 #   • Reason: Without `--no-block`, systemd executes synchronously, meaning Engine B remained physically attached to the GitHub Runner's process tree. When the VirtualBox STP network flap severed the runner's connection, GitHub canceled the job, sending a cascading SIGKILL that assassinated Engine B at Tier 3 (preventing the backend from ever rebuilding or firing the Telegram FAILURE trap). `--no-block` commands the Linux kernel to detach Engine B to PID 1 instantly, mathematically immunizing it from network drops and pipeline cancellations.
 #
+#   - EDITED (Phase 3 - Video Transcoder CI/CD Fix):
+#   • Added `cp -a transcoder/. /opt/treishvaam/transcoder/` to ensure the missing transcoder context is deployed automatically.
+#   • Reason: Rule 14 automation compliance.
+#
 #   - DO-NOT-DELETE RULE (ABSOLUTE):
 #   This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #   It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
@@ -264,7 +268,7 @@ jobs:
         cp target/finance-api.war /opt/treishvaam/backend-app.war
 
         echo "--> Syncing deployment scripts and FULL infrastructure configs..."
-        mkdir -p /opt/treishvaam/scripts /opt/treishvaam/backup /opt/treishvaam/aegis /opt/treishvaam/config /opt/treishvaam/nginx
+        mkdir -p /opt/treishvaam/scripts /opt/treishvaam/backup /opt/treishvaam/aegis /opt/treishvaam/config /opt/treishvaam/nginx /opt/treishvaam/transcoder
         
         # Use cp -a <source>/. to mathematically guarantee file overwriting and prevent nested directories
         cp -a scripts/. /opt/treishvaam/scripts/
@@ -274,6 +278,7 @@ jobs:
         cp docker-compose.yml /opt/treishvaam/
         cp -a config/. /opt/treishvaam/config/ 2>/dev/null || true
         cp -a nginx/. /opt/treishvaam/nginx/ 2>/dev/null || true
+        cp -a transcoder/. /opt/treishvaam/transcoder/ 2>/dev/null || true
 
         echo "--> Sanitizing Windows CRLF characters from execution scripts..."
         find /opt/treishvaam/scripts/ -type f -name "*.sh" -exec sed -i 's/\r$//' {} +
