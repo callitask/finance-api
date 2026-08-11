@@ -6,7 +6,7 @@
  * - Liquibase Master Changelog orchestrating all database migrations for the Treishvaam Finance platform.
  *
  * Scope:
- * - Includes all ordered changelog files sequentially from V1 through V47.
+ * - Includes all ordered changelog files sequentially from V1 through V49.
  *
  * Critical Dependencies:
  * - Backend: Liquibase core execution runner on Spring Boot startup.
@@ -18,7 +18,7 @@
  * - Do not reorder, alter, or remove previous migration includes.
  *
  * Change Intent:
- * - Register V47 migration for device fingerprinting, device brand, and device class columns and B-Tree indexes.
+ * - Register V49 migration for enterprise HLS video infrastructure tables.
  *
  * Future AI Guidance:
  * - Append future migration includes strictly at the bottom of the changelog list.
@@ -33,6 +33,10 @@
  * • Failure Mode: N/A
  * • Date/Phase: 2026-08-05
  * • Future AI Warning: N/A
+ *
+ * - ADDED:
+ * • Included V49__create_video_infrastructure_tables.xml for enterprise HLS streaming assets.
+ * • Resolves the V48 Liquibase collision hazard. Ensures 4K/1080p transcoder tracking tables are initialized.
 -->
 <databaseChangeLog
         xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
@@ -100,4 +104,5 @@
     <include file="db/changelog/V46__create_analytics_events_table.xml"/>
     <include file="db/changelog/V47__add_fingerprint_and_device_metadata.xml"/>
     <include file="db/changelog/V48__add_telemetry_fields.xml"/>
+    <include file="db/changelog/V49__create_video_infrastructure_tables.xml"/>
 </databaseChangeLog>

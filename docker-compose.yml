@@ -216,6 +216,11 @@
 #  * • Reason: The Infisical `REDIS_PASSWORD` contained an exclamation mark (`!`), which unquoted YAML parses as a tag, silently corrupting the password string. This crashed Bucket4j/Lettuce with `NOAUTH` during the RESP3 `HELLO` handshake. Strict quoting natively neutralizes all YAML symbol parsing (`#`, `!`, `*`).
 #  * • Maintained wazuh-manager memory limit strictly at 512M to respect VirtualBox cgroup constraints.
 #  *
+#  * - EDITED:
+#  * • Added `treishvaam-transcoder` service for async HLS video processing.
+#  * • Injected `ENABLE_4K_TRANSCODING` from Infisical to allow future 4K upgrades.
+#  * • Enforced strict 384M memory limit and 0.5 CPU cap to protect the 4.8GB VirtualBox host from FFmpeg OOMs.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
@@ -662,6 +667,28 @@ services:
       timeout: 10s
       retries: 15
       start_period: 160s
+
+  treishvaam-transcoder:
+    build: ./transcoder
+    container_name: treishvaam-transcoder
+    restart: always
+    networks:
+      - treish_net
+    environment:
+      - "ENABLE_4K_TRANSCODING=${ENABLE_4K_TRANSCODING:-false}"
+      - "RABBITMQ_HOST=rabbitmq"
+      - "RABBITMQ_USER=${RABBITMQ_DEFAULT_USER}"
+      - "RABBITMQ_PASS=${RABBITMQ_DEFAULT_PASS}"
+    volumes:
+      - app_uploads:/app/uploads
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 384M
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
   nginx:
     image: openresty/openresty:alpine
