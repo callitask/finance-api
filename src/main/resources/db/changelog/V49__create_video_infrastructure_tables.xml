@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+ * AI-CONTEXT:
+ * Purpose: Schema definition for the Enterprise HLS Video Infrastructure.
+ * IMMUTABLE CHANGE HISTORY:
+ * - ADDED: V49 initialization for video_assets and video_quality_variants.
+-->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="v49-1" author="treishvaam-architect">
+        <createTable tableName="video_assets">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="blog_post_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="original_filename" type="VARCHAR(255)"/>
+            <column name="video_id" type="VARCHAR(36)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="status" type="VARCHAR(20)" defaultValue="UPLOADING"/>
+            <column name="duration_seconds" type="INT"/>
+            <column name="width" type="INT"/>
+            <column name="height" type="INT"/>
+            <column name="file_size_bytes" type="BIGINT"/>
+            <column name="hls_master_path" type="VARCHAR(500)"/>
+            <column name="encryption_key_hash" type="VARCHAR(64)"/>
+            <column name="thumbnail_path" type="VARCHAR(500)"/>
+            <column name="created_at" type="DATETIME" defaultValueComputed="CURRENT_TIMESTAMP"/>
+            <column name="updated_at" type="DATETIME" defaultValueComputed="CURRENT_TIMESTAMP"/>
+        </createTable>
+
+        <addForeignKeyConstraint baseTableName="video_assets"
+                                 baseColumnNames="blog_post_id"
+                                 constraintName="fk_video_blog_post"
+                                 referencedTableName="blog_posts"
+                                 referencedColumnNames="id"
+                                 onDelete="CASCADE"/>
+    </changeSet>
+
+    <changeSet id="v49-2" author="treishvaam-architect">
+        <createTable tableName="video_quality_variants">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="video_asset_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="quality_label" type="VARCHAR(10)"/>
+            <column name="width" type="INT"/>
+            <column name="height" type="INT"/>
+            <column name="bitrate_kbps" type="INT"/>
+            <column name="playlist_path" type="VARCHAR(500)"/>
+            <column name="segment_count" type="INT"/>
+        </createTable>
+
+        <addForeignKeyConstraint baseTableName="video_quality_variants"
+                                 baseColumnNames="video_asset_id"
+                                 constraintName="fk_variant_video_asset"
+                                 referencedTableName="video_assets"
+                                 referencedColumnNames="id"
+                                 onDelete="CASCADE"/>
+    </changeSet>
+
+</databaseChangeLog>
