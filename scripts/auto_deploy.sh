@@ -181,6 +181,10 @@
 #   - EDITED (Session 7 Diagnostics - S6-Overlay Host Suicide Trap Fix - 2026-07-09):
 #     • Injected a pre-emptive `docker rm -f wazuh-agent` sequence before Compose state healing.
 #     • Reason: The Wazuh agent runs with `pid: host`. When `docker compose rm` issues a SIGTERM to recreate the container, the S6-Overlay process manager initiates a teardown that sends `kill -1` to all visible processes. This literally commanded the Ubuntu host to shut down `dockerd` and Engine B. Utilizing `rm -f` (SIGKILL) bypasses S6-Overlay's teardown, neutralizing the trap while preserving the security container's host visibility.
+#
+#   - EDITED (Phase 4 - Class 1 I/O Spike Mitigation):
+#     • Increased the `/actuator/health` polling loop from 15 attempts (225s) to 35 attempts (525s).
+#     • Reason: The 4.8GB VirtualBox host experiences severe swap thrashing and block I/O starvation during the staggered ignition of 23 containers. Spring Boot takes >4 minutes to initialize. Extending the deployment polling tolerance mathematically guarantees Engine B survives the kernel I/O spike without a false-positive abort.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -591,18 +595,18 @@ for container in treishvaam-db treishvaam-redis treishvaam-elastic treishvaam-ra
 done
 
 BACKEND_HEALTHY=false
-for i in $(seq 1 15); do
+for i in $(seq 1 35); do
     HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -m 5 http://localhost/actuator/health 2>/dev/null || echo "000")
     if [ "$HTTP_CODE" = "200" ]; then
         BACKEND_HEALTHY=true
         break
     fi
-    echo "  > Backend health check attempt $i/15 — HTTP $HTTP_CODE. Waiting 15s..."
+    echo "  > Backend health check attempt $i/35 — HTTP $HTTP_CODE. Waiting 15s..."
     sleep 15
 done
 
 if [ "$BACKEND_HEALTHY" = "false" ]; then
-    log_telemetry "HEALTH_CHECK" "FAILURE" "Backend /actuator/health not responding after 225s. Containers:${UNHEALTHY_CONTAINERS}"
+    log_telemetry "HEALTH_CHECK" "FAILURE" "Backend /actuator/health not responding after 525s. Containers:${UNHEALTHY_CONTAINERS}"
     notify "HEALTH_CHECK" "FAILURE" "Backend /actuator/health not responding. Unhealthy:${UNHEALTHY_CONTAINERS}"
     DEPLOY_STATUS="FAILURE"
 else
