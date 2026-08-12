@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+    http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- 
+      AI-CONTEXT:
+      Purpose: Creates the user_preferences table for the isolated UX settings feature.
+      Scope: Resolves the Hibernate SchemaManagementException crash loop.
+      Security Constraints: user_sub uniquely binds to Keycloak UUIDs; tenant_id enforces data isolation.
+      
+      IMMUTABLE CHANGE HISTORY:
+      - ADDED (Phase 3 Backend Recovery): Initial schema creation to unblock application boot.
+    -->
+    <changeSet id="50" author="treishvaam-ai">
+        <createTable tableName="user_preferences">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_sub" type="VARCHAR(255)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="tenant_id" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="radar_toolbar_enabled" type="BOOLEAN" defaultValueBoolean="true"/>
+            <column name="default_highlight_color" type="VARCHAR(50)" defaultValue="bg-yellow-200"/>
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP"/>
+        </createTable>
+    </changeSet>
+
+</databaseChangeLog>

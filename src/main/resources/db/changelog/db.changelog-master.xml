@@ -105,4 +105,5 @@
     <include file="db/changelog/V47__add_fingerprint_and_device_metadata.xml"/>
     <include file="db/changelog/V48__add_telemetry_fields.xml"/>
     <include file="db/changelog/V49__create_video_infrastructure_tables.xml"/>
+    <include file="db/changelog/V50__create_user_preferences_table.xml"/>
 </databaseChangeLog>
