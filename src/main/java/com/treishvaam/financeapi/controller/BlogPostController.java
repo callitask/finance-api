@@ -21,6 +21,12 @@ package com.treishvaam.financeapi.controller;
  * Injected `@RequestParam(value = "videoFile", required = false) MultipartFile videoFile` into
  * `createPost` and `updatePost`. • Why: Bridges the frontend `FormData` video uploads into the Java
  * Service layer for raw storage and async HLS transcoding without bypassing security gates.
+ *
+ * <p>- EDITED: • Replaced `SecurityContextHolder.getContext().getAuthentication().getName()` with
+ * `SecurityUtils.extractAuthorDisplayName` for the `author` field. • Why the edit was required:
+ * Resolves the bug where the Keycloak Subject UUID was being saved as the visible author name. •
+ * What behavior must remain unchanged: The `tenantId` must still map to the raw principal ID to
+ * preserve strict row-level data isolation.
  */
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,6 +38,7 @@ import com.treishvaam.financeapi.model.Category;
 import com.treishvaam.financeapi.model.DisplaySection;
 import com.treishvaam.financeapi.service.BlogPostService;
 import com.treishvaam.financeapi.service.LinkedInService;
+import com.treishvaam.financeapi.util.SecurityUtils;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
@@ -47,6 +54,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -111,20 +119,17 @@ public class BlogPostController {
     }
 
     @GetMapping("/admin/drafts")
-    // Access control delegated to SecurityConfig (Authenticated)
     public ResponseEntity<List<BlogPost>> getDrafts() {
         return ResponseEntity.ok(blogPostService.findDrafts());
     }
 
     @PostMapping("/draft")
-    // Access control delegated to SecurityConfig (Authenticated)
     public ResponseEntity<BlogPost> createDraft(@RequestBody BlogPostDto postDto) {
         BlogPost createdPost = blogPostService.createDraft(postDto);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdPost);
     }
 
     @PutMapping("/draft/{id}")
-    // Access control delegated to SecurityConfig (Authenticated)
     public ResponseEntity<BlogPost> updateDraft(
             @PathVariable Long id, @RequestBody BlogPostDto postDto) {
         BlogPost updatedDraft = blogPostService.updateDraft(id, postDto);
@@ -165,11 +170,14 @@ public class BlogPostController {
             throws IOException {
 
         Category category = blogPostService.findCategoryByName(categoryName);
-
         BlogPost newPost = new BlogPost();
-        String username = SecurityContextHolder.getContext().getAuthentication().getName();
-        newPost.setAuthor(username);
-        newPost.setTenantId(username);
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String authorDisplayName = SecurityUtils.extractAuthorDisplayName(auth);
+        String rawPrincipalName = auth.getName(); // Raw UUID for strict tenant isolation
+
+        newPost.setAuthor(authorDisplayName);
+        newPost.setTenantId(rawPrincipalName);
         newPost.setTitle(title);
         newPost.setContent(content);
         newPost.setUserFriendlySlug(userFriendlySlug);
@@ -257,10 +265,6 @@ public class BlogPostController {
 
         BlogPost existingPost = existingPostOpt.get();
 
-        // --- ENTERPRISE OPTIMISTIC LOCKING CHECK (CONTROLLER LEVEL) ---
-        // Since we just loaded 'existingPost' from the DB in this request, it has the LATEST
-        // version.
-        // If the client sent a version that is DIFFERENT, it means the client is stale.
         if (version != null
                 && existingPost.getVersion() != null
                 && !version.equals(existingPost.getVersion())) {

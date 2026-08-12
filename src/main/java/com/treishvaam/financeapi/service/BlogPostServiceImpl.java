@@ -35,6 +35,13 @@ package com.treishvaam.financeapi.service;
  * `MultipartFile videoFile`. • Implemented native `java.nio.file.Files` streaming to safely drop
  * raw videos into the `/app/uploads/raw` Docker volume. • Published async RabbitMQ tasks to
  * `video.transcode.queue` strictly decoupled from the main HTTP thread.
+ *
+ * <p>- EDITED: • Replaced generic
+ * `SecurityContextHolder.getContext().getAuthentication().getName()` with
+ * `SecurityUtils.extractAuthorDisplayName` in `createDraft` and `duplicatePost`. • Why the edit was
+ * required: Prevents the Keycloak Subject UUID from leaking into the author fields of drafts and
+ * duplicated posts. • What behavior must remain unchanged: Raw tenant UUID extraction remains for
+ * data isolation boundaries.
  */
 import com.treishvaam.finance.messaging.MessagePublisher;
 import com.treishvaam.financeapi.config.CachingConfig;
@@ -45,12 +52,12 @@ import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.Category;
 import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.model.PostThumbnail;
-import com.treishvaam.financeapi.model.User;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.repository.CategoryRepository;
 import com.treishvaam.financeapi.repository.UserRepository;
 import com.treishvaam.financeapi.security.ContentIntegrityService;
 import com.treishvaam.financeapi.service.ImageService.ImageMetadataDto;
+import com.treishvaam.financeapi.util.SecurityUtils;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.nio.file.Files;
@@ -78,6 +85,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -196,15 +204,8 @@ public class BlogPostServiceImpl implements BlogPostService {
         newPost.setKeywords(blogPostDto.getKeywords());
         newPost.setStatus(PostStatus.DRAFT);
 
-        String username = SecurityContextHolder.getContext().getAuthentication().getName();
-        Optional<User> userOpt = userRepository.findByUsername(username);
-        if (userOpt.isPresent()
-                && userOpt.get().getDisplayName() != null
-                && !userOpt.get().getDisplayName().isEmpty()) {
-            newPost.setAuthor(userOpt.get().getDisplayName());
-        } else {
-            newPost.setAuthor(username);
-        }
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        newPost.setAuthor(SecurityUtils.extractAuthorDisplayName(auth));
 
         String currentTenant = TenantContext.getTenantId();
         newPost.setTenantId(
@@ -297,7 +298,6 @@ public class BlogPostServiceImpl implements BlogPostService {
 
         BlogPost savedPost = persistPost(blogPost, finalThumbnails);
 
-        // Phase 3: Raw Video Storage and Async Transcoder Pipeline Handoff
         if (videoFile != null && !videoFile.isEmpty()) {
             try {
                 Path rawDir = Paths.get("/app/uploads/raw");
@@ -357,7 +357,6 @@ public class BlogPostServiceImpl implements BlogPostService {
             blogPost.setScheduledTime(null);
         }
 
-        // Phase 2: Compute and attach digital signature right before publish transitions
         if (PostStatus.PUBLISHED.equals(blogPost.getStatus())) {
             String signature =
                     contentIntegrityService.computeSignature(
@@ -441,7 +440,6 @@ public class BlogPostServiceImpl implements BlogPostService {
                 post.setUrlArticleId(generateUrlArticleId(post));
             }
 
-            // Phase 2: Compute and attach digital signature for scheduled automated publishes
             String signature =
                     contentIntegrityService.computeSignature(
                             post.getTitle(),
@@ -544,7 +542,9 @@ public class BlogPostServiceImpl implements BlogPostService {
                         .findById(id)
                         .orElseThrow(() -> new RuntimeException("Post not found with id: " + id));
         BlogPost newPost = new BlogPost();
-        newPost.setAuthor(SecurityContextHolder.getContext().getAuthentication().getName());
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        newPost.setAuthor(SecurityUtils.extractAuthorDisplayName(auth));
 
         String currentTenant = TenantContext.getTenantId();
         newPost.setTenantId(
