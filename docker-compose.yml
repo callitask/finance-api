@@ -221,6 +221,10 @@
 #  * • Injected `ENABLE_4K_TRANSCODING` from Infisical to allow future 4K upgrades.
 #  * • Enforced strict 384M memory limit and 0.5 CPU cap to protect the 4.8GB VirtualBox host from FFmpeg OOMs.
 #  *
+#  * - EDITED (Backend Timeout Extension):
+#  * • Increased backend start_period from 160s to 240s.
+#  * • Reason: Prevented 502 Bad Gateway failures caused by Docker killing the container during heavy telemetry aggregations during boot context initialization.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
@@ -666,7 +670,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 15
-      start_period: 160s
+      start_period: 240s
 
   treishvaam-transcoder:
     build: ./transcoder
