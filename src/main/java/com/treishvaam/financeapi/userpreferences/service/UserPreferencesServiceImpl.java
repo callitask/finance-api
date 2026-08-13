@@ -1,3 +1,25 @@
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Implementation of business logic for user preferences.
+ *
+ * <p>Scope: - Orchestrates reads and updates of UI settings while extracting Keycloak UUIDs safely.
+ *
+ * <p>Critical Dependencies: - Context: Relies on Spring SecurityContextHolder for the user subject.
+ * - Context: Relies on TenantContext for multi-tenant isolation.
+ *
+ * <p>Security Constraints: - Must never accept a userSub parameter directly from a controller
+ * payload. The subject MUST be extracted securely from the active JWT context.
+ *
+ * <p>Non-Negotiables: - None.
+ *
+ * <p>Change Intent: - Execute the retrieval and updating of database settings.
+ *
+ * <p>Future AI Guidance: - None.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Created UserPreferencesServiceImpl. •
+ * Date/Phase: Phase 1 (Feature Packaging)
+ */
 package com.treishvaam.financeapi.userpreferences.service;
 
 import com.treishvaam.financeapi.config.tenant.TenantContext;

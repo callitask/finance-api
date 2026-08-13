@@ -1,5 +1,3 @@
-package com.treishvaam.financeapi.userpreferences.model;
-
 /**
  * AI-CONTEXT:
  *
@@ -7,13 +5,26 @@ package com.treishvaam.financeapi.userpreferences.model;
  *
  * <p>Scope: - Persists toolbar visibility and state across devices.
  *
+ * <p>Critical Dependencies: - Database: MariaDB
+ *
  * <p>Security Constraints: - Enforces tenant isolation via tenantId field, audited by
  * AegisMainFilter. - Bound securely to Keycloak UUID (userSub).
+ *
+ * <p>Non-Negotiables: - None.
+ *
+ * <p>Change Intent: - Establish relational schema for frontend user experience synchronization.
+ *
+ * <p>Future AI Guidance: - None.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Created isolated package boundary for
  * user preferences to comply with enterprise architectural standards. • Date/Phase: Phase 1
  * (Feature Packaging)
+ *
+ * <p>- EDITED: • Restored malformed Javadoc block and re-aligned with strict entity scan mandates.
+ * • Date/Phase: Phase 1 (Dependency Injection Fix)
  */
+package com.treishvaam.financeapi.userpreferences.model;
+
 import jakarta.persistence.*;
 import java.time.Instant;
 
@@ -32,6 +43,7 @@ public class UserPreferences {
     private String tenantId;
 
     private boolean radarToolbarEnabled = true;
+
     private String defaultHighlightColor = "bg-yellow-200";
 
     @Column(nullable = false, updatable = false)

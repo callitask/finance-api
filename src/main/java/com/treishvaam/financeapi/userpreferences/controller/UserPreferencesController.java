@@ -1,3 +1,25 @@
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Exposes REST endpoints for client-side consumption of UI preferences.
+ *
+ * <p>Scope: - API routing layer strictly for the user preferences domain.
+ *
+ * <p>Critical Dependencies: - Security: Protected by AegisMainFilter and Spring Security.
+ *
+ * <p>Security Constraints: - Must be annotated with @PreAuthorize("isAuthenticated()") to prevent
+ * anonymous access.
+ *
+ * <p>Non-Negotiables: - None.
+ *
+ * <p>Change Intent: - Provide secure access points for the frontend Cloudflare Radar toolbar
+ * configuration.
+ *
+ * <p>Future AI Guidance: - None.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Created UserPreferencesController. •
+ * Date/Phase: Phase 1 (Feature Packaging)
+ */
 package com.treishvaam.financeapi.userpreferences.controller;
 
 import com.treishvaam.financeapi.userpreferences.model.UserPreferences;
