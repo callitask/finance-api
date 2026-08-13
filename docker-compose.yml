@@ -221,9 +221,9 @@
 #  * • Injected `ENABLE_4K_TRANSCODING` from Infisical to allow future 4K upgrades.
 #  * • Enforced strict 384M memory limit and 0.5 CPU cap to protect the 4.8GB VirtualBox host from FFmpeg OOMs.
 #  *
-#  * - EDITED (Backend Timeout Extension):
-#  * • Increased backend start_period from 160s to 240s.
-#  * • Reason: Prevented 502 Bad Gateway failures caused by Docker killing the container during heavy telemetry aggregations during boot context initialization.
+#  * - EDITED (Backend Startup Healthcheck Window Extension - 2026-08-13):
+#  * • Increased start_period for `backend` service from 160s to 240s.
+#  * • Reason: Prevents Docker healthcheck timeouts and false-positive Nginx 502 Bad Gateway responses while Spring Boot initializes heavy startup services.
 #  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.

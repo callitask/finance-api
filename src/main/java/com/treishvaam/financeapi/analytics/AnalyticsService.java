@@ -128,6 +128,13 @@
  * legacy GA4 rows in the Audience Dashboard UI. • Why: Generates a deterministic SHA3-256
  * fingerprint (`syn-[hash]`) from existing hardware columns to instantly fix the grouping collapse
  * without violating AEGIS data rules. Executed in safe, transaction-chunked 500-record batches.
+ *
+ * <p>- EDITED (Backend Boot Hang Fix - Incident 104): • Replaced `@PostConstruct init()` with
+ * `@Async @EventListener(ApplicationReadyEvent.class) initAfterBoot()`. • Why: Heavy startup
+ * operations (telemetry rollup and GA4 history sync) were executing synchronously on the main
+ * Spring Boot thread, blocking Tomcat from binding to port 8080 and causing Docker health checks to
+ * fail with `Errno 111 Connection refused` (Nginx 502 Bad Gateway). Decoupling allows immediate
+ * port binding while analytics sync safely in the background.
  */
 package com.treishvaam.financeapi.analytics;
 
@@ -169,15 +176,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import javax.annotation.PostConstruct;
 import nl.basjes.parse.useragent.UserAgent;
 import nl.basjes.parse.useragent.UserAgentAnalyzer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -228,8 +237,9 @@ public class AnalyticsService {
         this.uaa = uaa;
     }
 
-    @PostConstruct
-    public void init() {
+    @Async
+    @EventListener(ApplicationReadyEvent.class)
+    public void initAfterBoot() {
         try {
             syncAegisTelemetryToAudienceVisits();
         } catch (Exception e) {
