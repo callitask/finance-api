@@ -23,6 +23,11 @@ package com.treishvaam.financeapi.security;
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED (Phase 4 - SEC-10 Fix): • Created
  * QuerySanitizationService. • Why it was added: Provides a Redis-backed query validation layer to
  * prevent SQL injection from reaching the database. • Date: Phase 4 Implementation.
+ *
+ * <p>- EDITED (Phase 5 - WAF False Positive Fix): • Refined SQLi regex pattern to target chained
+ * execution syntax (;\\s*(drop|exec...)) rather than blocking lone semicolons. • Why: Resolves a
+ * 400 Bad Request false positive caused by Tiptap injecting inline CSS (style="width: 50%; float:
+ * left;") during video uploads, without degrading Zero-Trust SQLi protection.
  */
 import java.time.Duration;
 import java.util.List;
@@ -47,7 +52,7 @@ public class QuerySanitizationService {
                             "(?i)(union|select|insert|update|delete|drop|create|alter|exec|execute|xp_|sp_)",
                             Pattern.CASE_INSENSITIVE),
                     Pattern.compile(
-                            "(--|;|/\\*|\\*/|xp_|WAITFOR|BENCHMARK|SLEEP)",
+                            "(--|;\\s*(?i)(drop|alter|create|truncate|delete|insert|update|exec|declare|xp_)|/\\*|\\*/|xp_|WAITFOR|BENCHMARK|SLEEP)",
                             Pattern.CASE_INSENSITIVE),
                     Pattern.compile("('|(\\')|(\\\\')|(%27)|(%2527))", Pattern.CASE_INSENSITIVE),
                     Pattern.compile(
