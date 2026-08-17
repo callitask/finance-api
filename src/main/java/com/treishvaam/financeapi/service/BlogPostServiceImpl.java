@@ -9,7 +9,7 @@ package com.treishvaam.financeapi.service;
  * <p>Scope: - Handles CRUD operations, draft management, SEO slug generation, and async publishing.
  *
  * <p>Critical Dependencies: - Backend: BlogPostRepository, ImageService, HtmlMaterializerService,
- * MessagePublisher, ContentIntegrityService
+ * MessagePublisher, ContentIntegrityService, VideoService
  *
  * <p>Security Constraints: - Optimistic locking must be enforced on updates. - Tenant isolation
  * must default to current user context.
@@ -42,6 +42,11 @@ package com.treishvaam.financeapi.service;
  * required: Prevents the Keycloak Subject UUID from leaking into the author fields of drafts and
  * duplicated posts. • What behavior must remain unchanged: Raw tenant UUID extraction remains for
  * data isolation boundaries.
+ *
+ * <p>- EDITED (Phase 8 - Enterprise Video Architecture Refactor): • Extracted raw video
+ * `MultipartFile` processing and RabbitMQ publishing logic out of `save()` and delegated it to an
+ * injected `VideoService`. • Why: Single Responsibility Principle. Separating video asset ingestion
+ * allows modular media scaling without bloating core post operations.
  */
 import com.treishvaam.finance.messaging.MessagePublisher;
 import com.treishvaam.financeapi.config.CachingConfig;
@@ -60,10 +65,6 @@ import com.treishvaam.financeapi.service.ImageService.ImageMetadataDto;
 import com.treishvaam.financeapi.util.SecurityUtils;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -98,18 +99,13 @@ public class BlogPostServiceImpl implements BlogPostService {
     private static final Logger logger = LoggerFactory.getLogger(BlogPostServiceImpl.class);
 
     @Autowired private BlogPostRepository blogPostRepository;
-
     @Autowired private MessagePublisher messagePublisher;
-
     @Autowired private CategoryRepository categoryRepository;
-
     @Autowired private ImageService imageService;
-
     @Autowired private UserRepository userRepository;
-
     @Autowired private HtmlMaterializerService htmlMaterializerService;
-
     @Autowired private ContentIntegrityService contentIntegrityService;
+    @Autowired private VideoService videoService;
 
     @PersistenceContext private EntityManager entityManager;
 
@@ -299,25 +295,7 @@ public class BlogPostServiceImpl implements BlogPostService {
         BlogPost savedPost = persistPost(blogPost, finalThumbnails);
 
         if (videoFile != null && !videoFile.isEmpty()) {
-            try {
-                Path rawDir = Paths.get("/app/uploads/raw");
-                if (!Files.exists(rawDir)) {
-                    Files.createDirectories(rawDir);
-                }
-                Path filePath = rawDir.resolve(savedPost.getId() + ".mp4");
-                Files.copy(
-                        videoFile.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
-
-                logger.info(
-                        "Raw video payload securely stored at volume path: {}. Queueing transcode event.",
-                        filePath);
-                messagePublisher.publishVideoTranscodeEvent(savedPost.getId());
-            } catch (Exception e) {
-                logger.error(
-                        "Failed to save raw video file for post ID: {}. Pipeline aborted.",
-                        savedPost.getId(),
-                        e);
-            }
+            videoService.processVideoUpload(videoFile, savedPost.getId());
         }
 
         if (savedPost.getStatus() == PostStatus.PUBLISHED) {

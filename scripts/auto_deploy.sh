@@ -185,6 +185,10 @@
 #   - EDITED (Phase 4 - Class 1 I/O Spike Mitigation):
 #     • Increased the `/actuator/health` polling loop from 15 attempts (225s) to 35 attempts (525s).
 #     • Reason: The 4.8GB VirtualBox host experiences severe swap thrashing and block I/O starvation during the staggered ignition of 23 containers. Spring Boot takes >4 minutes to initialize. Extending the deployment polling tolerance mathematically guarantees Engine B survives the kernel I/O spike without a false-positive abort.
+#
+#   - EDITED (Phase 8 - Transcoder Engine B Ignition Fix):
+#     • Added `treishvaam-transcoder` to the Tier 4 ignition array alongside the `backend` container.
+#     • Reason: The Alpine FFmpeg transcoder was built but never started, causing RabbitMQ events to drop and videos to fail playback. Igniting it at Tier 4 ensures the queues are bound securely before Tomcat fully initializes.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -570,9 +574,9 @@ echo "[Ignition - Tier 3.5] Reclaiming volatile memory allocations..."
 sleep 15
 sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
 
-# ── TIER 4: Application Execution Layer ──
-echo "[Ignition - Tier 4] Firing Core Java Application layer (1 replica)..."
-docker compose up -d --no-deps --scale backend=1 backend
+# ── TIER 4: Application Execution Layer & Media Transcoder ──
+echo "[Ignition - Tier 4] Firing Core Java Application layer (1 replica) & Media Transcoder..."
+docker compose up -d --no-deps --scale backend=1 backend treishvaam-transcoder
 
 echo "[System] Stabilizing application layer (Waiting 15s)..."
 sleep 15

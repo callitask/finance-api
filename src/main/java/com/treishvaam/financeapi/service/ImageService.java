@@ -32,6 +32,12 @@ import org.springframework.web.multipart.MultipartFile;
  * (News vs Standard). - ADDED: processImage() method to handle byte[] ingestion (decoupled from
  * MultipartFile). - REFACTORED: Unified resizing logic to support both Blog (Standard) and News
  * (Aggressive) pipelines. - SECURITY: Tika validation enforced for all entry points.
+ *
+ * <p>- EDITED (Phase 8 - Virtual Thread Race Condition Fix): • Wrapped the `Thumbnails.of`
+ * execution inside `uploadResized` with `synchronized(ImageService.class)`. • Why: Resolves severe
+ * `IndexOutOfBoundsException` in `FileCacheImageOutputStream.seek()` when Tomcat's Virtual Threads
+ * attempt to process multi-variant images concurrently. Isolating the I/O write buffer ensures
+ * stability.
  */
 @Service
 public class ImageService {
@@ -201,12 +207,7 @@ public class ImageService {
 
             // 8. Return the Master Path
             // NOTE: We return the simple filename or relative path depending on what
-            // FileStorageService
-            // returns.
-            // Assuming FileStorageService expects just the filename and returns the stored path
-            // logic
-            // usually happens outside.
-            // But here we set the full path for the DTO consumer.
+            // FileStorageService returns.
             metadata.setFullPath(masterName);
 
             return metadata;
@@ -238,11 +239,14 @@ public class ImageService {
             throws IOException {
         try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {
             try {
-                Thumbnails.of(sourceFile.toFile())
-                        .width(targetWidth)
-                        .outputQuality(quality)
-                        .outputFormat("webp")
-                        .toOutputStream(os);
+                // Prevent ImageIO/FileCache stream collisions across Virtual Threads
+                synchronized (ImageService.class) {
+                    Thumbnails.of(sourceFile.toFile())
+                            .width(targetWidth)
+                            .outputQuality(quality)
+                            .outputFormat("webp")
+                            .toOutputStream(os);
+                }
 
                 fileStorageService.storeFile(
                         new ByteArrayInputStream(os.toByteArray()), filename, "image/webp");
@@ -251,10 +255,12 @@ public class ImageService {
                 // Fallback for non-image formats (rare with Tika check, but safe)
                 logger.error("Resizing failed, fallback to PNG: {}", filename);
                 os.reset();
-                Thumbnails.of(sourceFile.toFile())
-                        .width(targetWidth)
-                        .outputFormat("png")
-                        .toOutputStream(os);
+                synchronized (ImageService.class) {
+                    Thumbnails.of(sourceFile.toFile())
+                            .width(targetWidth)
+                            .outputFormat("png")
+                            .toOutputStream(os);
+                }
                 fileStorageService.storeFile(
                         new ByteArrayInputStream(os.toByteArray()), filename, "image/png");
             }
