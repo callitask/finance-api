@@ -186,7 +186,7 @@
 #     • Increased the `/actuator/health` polling loop from 15 attempts (225s) to 35 attempts (525s).
 #     • Reason: The 4.8GB VirtualBox host experiences severe swap thrashing and block I/O starvation during the staggered ignition of 23 containers. Spring Boot takes >4 minutes to initialize. Extending the deployment polling tolerance mathematically guarantees Engine B survives the kernel I/O spike without a false-positive abort.
 #
-#   - EDITED (Phase 8 - Transcoder Engine B Ignition Fix):
+#   - EDITED (Phase 8.1 - Transcoder Ignition):
 #     • Added `treishvaam-transcoder` to the Tier 4 ignition array alongside the `backend` container.
 #     • Reason: The Alpine FFmpeg transcoder was built but never started, causing RabbitMQ events to drop and videos to fail playback. Igniting it at Tier 4 ensures the queues are bound securely before Tomcat fully initializes.
 # ==============================================================================

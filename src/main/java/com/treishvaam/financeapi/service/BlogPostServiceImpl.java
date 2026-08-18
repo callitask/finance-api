@@ -17,17 +17,16 @@ package com.treishvaam.financeapi.service;
  * <p>Non-Negotiables: - Do NOT apply @Cacheable to methods returning Optional<T> due to Jackson
  * deserialization crashes.
  *
- * <p>Change Intent: - Removed `@Cacheable` from `findByUrlArticleId` and `findPostForUrl`. - Why:
- * Jackson's default JSON serializer crashes when attempting to deserialize an `Optional<BlogPost>`
- * from Redis, throwing a fatal 500 Internal Server Error when fetching newly created posts.
- *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Removed `@Cacheable` annotations from
  * Optional-returning finder methods. • Why the edit was required: Resolves fatal 500 AxiosError
  * occurring after post publication due to Spring Data Redis failing to instantiate
  * `java.util.Optional`. • What behavior must remain unchanged: DB retrieval and edge-side
- * Cloudflare caching remain fully intact to handle the load. * - EDITED (Hotfix 3): • Corrected
- * import for MessagePublisher to use `com.treishvaam.finance.messaging` physical package. * -
- * EDITED (Phase 2): • Autowired `ContentIntegrityService`. • Added signature computation to
+ * Cloudflare caching remain fully intact to handle the load.
+ *
+ * <p>- EDITED (Hotfix 3): • Corrected import for MessagePublisher to use
+ * `com.treishvaam.finance.messaging` physical package.
+ *
+ * <p>- EDITED (Phase 2): • Autowired `ContentIntegrityService`. • Added signature computation to
  * `persistPost` during the PostStatus.PUBLISHED phase. • Added signature verification to
  * `findByUrlArticleId` and `findPostForUrl` to enable tamper detection on public reads.
  *
@@ -47,6 +46,13 @@ package com.treishvaam.financeapi.service;
  * `MultipartFile` processing and RabbitMQ publishing logic out of `save()` and delegated it to an
  * injected `VideoService`. • Why: Single Responsibility Principle. Separating video asset ingestion
  * allows modular media scaling without bloating core post operations.
+ *
+ * <p>- EDITED (Phase 8.1 - VideoService Decoupling Integration): • Formally integrated the
+ * standalone `VideoService.java` to handle `processVideoUpload()`.
+ *
+ * <p>- DO-NOT-DELETE RULE (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the
+ * institutional memory for future AI sessions. It must never be deleted, truncated, rewritten, or
+ * regenerated. Future AI must append only.
  */
 import com.treishvaam.finance.messaging.MessagePublisher;
 import com.treishvaam.financeapi.config.CachingConfig;
@@ -294,6 +300,7 @@ public class BlogPostServiceImpl implements BlogPostService {
 
         BlogPost savedPost = persistPost(blogPost, finalThumbnails);
 
+        // DELAGATE RAW VIDEO UPLOAD TO DEDICATED SERVICE
         if (videoFile != null && !videoFile.isEmpty()) {
             videoService.processVideoUpload(videoFile, savedPost.getId());
         }

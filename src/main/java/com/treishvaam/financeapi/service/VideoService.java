@@ -1,11 +1,24 @@
 package com.treishvaam.financeapi.service;
 
 /**
- * AI-CONTEXT: Purpose: Dedicated service for handling raw video file ingestion and initiating the
- * transcoding pipeline. Scope: Separates file I/O operations and RabbitMQ event publishing from the
- * core blog post logic. IMMUTABLE CHANGE HISTORY: - ADDED (Phase 8): Decoupled raw `.mp4`
- * persistence and RabbitMQ transcode publishing from BlogPostServiceImpl to adhere to Single
- * Responsibility Principle and maintain clean architecture boundaries.
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Dedicated service for handling raw video file ingestion and initiating the
+ * transcoding pipeline.
+ *
+ * <p>Scope: - Separates file I/O operations and RabbitMQ event publishing from the core blog post
+ * logic.
+ *
+ * <p>Critical Dependencies: - Backend: MessagePublisher, Local Docker Volume (`/app/uploads/raw`).
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED (Phase 8.1 - Enterprise Video Architecture):
+ * • Decoupled raw `.mp4` persistence and RabbitMQ transcode publishing from BlogPostServiceImpl. •
+ * Enforces the Single Responsibility Principle and maintains clean architecture boundaries,
+ * allowing modular scaling of the media pipeline.
+ *
+ * <p>- DO-NOT-DELETE RULE (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the
+ * institutional memory for future AI sessions. It must never be deleted, truncated, rewritten, or
+ * regenerated. Future AI must append only.
  */
 import com.treishvaam.finance.messaging.MessagePublisher;
 import java.nio.file.Files;
