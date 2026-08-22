@@ -1,143 +1,114 @@
-# Treishvaam Finance Platform — Master Documentation Index
+# BE-00 — MASTER INDEX: Treishvaam `finance-api` Backend Documentation Suite
 
-**Stable Version:** `tfin-financeapi-Develop.0.0.0.9`
-**Security Status:** AEGIS Active · Fort Knox Security Suite Enabled · 
-**Last Updated:** 2026-06-03
-**Classification:** Internal Architectural Reference (Sanitized — No Credentials, No Keys, No Internal IPs)
-
----
-
-## Overview
-
-The Treishvaam Finance Platform is an enterprise-grade, zero-trust, multi-tenant financial analytics and content delivery system. A **single shared Java Spring Boot 3.4 backend** (Java 21) powers multiple decoupled frontend applications (Finance, Agro, Parent Group) deployed exclusively on **Cloudflare Pages**, routed through **Cloudflare Edge Workers**, and protected by the **AEGIS Adaptive Security Framework** across 9 independent security layers.
-
-All infrastructure runs in Docker Compose on a private Ubuntu VirtualBox VM. Zero internal ports are exposed to the public internet. The only externally reachable entry points are the OpenResty reverse proxy (ports 80/443) and the Cloudflare Tunnel (outbound-only).
+> **Document status:** Final consolidated edition (2026-08-22). Verified against three independent sources: the full backend source export (Parts 1–12, 343 files), the DevSecOps Operational Knowledge Tracker (VOL 1 + VOL 2, incidents 1–141 through 2026-08-20), and the live frontend/Edge-Worker codebase (`treishvaam-finance-frontend`, worker `treishfin-seo-worker`). Where sources disagree, **code wins**; conflicts are recorded in the Open Items register.
+>
+> **Suite scope:** This file set supersedes the legacy `BE-00..BE-14` suite. The 12 legacy files were audited (14 critical, ~53 moderate errors found — all in legacy files) and are retired to `docs/archive_legacy/`. Their surviving unique content has been absorbed into this suite.
 
 ---
 
-## Verified Technology Stack
+## 1. System Overview
 
-| Technology | Role | Version | Evidence |
-| :--- | :--- | :--- | :--- |
-| **Java 21 (Temurin LTS)** | Backend Runtime + Virtual Threads | 21 LTS | `pom.xml`, `FinanceApiApplication.java` |
-| **Spring Boot** | Application Framework | 3.4.0 | `pom.xml` parent |
-| **Next.js** | Finance Frontend | 14.2.x (App Router) | `package.json` |
-| **React** | UI Library | 18.3.x | `package.json` |
-| **Tiptap** | Rich Text Editor (replaced SunEditor) | 3.23.x | `package.json` |
-| **MariaDB** | Primary Relational Database | 10.6 | `docker-compose.yml` |
-| **Redis** | Caching + AEGIS Temporal Path Registry | 7 Alpine | `docker-compose.yml` |
-| **RabbitMQ** | Async Event Bus + Threat Telemetry | 3.12 Management | `docker-compose.yml`, `RabbitMQConfig.java` |
-| **Elasticsearch** | Full-Text Search | 8.17.0 | `pom.xml`, `PostDocument.java` |
-| **MinIO** | S3-Compatible Object Storage | Latest | `docker-compose.yml`, `MinioConfig.java` |
-| **Keycloak** | Identity Provider (SSO + OAuth2) | 25.0.0 | `docker-compose.yml`, `realm-export.json` |
-| **Infisical** | Zero-Trust Secret Management | Cloud | `auto_deploy.sh`, `SECRETS.md` |
-| **OpenResty** | Reverse Proxy + Lua WAF (replaces nginx) | Alpine | `docker-compose.yml`, `aegis_ja3.lua` |
-| **BouncyCastle** | Post-Quantum Cryptography (PQC) | 1.78.1 (`bcpkix-jdk18on`) | `pom.xml` |
-| **ANTLR4** | AEGIS Expression Language (AEL) Parser | 4.13.1 | `pom.xml`, `aegis.g4` |
-| **Cloudflare** | Edge Network, Workers, KV, WAF, Pages | Workers + Pages | `wrangler.toml`, `worker.js` |
-| **Go (distroless)** | AEGIS ZKP Microservice | Compiled binary | `aegis/zkp-service/Dockerfile` |
-| **Grafana** | Observability Dashboards | Latest | `docker-compose.yml`, `config/` |
-| **Loki** | Log Aggregation | 2.9.2 | `docker-compose.yml`, `loki-config.yml` |
-| **Tempo** | Distributed Tracing | Latest | `docker-compose.yml`, `tempo.yaml` |
-| **Prometheus** | Metrics Scraping | Latest | `docker-compose.yml`, `prometheus.yml` |
-| **Liquibase** | Schema Migration | Spring default | `db.changelog-master.xml`, V1–V46 |
-| **HikariCP** | JDBC Connection Pool | Spring default | `application-prod.properties` |
-| **Bucket4j** | Rate Limiting | Spring Cloud | `Bucket4jConfig.java` |
-| **Resilience4j** | Circuit Breaker | Spring Cloud 2024.0.0 | `ResilienceConfig.java` |
-| **Serwist** | PWA Service Worker | 9.0.2 | `src/sw.ts`, `next.config.mjs` |
-| **Tailwind CSS** | Frontend Styling | 3.4.x | `package.json`, `tailwind.config.js` |
-| **Grafana Faro** | Real User Monitoring (RUM) | 2.0.2 | `faroConfig.js` |
-| **Terraform** | Infrastructure as Code (OCI) | — | `terraform/main.tf` |
-| **SaltStack** | Configuration Management | — | `saltstack/states/` |
-| **Ansible** | Server Provisioning | — | `ansible/setup-server.yml` |
-| **Packer** | Server Image Baking | — | `packer/server-image.pkr.hcl` |
+**Treishvaam `finance-api`** is the backend core of the Treishvaam Group financial-media platform: a **Java 21 / Spring Boot 3.4.0 modular monolith** (WAR) surrounded by two satellite processes and a 24-service Docker stack.
 
----
+| Dimension | Value (code-verified) |
+|---|---|
+| Core runtime | Java 21 (Temurin), Spring Boot `3.4.0`, Spring Cloud `2024.0.0`, WAR `finance-api.war` (host-mounted `backend-app.war`) |
+| Security fabric | **AEGIS** — 9-layer zero-trust chain + BCSM validator consensus + post-quantum crypto (BouncyCastle 1.78.1, sole PQC provider) |
+| Identity | Keycloak `25.0.0` OIDC (realm `treishvaam`, public client `finance-app` + bearer-only `finance-api`); frontend `keycloak-js ^25.0.0`, PKCE S256, `useNonce: false`, `timeSkew: 86400` |
+| Relational store | **MariaDB 10.6** ×2 (app `finance_db` + Keycloak), TDE at rest, ROW binlogging for PITR, Liquibase V1→V50 |
+| Cache / state | Redis 7 ×2 (app + canary isolate); cache prefix `treishfin_` |
+| Messaging | RabbitMQ `3.12-management` — topic `internal.exchange`, direct `dead_letter_exchange`, direct `aegis.threat.exchange` (annotation-declared) |
+| Search / storage | Elasticsearch `8.17.0` (index `blog_posts`) · MinIO (bucket `treishvaam-uploads`, presign 7 d) |
+| Satellites | **Go ZKP verifier** (gRPC `127.0.0.1:9090` — accepting stub, see OP-01) · **Python transcoder** (1080p HLS, `video.transcode.queue`) · **Python yfinance updater** (34 tickers) |
+| Edge path | Cloudflare Worker `treishfin-seo-worker` (HMAC signer, MTD translator, GEO router) → Tunnel → OpenResty `:80` (JA3 Lua) → backend ×2 `:8080` |
+| HIDS / deception | Wazuh 4.14.5 (manager+agent) · Thinkst canarytokens |
+| Observability | Prometheus · Loki+Promtail · Tempo (Zipkin `:9411`/OTLP) · Grafana (`mission-control`) |
+| CI/CD | Engine A (GitHub Actions, self-hosted runner, GPG gate) → `sudo systemd-run --no-block auto_deploy.sh` (Engine B, tiered ignition) |
 
-## Multi-Tenant Architecture
+## 2. Documentation Suite (final tree)
 
-One backend serves multiple brands. Tenant isolation is enforced at every layer.
+```
+docs/
+├── BE-00-INDEX.md               ← you are here
+├── BE-01-ARCHITECTURE.md        runtime topology, filter chain, services deep-dive
+├── BE-02-SECURITY.md            AEGIS 9 layers, BCSM, ZKP status, encryption at rest
+├── BE-03-DEPLOYMENT.md          Engine A/B, anti-regression rules, incident runbook, history
+├── BE-04-API.md                 REST reference + frontend consumption map
+├── BE-05-DATABASE.md            MariaDB, Liquibase matrix, 23 tables, Redis/Rabbit/ES/MinIO
+├── BE-06-OBSERVABILITY.md       metrics/logs/traces/telemetry reality
+├── CROSS-SYSTEM-CONTEXT.md      the Frontend/Edge integration contract (self-contained)
+├── SESSION_MEMORY_ANCHOR.md     session protocol artifact (v3)
+└── archive_legacy/              retired legacy docs (BE-02-CORE … BE-14) — historical only
+```
 
-| Tenant ID | Frontend Project | Domain | Status |
-| :--- | :--- | :--- | :--- |
-| `finance` | `treishvaam-finance-frontend` | `treishvaamfinance.com` | **Live (Production)** |
-| `agro` | `treishvaam-agro-frontend` | `treishvaamagro.com` | In Development |
-| `public` | `treishvaamgroup-frontend` | `treishvaamgroup.com` | Live (Production) |
-| `thm` | *(planned)* | `thm.treishvaamgroup.com` | Planned |
+| Document | Critical contents |
+|---|---|
+| **BE-01-ARCHITECTURE.md** | 24-service topology, request lifecycle, two-layer filter registration, services layer (market engine, content pipeline, analytics, video), threading, multi-tenancy |
+| **BE-02-SECURITY.md** | Edge HMAC contract, ZKP gating (honest stub status), deception/tarpits, PQC, BCSM consensus, AEL DSL, rate limiting, sanitization, MTD, encryption at rest |
+| **BE-03-DEPLOYMENT.md** | Engine A/B, tiered ignition, **`docker compose down` fatality**, 13 golden anti-regression rules, corrected incident runbook, implementation history 2026-06→08 |
+| **BE-04-API.md** | Every endpoint, auth tier, DTOs, error contract, how the frontend actually calls each API |
+| **BE-05-DATABASE.md** | TDE, Liquibase V1→V50 (V48 deliberately skipped), 23-table inventory, encrypted columns |
+| **BE-06-OBSERVABILITY.md** | Prometheus/promtail/Loki/Tempo/Grafana as deployed + telemetry beacon reality |
+| **CROSS-SYSTEM-CONTEXT.md** | Worker signing code, KV keys/TTLs, MTD translation flow, bot matrix, known integration bugs |
 
-Tenant ID is injected per-request by the Edge Worker (`X-Tenant-ID` header) and validated by `TenantInterceptor`. All DB queries, sitemaps, and service behavior are scoped to the tenant context via `TenantContext` (ThreadLocal).
+## 3. Verified Architectural Invariants (code-locked)
 
----
+| # | Invariant | Verified value |
+|---|---|---|
+| 1 | Edge HMAC material | `HMAC-SHA-512(AEGIS_EDGE_SECRET, "${pathname}:${timestamp}:${clientIp}")` — pathname **without query string** (worker `.split('?')[0]`), signed over the **exact backend path** (post-MTD translation), not the public path |
+| 2 | Edge headers | `X-Aegis-Edge-Signature` (hex) + `X-Aegis-Edge-Timestamp` (**epoch ms**) + `X-Aegis-Client-IP`; worker adds `X-Tenant-ID: finance`, `X-Visitor-City/Country` |
+| 3 | Edge drift / failure | **±300 s** (`MAX_TIME_DRIFT_SECONDS = 300`, ms compare); failure = **HTTP 403** `sendError`; constant-time `MessageDigest.isEqual`; no 0-byte-discard branch exists |
+| 4 | Edge bypass | Only `(loopback | 10.* | 192.168.* | 172.*) AND (/actuator* | /health*)`. Docker-bridge `172.18.*` misses log DEBUG but still 403 |
+| 5 | Relational DB | **MariaDB 10.6**, `MariaDBDialect`, TDE `file_key_management` AES_CTR, `binlog_format=ROW` |
+| 6 | Auth | No backend login/refresh/logout endpoints; Keycloak OIDC Bearer only; no cookies; no CSRF; `realm_access.roles` (+client roles) → `ROLE_*` |
+| 7 | MTD (L9) | Targets `/api/v1/{admin,auth,users,dashboard,analytics}` → `/api/v1/node/{8-hex}`; Redis `aegis:mtd:manifest` TTL **24 h** + `aegis:mtd:lock` 30 s (`setIfAbsent`, split-brain fix 2026-08-03); rotation daily 03:00 + Sun 04:00 + emergency; sentinel `"DECEPTION"`; exemptions `.startsWith("/api/v1/analytics/event")`, `/api/v1/aegis/telemetry`. **The browser never calls `/api/v1/node/*` — the Worker translates canonical→obfuscated via the KV manifest** |
+| 8 | Threat pipeline | `RabbitMQAttackPublisher` → `aegis.threat.exchange` (DIRECT, rk `threat.detected`) → `aegis.threat.queue` → `AegisThreatConsumer` → `CloudflareEdgeSyncService` → KV `aegis:block:{ip}` / `aegis:block:ja3:{ja3}` TTL 86400 s, 24 h dedup |
+| 9 | CI/CD handoff | `sudo systemd-run --no-block --uid=vboxuser --gid=vboxuser --unit=treishvaam-deploy-$(date +%s) … auto_deploy.sh --force` |
+| 10 | Container lifecycle | **`docker compose down` never appears in any script** (deletes `treish_net` → SSH loss). Engine B = `docker compose rm -f` + tiered `up -d --no-deps`, backend scale 1→2 after health |
+| 11 | Runner recovery | Engine B ends with `sudo -n systemctl restart actions.runner.*` (TCP half-open zombie cure); `setup_runner_service.sh` is empty (OP-09) |
+| 12 | CI trigger | Empty commits are dropped by GitHub path filters — canonical trigger is `echo " " >> VER.txt` + real commit (**VER.txt is a deliberate mechanism, not junk**) |
+| 13 | Secrets | Infisical machine identity → temp `.env` → Flash & Wipe; Cloudflare token **IP-fence removed 2026-07-15** (public NAT), current TTL expires **2026-12-31** |
+| 14 | Rate limits | `/auth/` 10 RPM · GET 200 RPM · other 60 RPM · 429 JSON · Redis failure → fail-closed 503 |
+| 15 | Field encryption | 5 JPA converters, `AES/GCM/NoPadding`, 12-byte IV, `"v1:"+Base64(IV‖ct)`, env keys `*_ENCRYPTION_KEY` |
+| 16 | Prohibited dependencies | `liboqs-java` (breaks CI/CD); JJWT/Nimbus (no FIPS 204 support) — manual PQC-JWT encoding; BouncyCastle 1.78.1 is the sole PQC provider |
 
-## AEGIS Security Framework — 9 Layers
+## 4. Consolidated Open Items Register (⚠ Requires clarification)
 
-All layers verified in code. All run exclusively on Java 21 Virtual Threads.
+| ID | Item | Severity |
+|---|---|---|
+| OP-01 | Go ZKP verifier accepts any non-empty payload; challenge ignored; no TLS/auth on gRPC | Critical |
+| OP-02 | Shannon entropy threshold never wired (calculator is a pure function) | High |
+| OP-03 | BCSM stub validators (EntropyHealth, HidsIntegrity constant-ALLOW; Deception header-only) | High |
+| OP-04 | Merkle audit root logged, never persisted/exported | Medium |
+| OP-05 | `/api/v1/aegis/tarpit/trap` has **no backend handler** — yet the Worker rewrites tarpitted IPs to it (integration gap; requests will 401/404) | Medium |
+| OP-06 | `spring.threads.virtual.enabled` unset (explicit `newVirtualThreadPerTaskExecutor()` usage in AEGIS components IS real; Tomcat remains platform-threaded) | Medium |
+| OP-07 | `TenantInterceptor` lacks MVC registration (`addInterceptors` absent) | Medium |
+| OP-08 | Filter `@Order` ties (HP+1/HP+2 collisions) — sub-tie order container-dependent | Medium |
+| OP-09 | `setup_runner_service.sh` empty file | Medium |
+| OP-10 | Legacy docs claimed ±30 s drift / 0-byte discard — corrected everywhere (code = ±300 s / 403) | Resolved |
+| OP-11 | Grafana provisioning bodies absent from export; alert exprs unverifiable (names: `HighBackendErrorRate`, `SlowAPIResponse`, `SecretKeyRotationDue`, + Dead-Man's `engine_b_stuck_in_progress` per REF) | Medium |
+| OP-12 | Liquibase orphans: `db.changelog-3.0.xml` unreachable, dup `V30` changeset ids, empty `V22`, missing V7/V23/V24; **V48 deliberately skipped** (hallucination guard); only V42 has rollback | Medium |
+| OP-13 | `video.transcode.queue` + threat topology absent from `definitions.json` (annotation/runtime-declared) | Low |
+| OP-14 | `VideoKeyController` returns fresh random AES-128 keys per call (edge proxy `/video-key/{id}` enforces Referer + signature; per-video key store unimplemented) | High |
+| OP-15 | Bug cluster: `GET /health` not permitAll; `/news/archived` returns active items; AlphaVantage URL malformed; PoW no server-side expiry; content-tamper verdict computed but unused | Medium |
+| OP-18 | **Frontend app-route proxies** (`app/llms.txt` etc.) sign `path:timestamp` (2-part, no IP) and send `X-Aegis-Timestamp` — will 403 against the 3-part backend contract | High |
+| OP-19 | Frontend `BlogEditorPage` builds `${API_URL}/api/uploads/...` (missing `/v1`) for previews — backend serves `/api/v1/uploads/**` only | Medium |
+| OP-20 | Faro endpoint mismatch: frontend posts to `NEXT_PUBLIC_FARO_URL` (default `backend…/faro/collect`); **no frontend call to `/api/v1/monitoring/ingest` exists** (controller + Alloy forward verified in backend code) | Medium |
+| OP-21 | Biometric hash: code uses WebCrypto **SHA-256**; frontend README claims SHA3-256 | Low |
+| OP-22 | Liquibase skew risk: V50 existed before registration in master (boot `SchemaManagementException` 2026-08-13 — fixed); health patience now 35×15 s = 525 s vs `start_period 240s` | Resolved |
+| OP-23 | Junk files: `aegis/v.txt` (empty), `terraform/vdsfggfd.txt` (`VER.txt` reclassified as CI trigger — keep) | Low |
+| OP-24 | Frontend `.env` (local folder) contains live-looking `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_AUTH_URL` values — ensure it is never committed | Medium |
 
-| Layer | Name | Key Class(es) | Status |
-| :--- | :--- | :--- | :--- |
-| **L0-HEA** | Hardware Entropy Anchoring | `AegisEntropyManager`, `JitterEntropySource`, `UrandomEntropySource` | Active |
-| **L1-PQCf** | Post-Quantum Cryptographic Foundation | `AegisPqcJwtService`, `AegisPqcKeyStore` (ML-DSA-87 / Dilithium5) | Active |
-| **L2-PPO** | Polymorphic Protocol Obfuscation (MTD) | `AegisTemporalPathManager`, `EndpointManifest`, `AegisMtdController`, `AegisResponseMutator` | Active |
-| **L3-ZKA** | Zero-Knowledge Admin Authentication | `aegis-zkp-service` (Go/gRPC), `AegisZkpAdminFilter`, `AegisZkpServiceClient` | Active |
-| **L4-ADA** | Adversarial Deception Architecture | `AegisDeceptionEngine`, `TarpitManager`, `PoisonCorpusGenerator`, `CanaryTokenService`, `RabbitMQAttackPublisher` | Active |
-| **L5-BIE** | Behavioral Intelligence Engine | `AegisBehavioralEngine`, `SessionBehaviorProfile`, `ShannonEntropyCalculator`, `aegis-biometrics.ts` | Active |
-| **L6-MTD** | Moving Target Defense Orchestration | `CloudflareEdgeSyncService` → Cloudflare KV | Active |
-| **L7-CMCS** | Chaos Mirror + Proof-of-Work | `AegisChaosMirror`, `PowChallengeIssuer` | Active |
-| **L8-BCSM** | Byzantine Consensus Security Mesh | `AegisBcsm` (7 validators, BFT, 100ms timeout, Virtual Threads) | Active |
-| **AEL** | AEGIS Expression Language | `AegisExpressionLanguage`, `AelRuleLoader`, `aegis.g4` (ANTLR4) | Active |
+## 5. Reading Paths by Role
 
----
+- **New backend engineer:** BE-01 → BE-04 → BE-05.
+- **Security engineer:** BE-02 → CROSS-SYSTEM-CONTEXT → §3 invariants above.
+- **DevOps / SRE:** BE-03 → BE-06.
+- **Frontend/Edge session:** **CROSS-SYSTEM-CONTEXT.md only** (self-contained bridge).
 
-## Documentation Modules
+## 6. Documentation Standards (binding)
 
-### Core Architecture & Backend
-| File | Description |
-| :--- | :--- |
-| **BE-00-INDEX.md** *(this file)* | Master index, tech stack, AEGIS summary, documentation map |
-| **BE-01-ARCHITECTURE.md** | System architecture, Docker topology, data flow, Zero-Trust network, multi-tenant design |
-| **BE-02-CORE.md** | Spring Boot internals, AEGIS filter chain execution order, BCSM validators, OAuth2 Resource Server |
-| **BE-03-API.md** | Complete REST API reference — all controllers, endpoints, roles, request/response contracts |
-| **BE-04-SERVICES.md** | Business logic layer — MarketData, BlogPost, Sitemap (contextual), Analytics, Schedulers |
-| **BE-05-DATABASE.md** | Database schema, Liquibase V1–V46 changelog, encryption converters, entity relationships |
-| **BE-06-INFRA-DEVOPS.md** | Docker Compose full container reference, CI/CD pipeline, auto-deploy watchdog, backup procedures |
-| **BE-07-SECURITY.md** | AEGIS Framework deep-dive — all 9 layers, PII encryption, Zero-Trust DB driver boundary |
-| **BE-08-SEO-EDGE.md** | Cloudflare Worker SEO logic, KV cache architecture, E-E-A-T schema injection, GEO routing |
-| **BE-09-DEPLOYMENT.md** | Operations manual — Git branching, Flash & Wipe secrets, backup commands, rollback procedures |
-| **BE-10-CHANGELOG.md** | Full architectural changelog — all release versions from 0.0.0.1 to 0.0.0.7 |
-| **BE-11-GEO-AI.md** | GEO architecture — LLM crawler interception, payload generation, KV caching, ontology graph |
-
-### Frontend (Finance)
-| File | Description |
-| :--- | :--- |
-| **FIN-01-ARCHITECTURE.md** | Next.js 14 App Router architecture, migration status (CRA→Next.js), key dependencies |
-| **FIN-02-COMPONENTS.md** | Component reference — layout, pages, dashboard, blog editor, market widgets |
-| **FIN-03-WORKER-EDGE.md** | Edge Worker architecture, HMAC signing, GEO router, KV bindings, wrangler config |
-
-### New Documents (Created by This Analysis)
-| File | Description |
-| :--- | :--- |
-| **BE-12-LOCAL-SETUP.md** | Local development setup guide — Windows host + Ubuntu VM environment |
-| **BE-13-SECRET-MATRIX.md** | Complete secret variables reference — all vaults, rotation policies, Cloudflare token expiry |
-| **BE-14-INCIDENT-RUNBOOK.md** | Incident response runbook — backend down, DB issues, Cloudflare Worker failure, secret expiry |
-
----
-
-## Critical Operational Notes
-
-**⚠️ Cloudflare API Token Expiry:** The production Cloudflare API Token expires on **2026-08-26**. Rotation must be triggered no later than **2026-08-19** using `scripts/rotate_secrets.sh`. The token is scoped to IPs `192.168.29.111` and `192.168.56.101` only.
-
-**⚠️ `scripts/init_automation.sh` — DEPRECATED (DO NOT EXECUTE):** This script installs the `auto_deploy.sh` cron job that was permanently abolished as part of the CI/CD architectural overhaul. Running it will revert the deployment model to the broken blind-polling architecture. The script is retained in the repo for historical reference only. The deployment watchdog is now triggered exclusively by GitHub Actions.
-
-**⚠️ TREISHVAAM-PROD-RUNNER systemd service required:** The GitHub Actions self-hosted runner must be installed as a `systemd` service on the Ubuntu VM. If the VM reboots and the runner is not running as a service, all CI/CD deployments will silently queue and never execute. See `BE-09-DEPLOYMENT.md` Section 3.5 for the runner health check and recovery procedure.
-
-**⚠️ package.json homepage stale:** `package.json` `"homepage"` field still references `https://treishfin.treishvaamgroup.com` (legacy subdomain). This does not affect routing but should be updated to `https://treishvaamfinance.com`.
-
-**⚠️ Agro Worker AEGIS Gap:** `treishvaamagro-seo-worker` has not yet received the Phase 6 MTD + GEO upgrades present in the Finance Worker. When the Agro frontend is finalized, the AEGIS Phase 6 logic must be mirrored from `worker/worker.js` per the Rules of Engagement.
-
-**⚠️ Dead Code:** Legacy `src/App.js` and `src/index.js` from the CRA era exist in the Finance frontend. They are not used by any Next.js route. They are not harmful but add confusion during navigation.
-
----
-
-## Security Notice
-
-This documentation is sanitized for internal architectural reference. It contains **no credentials, no API keys, no internal IP addresses, no secret values, and no information that could be used to directly attack the system.** Secret management is handled exclusively via Infisical (backend), Cloudflare Worker Secrets (edge), and Cloudflare Pages Environment Variables (frontend).
+1. **Never hallucinate** — every value traces to code, the Knowledge Tracker (VOL 1/2), or the frontend repo; otherwise it carries "⚠ Requires clarification".
+2. **Code wins over docs**; the Knowledge Tracker wins over legacy REF/SKILLS files where they conflict with code.
+3. **No `AI-CONTEXT` headers; no secret values** — names and public identifiers only (KV namespace IDs live in `wrangler.toml`, tunnel ID in `cloudflared/config.yml`).
+4. GitHub alerts + Mermaid diagrams; append-only history lives in the Knowledge Tracker, not in these files.

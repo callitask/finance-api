@@ -1,265 +1,146 @@
-# BE-01 — System Architecture
+# BE-01 — ARCHITECTURE: Treishvaam `finance-api`
 
-**Stable Version:** `tfin-financeapi-Develop.0.0.0.7`
-**Classification:** Internal Reference (Sanitized — No Credentials, No Internal IPs)
-**Last Verified:** 2026-05-29 — All claims verified against actual codebase
+> **Verification basis:** backend source export (Parts 1–12) · Knowledge Tracker VOL 1+2 (incidents 1–141) · frontend repo cross-check. Supersedes legacy BE-01 + BE-04-SERVICES (absorbed).
 
 ---
 
-## Overview
+## 1. Architectural Philosophy
 
-The Treishvaam Group Ecosystem is an **Enterprise-Grade Multi-Tenant Platform** deployed on an Ubuntu Server (VirtualBox) using Docker Compose v3.8. A **single shared Java Spring Boot 3.4 backend** (Java 21) securely powers multiple decoupled Next.js frontend applications (Finance, Agro, Parent) deployed exclusively on **Cloudflare Pages**.
+Edge-first, decoupled zero-trust. The browser **never** talks to the backend directly — every `/api/**` request traverses the Cloudflare Worker (`treishfin-seo-worker`), which signs it (HMAC-SHA-512), translates MTD paths, and injects tenant/geo headers. The backend is a **modular monolith** with three satellite processes:
 
-The system implements a **Hybrid Static Site Generation (SSG)** architecture fortified by:
-- **Strict Zero-Trust Network** — no database, cache, or messaging ports exposed externally
-- **Intelligent Cloudflare Edge** — Worker-based SEO, security, and GEO routing
-- **AEGIS Security Framework** — 9-layer adaptive adversarial defense system
+1. **Go ZKP verifier** (`aegis/zkp-service`) — gRPC `127.0.0.1:9090`, single-stage `golang:1.26-alpine` build (multi-stage permanently banned after Exit-Code-2 OOM panic — Incident 3), `cpus: 0.50`, 256 MB.
+2. **Python transcoder** (`transcoder/`) — Alpine + pika listener on `video.transcode.queue`, ffmpeg `nice -n 19` → single 1080p HLS rendition (`ENABLE_4K_TRANSCODING=false` default, Infisical toggle), <15 MB idle, 384 MB / 0.5 CPU.
+3. **Python market updater** (`scripts/market_data_updater.py`) — spawned in-process via `ProcessBuilder("python3", …)` on `MARKET_UPDATE` messages; yfinance (34 tickers: indices, commodities, FX, crypto-INR) upserting directly to MariaDB.
 
-**Key Architectural Security Feature:**
-Zero internal ports are exposed to the host machine or public internet. MariaDB, Redis, Elasticsearch, MinIO, RabbitMQ, the ZKP microservice, and all observability services are **invisible outside the internal Docker network** (`treish_net`), accessible only by authorized containers via service-name DNS.
+## 2. Runtime Topology (24 services, `docker-compose.yml`)
 
----
+| Group | Services |
+|---|---|
+| Data | `treishvaam-db` (mariadb:10.6), `keycloak-db` (mariadb:10.6), `treishvaam-redis` (redis:7-alpine, dangerous cmds renamed `""`), `redis` (canary isolate), `minio` |
+| Heavy | `elasticsearch` (8.17.0, 192 m heap), `rabbitmq` (3.12-management, mgmt UI `127.0.0.1:15672`), `wazuh-manager` (4.14.5) |
+| Security | `aegis-zkp-service` (**127.0.0.1:9090**), `aegis-canary-server` (thinkst/canarytokens + isolated redis), `wazuh-agent` (privileged, `pid: host`) |
+| Edge/agents | `tunnel` (cloudflared, token-based), `backup-service`, `permission-fixer` (one-shot chown, always alone — Golden Rule 7) |
+| Observability | `promtail`, `prometheus`, `tempo`, `grafana` (`127.0.0.1:3001`) |
+| App | `backend` (**×2 replicas**, JVM `-Xmx256m -Xms256m` via `JAVA_TOOL_OPTIONS`, host-mounted `backend-app.war`, healthcheck python3 socket :8080, **`start_period 240s`** — raised from 160 s after the V50 boot-hang, Incident 96–104), `treishvaam-transcoder` |
+| Edge listener | `nginx` (openresty:alpine, **host 80:80/443:443 but `listen 80` only** — TLS ends at Cloudflare) |
+| Experimental | `envoy-sidecar` (v1.29, `:9901` `/api/v1` router — **not in the request path**) |
 
-## System Components
+Network **`treish_net` (bridge)**; volumes `app_logs`, `app_uploads`, `app_sitemaps`; devices `/dev/random`, `/dev/urandom` mounted to backend. Docker bridge is `172.18.0.0/16` — the reason `X-Real-IP`/`X-Aegis-Client-IP` extraction matters (raw `getRemoteAddr()` returns `172.18.0.x` → fingerprint collisions, Incidents 63–74).
 
-### 1. Application Layer
-
-#### Backend API — Spring Boot 3.4 (Java 21)
-
-| Attribute | Value |
-| :--- | :--- |
-| **Internal Port** | 8080 (proxied exclusively by OpenResty — never exposed to host) |
-| **Entry Point** | `FinanceApiApplication.java` (extends `SpringBootServletInitializer`) |
-| **Concurrency** | Java 21 Virtual Threads (Project Loom) throughout — zero blocking I/O |
-| **Build** | Maven WAR packaging |
-| **Replicas** | 2 replicas (restored post-OOM fix — JVM tuned to `-Xmx768m -Xms512m`) |
-
-**Key Services (all verified in code):**
-- `HtmlMaterializerService` — Generates materialized HTML files on post publication for 100% SEO availability during backend downtime
-- `GeoOptimizationService` — Produces HMAC-SHA256-signed AI-readable semantic payloads (`llms.txt`, `ai-feed.md`, `ontology.json`)
-- `SitemapService` — Multi-tenant, paginated XML sitemaps (designed for 10M+ URLs); includes GEO endpoint URLs at priority 1.0. **Contextual routing:** Finance → dynamic paginated; Agro → static E-E-A-T XML
-- `MarketDataService` — Hybrid Java + Python market data aggregation via Strategy Pattern (`AlphaVantageProvider`, `FinnhubProvider`, `FmpProvider`, `YahooHistoricalProvider`, `BreezeProvider`)
-- `AnalyticsService` — Native first-party audience tracking via `audience_visits` table + GA4 BigQuery integration
-- `ContentIntegrityService` — HMAC-SHA256 digital signatures on all published post content
-
-**Security Engine:**
-- Runs AEGIS Byzantine Consensus Security Mesh (L8-BCSM) and Behavioral Intelligence Engine (L5-BIE)
-- All AEGIS validators execute in parallel via Java 21 Virtual Threads — zero added latency to HTTP request threads
-- JDBC query signing via `AegisQueryInterceptor` (SHA3-256 HMAC) — Zero-Trust DB Driver Boundary
-- AES-256-GCM domain-specific PII encryption at rest (`UserEmailConverter`, `ContactEmailConverter`, `ContactMessageConverter`, `AuditIpConverter`)
-
-**Multi-Tenancy:**
-- `TenantInterceptor` reads `X-Tenant-ID` header injected by Edge Workers
-- All DB queries, sitemaps, and service behavior scoped to tenant context via `TenantContext` (ThreadLocal)
-- Tenant whitelist validated server-side
-
-#### Edge Workers — Cloudflare Workers (V8 Isolate)
-
-| Worker | Route | Status |
-| :--- | :--- | :--- |
-| `treishfin-seo-worker` | `treishvaamfinance.com/*` | Live Production |
-| `treishvaamagro-seo-worker` | `treishvaamagro.com/*`, `www.treishvaamagro.com/*` | In Development (⚠️ Pending AEGIS Phase 6 MTD + GEO upgrade) |
-
-**Worker responsibilities:**
-- **Zero-Trust API Proxy:** HMAC-SHA-512 signs all backend requests (`X-Aegis-Edge-Signature`); injects `X-Tenant-ID`
-- **AEGIS L4-ADA Checkpoint:** Reads `aegis:mtd:manifest` from KV for Moving Target Defense path translation; blocks/tarpits malicious IPs and JA3 hashes from `AEGIS_THREAT_KV`
-- **GEO Router:** Intercepts LLM crawlers (GPTBot, ClaudeBot, DeepSeek, OAI-SearchBot, 50+ total) and serves semantic GEO payloads from KV — React is bypassed entirely
-- **SEO Intelligence:** Injects E-E-A-T JSON-LD schemas via `HTMLRewriter`; handles KV-cached sitemaps; prevents SPA 404 penalties
-- **Cron Cache Warmer:** Hourly (`0 * * * *`) proactive KV sitemap refresh
-
-#### Frontends — Next.js 14 App Router (Cloudflare Pages)
-
-| Frontend | Project | Domain | Status |
-| :--- | :--- | :--- | :--- |
-| Finance | `treishvaam-finance-frontend` | `treishvaamfinance.com` | Live Production |
-| Agro | `treishvaam-agro-frontend` | `treishvaamagro.com` | In Development |
-| Parent | `treishvaamgroup-frontend` | `treishvaamgroup.com` | Live Production |
-
-**Key frontend attributes:**
-- **Framework:** Next.js 14 App Router — **migrated from Create React App (CRA)**. Legacy `src/pages/*.js` components are imported by `app/*/page.tsx` wrappers — NOT URL routes themselves
-- **Runtime:** Edge Runtime (`export const runtime = 'edge'` in `app/layout.tsx`)
-- **Build:** `next build` → deployed to Cloudflare Pages automatically on `git push origin main`
-- **Security:** Per-request cryptographic CSP nonce via `middleware.ts` (`btoa(crypto.randomUUID())` — Edge-safe, no `Buffer`)
-- **PWA:** Serwist 9.0.2 (`src/sw.ts`) — `/// <reference lib="webworker" />` directive required; Serwist Strategy classes instantiated (not string handlers)
-- **Image Optimization:** Custom `cloudflareImageLoader.ts` — delegates to Cloudflare CDN (Next.js native server-side image optimization crashes on Edge)
-- **Fonts:** Self-hosted `@fontsource-variable/inter` (privacy + performance; removes Google Fonts CDN dependency)
-- **Analytics:** GA4 with dynamic `anonymize_ip` toggle via `NEXT_PUBLIC_ENFORCE_STRICT_PRIVACY`
-- **Telemetry:** `AegisTelemetry.tsx` (L5-BIE biometric hashing via WebCrypto SHA3-256), `WebVitalsTracker.tsx` (Core Web Vitals), Grafana Faro RUM
-
----
-
-### 2. Data Layer — Zero Exposed Ports
-
-All data services communicate exclusively on the internal `treish_net` Docker bridge network. No data layer ports are bound to the host.
-
-| Service | Image | Role | Encryption |
-| :--- | :--- | :--- | :--- |
-| **MariaDB** (`treishvaam-db`) | `mariadb:10.6` | Primary relational DB — `finance_db` | TDE via `config/mariadb/encryption.cnf` + Docker secret `mariadb_encryption_key` |
-| **MariaDB** (`treishvaam-keycloak-db`) | `mariadb:10.6` | Keycloak's isolated identity DB | — |
-| **Redis** (`treishvaam-redis`) | `redis:7-alpine` | Read-through cache + AEGIS temporal path registry | Password auth; FLUSHALL/FLUSHDB/DEBUG/MONITOR renamed to `""` (disabled) |
-| **Elasticsearch** (`treishvaam-elastic`) | `elasticsearch:8.17.0` | Full-text search (`PostDocument`) | xpack security enabled; JVM: `-Xms512m -Xmx512m` |
-| **MinIO** (`treishvaam-minio`) | `minio/minio` | S3-compatible object storage — media + materialized HTML | Internal network only; console on 9001 (not bound to host) |
-| **RabbitMQ** (`treishvaam-rabbitmq`) | `rabbitmq:3.12-management` | Async event bus — threat telemetry, sitemap triggers, DLX retries | Management UI: `127.0.0.1:15672` (SSH tunnel only) |
-
-**MariaDB specifics:**
-- Transparent Data Encryption (TDE) via `config/mariadb/encryption.cnf`
-- JDBC Batching (`batch_size=50`, `order_inserts=true`, `order_updates=true`) for bulk write performance
-- Optimistic Locking enforced on `blog_posts` (version column, V40 migration)
-- All JDBC queries intercepted and HMAC-signed by `AegisQueryInterceptor` (SHA3-256) — Zero-Trust DB Driver Boundary
-- HikariCP tuned: max-pool-size=50, min-idle=10, idle-timeout=300s, max-lifetime=1200s, keepalive-time=120s
-
-**Redis specifics:**
-- Read-through caching for market data widgets (`@Cacheable`)
-- AEGIS temporal path registry (daily rotating manifests signed by ML-DSA-87)
-- `@Cacheable` deliberately NOT applied to `Optional<T>` returning repository methods (Jackson deserialization crash prevention)
-
----
-
-### 3. Security Layer
-
-| Service | Image | Role |
-| :--- | :--- | :--- |
-| **Keycloak** (`treishvaam-keycloak`) | `quay.io/keycloak/keycloak:25.0.0` | Centralized SSO / Identity Provider — internal only, exposed via OpenResty |
-| **aegis-zkp-service** | Compiled Go, distroless/scratch | L3-ZKA Zero-Knowledge Proof verification (Schnorr-over-Lattice). gRPC port 9090 internal only. **Strict 256MB memory limit** |
-| **OpenResty** (`treishvaam-nginx`) | `openresty/openresty:alpine` | **Only container with exposed ports (80/443).** WAF, TLS JA3 fingerprinting via `aegis_ja3.lua`, SSL termination, ModSecurity OWASP CRS |
-| **cloudflared** (`treishvaam-tunnel`) | `cloudflare/cloudflared` | Secure ingress tunnel — no firewall ports opened |
-| **aegis-canary-server** | `thinkst/canarytokens:latest` | Canary token management for L4-ADA deception. Port `127.0.0.1:8089` |
-| **wazuh-agent** | `wazuh/wazuh-agent:4.7.3` | HIDS — subscribes to RabbitMQ threat events. Signals feed `HidsIntegrityValidator` in BCSM |
-| **Envoy** (`treishvaam-envoy`) | `envoyproxy/envoy:v1.29-latest` | Internal L7 proxy for gRPC routing to ZKP service |
-
----
-
-### 4. Observability Layer — SSH-Tunnel Access Only
-
-**ZERO-TRUST ACCESS:** Grafana, Prometheus, and RabbitMQ Management UIs are NEVER exposed to `0.0.0.0`. Access is strictly via SSH Local Port Forwarding.
-
-```bash
-ssh -L 3001:localhost:3001 -L 15672:localhost:15672 vboxuser@192.168.29.111
+```mermaid
+flowchart LR
+    subgraph CF["Cloudflare"]
+        DNS["DNS + DDoS"] --> WRK["treishfin-seo-worker<br/>(HMAC signer · MTD translator · GEO router)"]
+    end
+    WRK --> TUN["cloudflared tunnel"] --> NGX["OpenResty :80<br/>JA3 Lua → X-JA3-Fingerprint"]
+    NGX --> BE["backend ×2 :8080"]
+    NGX -->|"/auth/*"| KC["Keycloak 25 :8080"]
+    BE --> ZKP["Go ZKP :9090 loopback"]
+    BE --> DB[("MariaDB 10.6 ×2")] & RD[("Redis 7")] & MQ[["RabbitMQ"]] & ES[("ES 8.17")] & S3[("MinIO")]
+    MQ --> TRC["transcoder → HLS"] 
+    BE -.-> OBS["Prometheus · Loki · Tempo · Grafana"]
 ```
 
-| Service | Image | Access | Notes |
-| :--- | :--- | :--- | :--- |
-| **Grafana** | `grafana/grafana:latest` | `localhost:3001` (SSH tunnel) | Dashboards, alerting, Faro RUM |
-| **Prometheus** | `prom/prometheus:latest` | Internal | Scrapes Spring Boot actuator at `/actuator/prometheus` |
-| **Loki** | `grafana/loki:2.9.2` | Internal | Log aggregation. Query label: `{job="varlogs"}` |
-| **Promtail** | `grafana/promtail:2.9.2` | Internal | Ships logs from `./logs` to Loki |
-| **Tempo** | `grafana/tempo:latest` | Internal | Distributed tracing (Zipkin-compatible). Receives traces from backend at `http://treishvaam-tempo:9411/api/v2/spans` |
+## 3. Request Lifecycle (public API request)
 
-**Grafana Alerting (verified in `config/grafana-alerting.yml`):**
-- `HighBackendErrorRate` — triggers on elevated 5xx rates
-- `SlowAPIResponse` — triggers on degraded P99 latency
-- `SecretKeyRotationDue` — triggers on approaching key expiry
+```mermaid
+sequenceDiagram
+    autonumber
+    actor C as Browser
+    participant W as treishfin-seo-worker
+    participant N as OpenResty :80
+    participant EV as AegisEdgeValidationFilter
+    participant SC as Security chain
+    participant M as AegisMainFilter (MTD+BCSM)
+    participant CT as Controller
 
----
-
-### 5. Background & Utility Services
-
-| Service | Notes |
-| :--- | :--- |
-| **Backup Service** (`treishvaam-backup`) | MariaDB dump via `backup.sh` + MinIO via `docker cp`. AES-encrypted with `BACKUP_ENCRYPTION_KEY` |
-| **Python Market Updater** (`scripts/market_data_updater.py`) | Runs inside backend container via Java `ProcessBuilder` for heavy historical data. Guarded by Resilience4j `pythonScript` circuit breaker (120s timeout, 50% failure threshold) |
-
----
-
-## Architecture Data Flow
-
-```
-Client / Bot Request
-      │
-      ▼
-Cloudflare DNS + WAF (DDoS protection, Bot Score, IP Reputation)
-      │
-      ├── www.* → 301 Cloudflare Bulk Redirect (Edge Rule) → apex domain
-      │
-      ▼
-Cloudflare Edge Worker (treishfin-seo-worker)
-      │
-      ├── Known malicious IP/JA3 → KV tarpit marker → BLOCK or DECEPTION payload
-      ├── AI/LLM crawler (GPTBot, ClaudeBot, DeepSeek, etc.) → KV GEO payload (/ai-feed.md, /llms.txt)
-      ├── Sitemap/SEO request → KV TREISHFIN_SEO_CACHE (3-tier: CDN Cache → KV → Backend fallback)
-      │
-      ├── Standard request → inject X-Tenant-ID + HMAC-SHA-512 Edge Signature
-      │       │
-      │       ▼
-      │   Cloudflare Pages (Next.js 14 Edge SSR)
-      │       │
-      │       └── API calls → Worker proxy → BACKEND_API_URL (Cloudflare Tunnel) → OpenResty (443)
-      │                                                                │
-      │                                             AegisEdgeValidationFilter (verify HMAC-SHA-512)
-      │                                                                │
-      │                                             AegisDeceptionFilter (L4-ADA pre-screen)
-      │                                                                │
-      │                                             AegisMainFilter (L8-BCSM Byzantine Consensus, 7 validators)
-      │                                                                │
-      │                                             AegisZkpAdminFilter (L3-ZKA, /admin/** only)
-      │                                                                │
-      │                                             Spring Security (OAuth2 Resource Server / Keycloak JWT)
-      │                                                                │
-      │                                             Business Logic → MariaDB / Redis / Elasticsearch / MinIO
-      │
-      └── RabbitMQ (async) → CloudflareEdgeSyncService → Cloudflare KV (real-time threat intel push)
+    C->>W: HTTPS canonical path (e.g. /api/v1/auth/me)
+    W->>W: MTD: KV manifest aegis:mtd:manifest → obfuscated path /api/v1/node/{hex}
+    W->>W: sig = HMAC-SHA-512(secret, backendPath.split('?')[0] : ts : clientIp)
+    W->>N: + X-Aegis-Edge-Signature / X-Aegis-Edge-Timestamp(ms) / X-Aegis-Client-IP / X-Tenant-ID / X-Visitor-*
+    N->>N: JA3 (cf-client-ja3 or md5(ua|tls|cipher)) → X-JA3-Fingerprint
+    N->>EV: proxy_pass backend:8080
+    EV->>EV: verify (±300s, constant-time). Fail → 403 sendError
+    EV->>SC: AegisIpResolutionFilter pins verified IP
+    SC->>SC: RateLimit → InputSanitization → ZKP gate (admin) → Keycloak JWT → RBAC
+    SC->>M: BCSM 7 validators (100 ms) → decision
+    M->>CT: MTD unwrap /api/v1/node/{hex} → canonical (CanonicalPathRequestWrapper,<br/>path attrs evicted, filterChain.doFilter — .forward() banned, JWT bypass)
+    CT-->>C: JSON (+ response mutator jitter & fake headers)
 ```
 
----
+## 4. Module Map
 
-## Multi-Tenant Architecture
+`com.treishvaam.financeapi` — entry points `FinanceApiApplication` (**centralized `@EntityScan(basePackages="com.treishvaam.financeapi")`** + `@EnableJpaRepositories` over 7 domain packages — localized `@EntityScan` configs banned after the 18-entity blindness incident 105–111), `ServletInitializer`. Packages: `config` (+`config.tenant`), `security` (+`security.aegis.{ael,bcsm,crypto,mtd}`), `controller`, `dto`, `model`, `repository`, `service`, `marketdata`, `analytics`, `apistatus`, `newshighlight`, `userpreferences`, `search`, `aspect`, `exception`, `common`. Legacy ns `com.treishvaam.finance` holds `messaging/` (EventMessage, MessagePublisher/Listener) + `dto/ShareRequest`.
 
-One backend, multiple brands. Tenant isolation is enforced at every layer.
+## 5. Filter Chain Architecture
 
-| Tenant ID | Frontend | Domain | Status |
-| :--- | :--- | :--- | :--- |
-| `finance` | `treishvaam-finance-frontend` | `treishvaamfinance.com` | Live |
-| `agro` | `treishvaam-agro-frontend` | `treishvaamagro.com` | In Development |
-| `public` | `treishvaamgroup-frontend` | `treishvaamgroup.com` | Live |
+**Servlet chain (registration order):**
 
-The `X-Tenant-ID` header is injected by each Edge Worker and validated by `TenantInterceptor`. All DB queries, sitemaps, and service behavior are scoped to the tenant context. MDC tagging ensures Loki logs are filterable per tenant.
+| Order | Filter | Registration |
+|---|---|---|
+| `HIGHEST_PRECEDENCE` | `AegisEdgeValidationFilter` | FilterRegistrationBean |
+| `HP+1` ⚠ tie | `AegisIpResolutionFilter` · `RequestIdFilter` · `AegisMainFilter` · `AegisZkpAdminFilter` | mixed |
+| `HP+2` ⚠ tie | `CorsFilter` · `InputSanitizationFilter` · `AegisResponseMutator` | mixed |
+| `-105` | `AegisDeceptionFilter` | `@Component` |
+| `-100` | `springSecurityFilterChain` | Spring default |
 
----
+**Security chain (SecurityConfig, canonical intent):** Deception → Main → InternalSecret → RateLimiting → InputSanitization → ZkpAdmin → (UsernamePassword anchor) → OAuth2 JWT → authorization. `FilterConfig` disables auto-registration only for `InternalSecretFilter` + `RateLimitingFilter`. ⚠ Sub-tie order is container-dependent (OP-08).
 
-## Cloudflare Edge Routing Rules (Dashboard-Managed — Not in Code)
+## 6. Threading & Concurrency
 
-These rules are enforced at Cloudflare Edge. They must **NEVER** be implemented in `_redirects`, `next.config.mjs`, `worker.js`, or backend code.
+- **Explicit virtual threads (real, code-verified):** `TarpitManager`, `CloudflareEdgeSyncService`, `AegisBcsm` (per-evaluation executor), `MerkleAuditLogService`, `ImageService` variant fan-out, analytics roll-ups (`@Async @EventListener(ApplicationReadyEvent) initAfterBoot()` — replaced `@PostConstruct`, which deadlocked port binding, Incident 96–104).
+- **Platform threads:** `AsyncConfig` pool (5/10/25, `ContextCopyingDecorator` propagates TenantContext + MDC); Tomcat — `spring.threads.virtual.enabled` is **never set** (OP-06). Knowledge Tracker asserts virtual-thread usage; true only for the explicit executors above.
+- Concurrency guards: `synchronized(ImageService.class)` around Thumbnailator (JDK `FileCacheImageOutputStream.seek()` corruption under concurrent virtual-thread writes — Incident 121).
 
-**Rule 1 — www → apex 301 (Cloudflare Dynamic Redirect):**
-```
-Expression: (http.host in {"www.treishvaamfinance.com" "www.treishvaamgroup.com" "www.treishvaamagro.com"})
-Target: concat("https://", substring(http.host, 4), http.request.uri.path)
-Status: 301 | Preserve query string: ON
-```
+## 7. Multi-Tenancy
 
-**Rule 1.5 — Legacy subdomain migration (treishvaamgroup.com zone):**
-```
-Expression: (http.host eq "treishfin.treishvaamgroup.com")
-Target: concat("https://treishvaamfinance.com", http.request.uri.path)
-Status: 301 | Preserve query string: ON
-```
+`TenantContext` (`InheritableThreadLocal`, default `public`, whitelist `finance|agro`) · `TenantInterceptor` (`X-Tenant-ID`, MDC `tenantId`, clear in `afterCompletion`) — ⚠ no MVC registration found (OP-07); the Worker injects `X-Tenant-ID: finance` unconditionally and `DataInitializer`/`MarketDataInitializer` set it programmatically. `BlogPost` carries a Hibernate `@Filter(tenant_id)`; sitemap/GEO generation branches per tenant domain.
 
-**Rule 2 — Bulk Redirect (Account-level list: `previewurl`):**
-Applies ONLY to non-Worker-proxied frontends. Finance and Agro are EXCLUDED — a bulk redirect on their `.pages.dev` URLs would create an `ERR_TOO_MANY_REDIRECTS` infinite loop because the Worker itself fetches the `.pages.dev` origin.
-```
-treishvaamgroup-frontend.pages.dev/ → https://treishvaamgroup.com/
-Status: 301 | Include subdomains: ON | Subpath matching: ON | Preserve path suffix: ON
-```
+## 8. Services Layer (deep dive — absorbed from legacy BE-04-SERVICES, code-verified)
 
----
+### 8.1 Content pipeline (`BlogPostServiceImpl`)
+- IDs: internal `slug` = SecureRandom 8-byte Base64URL; `userFriendlySlug` from title; `urlArticleId` = `EEEddMMyyyyHHmm` UTC + id, lowercased.
+- `createDraft`/`updateDraft` — optimistic `version` check → `ObjectOptimisticLockingFailureException` → **409**.
+- `save(...)` — cover image → `ImageService`; thumbnails (new files matched by originalFilename, else reuse-by-URL); `persistPost` (SCHEDULED if future `scheduledTime` else PUBLISHED; `content_signature` HMAC on publish; second save for `urlArticleId`); async `HtmlMaterializerService` (fetch Next.js shell from `treishvaam-nginx`, Jsoup-inject SEO/JSON-LD/`#server-content`/`window.__PRELOADED_STATE__`, upload `posts/{slug}.html` to MinIO, `max-age=3600`); RabbitMQ `event.search` (PUBLISHED only) + `event.sitemap`; optional LinkedIn `/v2/ugcPosts` (disabled when token empty).
+- Scheduler `@Scheduled(fixedRate=60000)` flips due SCHEDULED→PUBLISHED.
+- Deletes evict `BLOG_POST_CACHE` allEntries + emit DELETE search events.
+- **Cache rule (immutable):** no `@Cacheable` on `Optional<T>` finders (Redis deserialization crash).
+- `VideoService.processVideoUpload` — `@RequestParam("videoFile") MultipartFile` → `java.nio.file.Files` write to `/app/uploads/raw/{postId}.mp4` (shared volume) → `MessagePublisher` `{"videoId":"…"}` to `video.transcode.queue`. (Extracted from BlogPostServiceImpl for SRP — Incident 123.)
 
-## Planned: Hybrid-Cloud Disaster Recovery (OCI — Status: Planned/Pending)
+### 8.2 Market engine (`marketdata`)
+- **Provider strategy** (interface: `fetchTopGainers/Losers/MostActive/fetchHistoricalData`): **FMP ACTIVE** (`financialmodelingprep.com/stable`, movers); **AlphaVantage** legacy-historical only (⚠ malformed base URL `https.www.…`, OP-15); **Finnhub** disabled (`UnsupportedOperationException`); **Breeze** unimplemented (IN-market placeholder); **YahooHistoricalProvider** CSV 20-year window, UA-spoofed, keyless.
+- `MarketDataFactory`: movers = IN→Breeze else FMP; historical→AlphaVantage; quote→Finnhub.
+- Crons: movers `0 0 22 * * MON-FRI UTC`; global refresh `0 0 */4 * * *` → `enqueueMarketUpdate` → RabbitMQ `internal.queue` → `MarketUpdateConsumer` → python updater (deliberate async — ProcessBuilder under request threads starved Hikari, ARCH-03).
+- Circuit breakers: `fmpApi` (window 20, wait 30 s, TL 5 s), `pythonScript` (window 10, wait 60 s, TL 120 s, fallback SKIPPED status).
+- `MarketDataRepository.deleteByType` = `@Modifying` JPQL delete (fixes optimistic-lock crash on mover refresh — Incident 17).
+- Caches: `marketWidget` 5 min, `quotesBatch` 5 min; `HistoricalDataCache` 30-min freshness.
+- News (`NewsHighlightService`): 15-min cron → newsdata.io business/en, 18-source whitelist, link+title dedupe, keeps 50 active, og:image healing via Jsoup.
 
-The system is scheduled to migrate to an Oracle Cloud Infrastructure (OCI) hybrid model:
-- **OCI Always-Free Node** — Primary Master (Terraform/Ansible IaC, strictly within Always Free limits)
-- **Local VBox Node** — Intermittent Replica (GTID replication, sync-before-serve gate)
-- **Zero-State Ignition** — Single script to provision containers, apply Liquibase schema, restore S3 backup, re-establish Cloudflare Tunnel
+### 8.3 Analytics engine (`analytics`)
+- Two-pipeline split: **Grafana Faro web-vitals → `MonitoringController`** (YAUAA enrichment → `audience_visits`, async forward `http://alloy:12347/collect`) vs **first-party AEGIS events → `AnalyticsEventController`** (`analytics_events`). ⚠ current frontend posts Faro to `NEXT_PUBLIC_FARO_URL` (default `/faro/collect`), not `/monitoring/ingest` (OP-20).
+- `syncAegisTelemetryToAudienceVisits()` — `@Scheduled(fixedDelay=300000)` bridge (5 min, 7-day lookback, `Asia/Kolkata` day boundary, 500-row `TransactionTemplate` chunks).
+- GA4 Data API daily 02:00 + `ga4.bigquery.enabled=false` (free-tier mandate); Smart Attribution maps GA4 onto Faro rows (placeholder rows `sessionId="Not available (GA4)"`).
+- `AudienceVisitRepository extends JpaSpecificationExecutor` + dynamic CriteriaBuilder specs (monolithic `(? IS NULL …)` JPQL deleted — Hibernate 6 + MariaDB typed-NULL incompatibility, Incidents 33/76/77); `sanitizeParam` `""`→`null`.
+- Healer `healHistoricalDataFidelity()` — ZKP-gated, `PageRequest.of(page,500)` + `entityManager.clear()` (~20 MB heap cap), per-chunk commits.
+- `hydrateOrphanedAudienceFingerprints()` — synthetic `syn-{sha3}` fingerprints for 3,648 legacy GA4 rows.
+- Retention purge daily 03:30 (>365 d, DPDP).
 
-When this is implemented, this section must be moved from PLANNED to ACTIVE and integrated into `BE-09-DEPLOYMENT.md`.
+### 8.4 Media & SEO services
+- `ImageService` — Tika MIME gate; 4 WebP variants (1920/1200/800/480, quality matrix STANDARD vs NEWS) + BlurHash 4×3; parallel on virtual threads under `synchronized` guard.
+- `FileStorageService` — MinIO `UUID.ext`; presigned GET **7 days**; HTML uploads `Cache-Control: public, max-age=3600`.
+- `SitemapService` — 10,000-URL chunks; tenant domain base; page-0 prepends `/llms.txt`, `/ai-feed.md`, `/ontology.json` (daily, 1.0); news sitemap = last 48 h posts; regeneration lazy after `event.sitemap` eviction.
+- `GeoOptimizationService` — `llms.txt` / `ontology.json` / `ai-feed.md` (top-10 posts, `<semantic-chunk>` boundaries), HMAC-SHA256 provenance (`CONTENT_SIGNING_KEY`), `max-age=3600`.
+- `editorialDistributor.js` (frontend) — exponential temporal decay `weight = baseWeight · e^(−λt)` for homepage layout.
 
----
+## 9. Configuration Profiles
 
-## IMMUTABLE CHANGE HISTORY (DO NOT DELETE)
+| Concern | dev (port 8081) | prod (port 8080) |
+|---|---|---|
+| DB | `jdbc:mariadb://localhost:3306/finance_db`, `ddl-auto=update`, show-sql | `${PROD_DB_URL}`, **`validate`**, Hikari 50 |
+| Swagger / actuator | on / `include=*`, always | **off** / `health,prometheus`, `when-authorized` ROLE_ADMIN |
+| Tracing / JSON logs | — | sampling 0.1 → `tempo:9411`; `/app/logs/backend.json` |
+| Keycloak issuer | absent (OP note) | `${…JWT_ISSUER_URI}` + jwk-set-uri |
 
-- **VERIFIED (2026-05-29 — Enterprise Documentation Generation):**
-  - All architectural claims verified against actual codebase (`docker-compose.yml`, `FinanceApiApplication.java`, `SecurityConfig.java`, `application-prod.properties`, `worker.js`, `wrangler.toml`, `middleware.ts`, `layout.tsx`, `next.config.mjs`).
-  - Added verified container image versions for all services.
-  - Added HikariCP tuning parameters from `application-prod.properties`.
-  - Added `package.json` homepage stale-field observation.
-  - Added explicit Agro Worker AEGIS gap warning.
-  - No architectural claims changed — the existing docs were accurate.
+## 10. Open Items (⚠)
+
+OP-06 virtual-thread property · OP-07 tenant interceptor · OP-08 filter ties (all in BE-00 §4) · Envoy sidecar purpose (retention decision) · compose `deploy.replicas` inert under plain compose (Engine B scales manually).
