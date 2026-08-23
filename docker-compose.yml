@@ -258,7 +258,13 @@ services:
         CLEAN_KEY=$$(echo "$$MARIADB_ENCRYPTION_KEY" | grep -oE '[A-Fa-f0-9]{64}')
         printf '1;%s\n' "$$CLEAN_KEY" > /etc/mysql/encryption/keyfile
         chown mysql:mysql /etc/mysql/encryption/keyfile
-        exec docker-entrypoint.sh mariadbd --log-bin=mariadb-bin --server-id=1 --binlog-format=ROW
+        # GTID MASTER args (OCI Migration Phase 2 — 2026-08-23): the VM is the
+        # live master until Phase 3 cutover; gtid_domain_id tags every binlog
+        # event so the OCI replica can track position with GTID (slave_pos).
+        # log_slave_updates keeps the VM chain-ready when roles reverse at
+        # cutover. Additive only — restart of treishvaam-db applies it
+        # (planned micro-window, RUNBOOK Stage 10).
+        exec docker-entrypoint.sh mariadbd --log-bin=mariadb-bin --server-id=1 --binlog-format=ROW --gtid-domain-id=1 --log-slave-updates=ON
     volumes:
       - ./data/mariadb:/var/lib/mysql
       - ./config/mariadb/encryption.cnf:/etc/mysql/conf.d/encryption.cnf:ro

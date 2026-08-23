@@ -286,7 +286,14 @@ services:
         CLEAN_KEY=$$(echo "$$MARIADB_ENCRYPTION_KEY" | grep -oE '[A-Fa-f0-9]{64}')
         printf '1;%s\n' "$$CLEAN_KEY" > /etc/mysql/encryption/keyfile
         chown mysql:mysql /etc/mysql/encryption/keyfile
-        exec docker-entrypoint.sh mariadbd --log-bin=mariadb-bin --server-id=1 --binlog-format=ROW
+        # GTID args (OCI Migration Phase 2 — 2026-08-23): server-id=2 (master
+        # VM is 1 — ids MUST differ); gtid-domain-id=1 = same domain as the
+        # master for clean slave_pos tracking now and clean promotion at
+        # Phase 3 cutover; log_slave_updates=ON so OCI can itself serve as
+        # master to the VM after cutover. Read-only is NOT set here: during
+        # staging validation this DB is a writable sandbox copy; super_read_only
+        # is set dynamically when replication starts (RUNBOOK Stage 10).
+        exec docker-entrypoint.sh mariadbd --log-bin=mariadb-bin --server-id=2 --binlog-format=ROW --gtid-domain-id=1 --log-slave-updates=ON
     volumes:
       - ./data/mariadb:/var/lib/mysql
       - ./config/mariadb/encryption.cnf:/etc/mysql/conf.d/encryption.cnf:ro

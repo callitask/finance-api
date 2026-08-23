@@ -453,6 +453,22 @@ if [ $EXPORT_EXIT_CODE -eq 0 ] && grep -q "=" "$TEMP_SECRETS"; then
 
     echo "  > Secrets successfully injected into transient memory."
     rm "$TEMP_SECRETS"
+
+    # ── HOST-LOCAL SECRET OVERRIDES (OCI Migration Phase 2 — 2026-08-23) ───────
+    # If the host carries a .env.host-overrides file, append it AFTER the
+    # Infisical export — later assignments win in dotenv, so this cleanly
+    # overrides shared prod-env values on THIS HOST ONLY. Used on the OCI host
+    # to pin the STAGING Cloudflare tunnel token (CLOUDFLARE_TUNNEL_TOKEN) and
+    # the host-specific MariaDB TDE key (MARIADB_ENCRYPTION_KEY) without
+    # forking the shared Infisical prod environment. Hosts WITHOUT the file
+    # (the VirtualBox VM) behave exactly as before. The overrides file itself
+    # is host-local, never staged by Engine A, never committed.
+    if [ -f "$PROJECT_DIR/.env.host-overrides" ]; then
+        cat "$PROJECT_DIR/.env.host-overrides" | sed 's/\r//g' >> "$ENV_FILE"
+        echo "  > Host-local overrides applied: $(grep -cE '^[A-Z0-9_]+=' "$PROJECT_DIR/.env.host-overrides") variable(s)."
+        log_telemetry "HOST_OVERRIDES" "SUCCESS" "Host-local env overrides appended after Infisical export."
+    fi
+
     log_telemetry "INFISICAL_INJECTION" "SUCCESS" "Secrets injected from Infisical vault into transient .env."
     
     # ── TELEMETRY PARADOX RESOLVED ─────────────────────────────────────────────

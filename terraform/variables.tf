@@ -8,7 +8,10 @@
  * - Schema definition for Terraform variables.
  *
  * Security Constraints:
- * - Actual values MUST be stored in `terraform.tfvars` which is .gitignored.
+ * - NO terraform.tfvars file exists (Zero-Local-Hardcoding, 2026-08-23).
+ *   ALL values arrive as TF_VAR_* environment variables injected at runtime
+ *   from Infisical (project "OCI KEYS ETC") via `infisical run -- terraform ...`.
+ *   See INFISICAL-TERRAFORM-SETUP.md.
  *
  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
  * - ADDED:
@@ -20,6 +23,11 @@
  *   was wrong).
  * • ADDED bastion_source_cidrs / bastion_client_cidr (Bastion-only SSH),
  *   alert_email + budget_compartment_ocid (budget guardrail).
+ * - EDITED (2026-08-23, OCI Migration Phase 2 — Zero-Trust credential handling):
+ * • ADDED sensitive `oci_api_private_key` (full PEM contents from Infisical;
+ *   preferred mode — zero local secret files).
+ * • `private_key_path` demoted to OPTIONAL fallback (default "") — used only
+ *   when oci_api_private_key is empty (provider.tf selects automatically).
  */
 
 variable "tenancy_ocid" {
@@ -38,8 +46,16 @@ variable "fingerprint" {
 }
 
 variable "private_key_path" {
-  description = "Absolute path to the oci_api_key.pem file"
+  description = "OPTIONAL fallback (Option A): absolute path to a local oci_api_key.pem. Ignored whenever oci_api_private_key is set. Git-ignored via *.pem; keep it outside the repo (~/.oci/)."
   type        = string
+  default     = ""
+}
+
+variable "oci_api_private_key" {
+  description = "PREFERRED (Option B): the COMPLETE contents of the OCI API private key (PEM, including BEGIN/END lines), injected from Infisical as TF_VAR_oci_api_private_key. When set, no local secret file is needed at all."
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 variable "region" {

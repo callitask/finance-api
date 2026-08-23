@@ -44,6 +44,10 @@
  *   over var.bastion_source_cidrs — see BASTION-NOTE.md for where the regional
  *   CIDR list comes from and how sessions are created).
  * • ADDED OCI Budget + $1 alert rule guardrail (alert rule only if var.alert_email set).
+ * - EDITED (2026-08-23, OCI Migration Phase 2 — dynamic-IP + blank-secret tolerance):
+ * • bastion_source_cidrs now filtered through local.bastion_ingress_cidrs —
+ *   a blank TF_VAR secret ("" from Infisical) can never inject an invalid CIDR.
+ * • Comment block updated for the Infisical-based flow (no tfvars file exists).
  */
 
 # 1. Fetch Latest Ubuntu 24.04 ARM Image Dynamically
@@ -97,13 +101,15 @@ resource "oci_core_security_list" "enterprise_sl" {
 
   # ZERO public inbound ports.
   # Port 22 is allowed ONLY from the OCI Bastion service's regional source
-  # CIDRs (populate var.bastion_source_cidrs in terraform.tfvars — the
-  # per-region list is published in Oracle's Bastion service documentation;
-  # see BASTION-NOTE.md alongside this file).
-  # All application traffic flows out via the Cloudflare Tunnel — no 80/443/8080
-  # ingress rules exist or may be added.
+  # CIDRs — supplied as TF_VAR_bastion_source_cidrs from Infisical (comma-
+  # separated). Deliberately EMPTY for the first apply: create the first
+  # bastion session in the Console, accept its "Add SSH security rule" offer,
+  # read the CIDRs it added (VCN → Security Lists) and store them back into
+  # the Infisical secret so terraform owns the rule from then on.
+  # The local below drops empty-string entries, so an Infisical secret left
+  # blank (or containing "") can never inject an invalid CIDR.
   dynamic "ingress_security_rules" {
-    for_each = var.bastion_source_cidrs
+    for_each = local.bastion_ingress_cidrs
     content {
       protocol = "6" # TCP
       source   = ingress_security_rules.value
@@ -113,6 +119,12 @@ resource "oci_core_security_list" "enterprise_sl" {
       }
     }
   }
+}
+
+locals {
+  # Defensive: TF_VAR_bastion_source_cidrs arriving as "" (blank Infisical
+  # secret) would otherwise become [""] and fail CIDR validation on apply.
+  bastion_ingress_cidrs = [for c in var.bastion_source_cidrs : c if c != ""]
 }
 
 # 5.5 OCI Bastion Service (zero public SSH — sessions are created on demand)
