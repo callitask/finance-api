@@ -1,6 +1,6 @@
 # CROSS-SYSTEM-CONTEXT — Backend ↔ Frontend/Edge Integration Contract
 
-> **Purpose:** single source of truth for the Frontend/Edge session. Verified against three sources (backend code export, frontend repo `treishvaam-finance-frontend` + `treishfin-seo-worker`, Knowledge Tracker VOL 1+2). Supersedes all prior versions — earlier copies claiming ±30 s drift or "0-byte discard" are wrong (code: **±300 s**, **403**).
+> **Purpose:** single source of truth for the Frontend/Edge session. Verified against three sources (backend code export, frontend repo `treishvaam-finance-frontend` + `treishfin-seo-worker`, Knowledge Tracker VOL 1+2). **Re-verified 2026-08-23** against both codebases — timestamp unit question fully closed (both sides epoch **milliseconds**, `worker.js` `Date.now().toString()` × 8 call sites ↔ filter `Long.parseLong` vs `Instant.now().toEpochMilli()`), Keycloak Web Origins row made literal, OP-24 re-worded. Supersedes all prior versions — earlier copies claiming ±30 s drift or "0-byte discard" are wrong (code: **±300 s**, **403**).
 
 ---
 
@@ -56,7 +56,7 @@ Three-tier serving: CDN cache → KV → backend fallback (async KV write, never
 2. Token refresh: 60 s interval, `keycloak.updateToken(70)`; failure → logout.
 3. API auth: Axios interceptor `Authorization: Bearer <token>`; **no cookies, no `withCredentials`**. Login = `keycloak.login({redirectUri: origin + '/dashboard'})`; logout = `keycloak.logout()`. No backend login endpoints (dead DTOs `LoginRequest`/`AuthResponse`).
 4. Roles: `realm_access.roles`; UI checks only `admin|publisher` (`isAdmin`). Loop breakers (sessionStorage `kc_fatal_loop_breaker`, `kc_login_lock_time` 5 s, etc.) + fatal-error halt screen are deliberate — never "simplify" them.
-5. Keycloak realm: brute-force protection (5 fails → 60 s → max 900 s); Web Origins include `https://treishvaamfinance.com` + `https://*.treishvaamfinance.com` (Incident 26).
+5. Keycloak realm: brute-force protection (5 fails → 60 s initial → 900 s max). **Web Origins (literal, `realm-export.json:31-36`, verified 2026-08-23):** `https://treishvaamfinance.com` · `https://www.treishvaamfinance.com` · `http://localhost:3000` · **`+`** (Keycloak's "allow any registered redirect-URI origin" wildcard — this is what covers subdomains, not a literal `*.treishvaamfinance.com` entry as earlier docs implied).
 
 ## 5. Header Dictionary (complete wire contract)
 
@@ -91,7 +91,7 @@ Three-tier serving: CDN cache → KV → backend fallback (async KV write, never
 | OP-14 | `/video/internal/key` returns random keys (per-video key store unimplemented); edge proxy mitigates exposure |
 | OP-20 | Faro posts to `NEXT_PUBLIC_FARO_URL` (`/faro/collect`), not `/api/v1/monitoring/ingest` |
 | OP-15 | `/news/archived` returns active items; some FE components call `/news/archive` |
-| OP-24 | Local FE `.env` holds live-looking URLs — never commit it |
+| OP-24 | Local FE `.env` holds **localhost dev values** (`localhost:8080`) — git-ignored, must never be committed (*re-worded 2026-08-23: values verified as dev-local, not production URLs*) |
 
 ## 9. Non-Goals (confirmed absent)
 

@@ -1,6 +1,6 @@
 # BE-01 — ARCHITECTURE: Treishvaam `finance-api`
 
-> **Verification basis:** backend source export (Parts 1–12) · Knowledge Tracker VOL 1+2 (incidents 1–141) · frontend repo cross-check. Supersedes legacy BE-01 + BE-04-SERVICES (absorbed).
+> **Verification basis:** backend source export (Parts 1–12) · Knowledge Tracker VOL 1+2 (incidents 1–141) · frontend repo cross-check. Re-verified 2026-08-23 (one correction: market updater = **35** tickers). Supersedes legacy BE-01 + BE-04-SERVICES (absorbed).
 
 ---
 
@@ -10,7 +10,7 @@ Edge-first, decoupled zero-trust. The browser **never** talks to the backend dir
 
 1. **Go ZKP verifier** (`aegis/zkp-service`) — gRPC `127.0.0.1:9090`, single-stage `golang:1.26-alpine` build (multi-stage permanently banned after Exit-Code-2 OOM panic — Incident 3), `cpus: 0.50`, 256 MB.
 2. **Python transcoder** (`transcoder/`) — Alpine + pika listener on `video.transcode.queue`, ffmpeg `nice -n 19` → single 1080p HLS rendition (`ENABLE_4K_TRANSCODING=false` default, Infisical toggle), <15 MB idle, 384 MB / 0.5 CPU.
-3. **Python market updater** (`scripts/market_data_updater.py`) — spawned in-process via `ProcessBuilder("python3", …)` on `MARKET_UPDATE` messages; yfinance (34 tickers: indices, commodities, FX, crypto-INR) upserting directly to MariaDB.
+3. **Python market updater** (`scripts/market_data_updater.py`) — spawned in-process via `ProcessBuilder("python3", …)` on `MARKET_UPDATE` messages; yfinance (**35 tickers**: 19 indices, 5 commodities, 6 FX, 5 crypto-INR — counted in source 2026-08-23) upserting directly to MariaDB via SQLAlchemy `INSERT … ON DUPLICATE KEY UPDATE`.
 
 ## 2. Runtime Topology (24 services, `docker-compose.yml`)
 

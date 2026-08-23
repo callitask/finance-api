@@ -1,6 +1,6 @@
 # BE-04 — API REFERENCE: REST Surface of `finance-api`
 
-> **Verification basis:** backend controllers + DTOs (source export) · frontend `apiConfig.js` + consumers (cross-check — the "Used by" column reflects real frontend calls). Base URL: `https://backend.treishvaamgroup.com`. All requests pass the AEGIS chain (BE-02).
+> **Verification basis:** backend controllers + DTOs (source export) · frontend `apiConfig.js` + consumers (cross-check — the "Used by" column reflects real frontend calls). Base URL: `https://backend.treishvaamgroup.com`. All requests pass the AEGIS chain (BE-02). **Re-verified 2026-08-23** (one tier correction: `DELETE /posts/bulk`).
 
 ---
 
@@ -33,7 +33,7 @@ Public (HMAC-edge only) · Authed (any JWT) · Role-gated (`ROLE_ADMIN/PUBLISHER
 | PUT | `/posts/{id}` | E/P/A | same multipart + `version` → 200/404/**409** |
 | POST | `/posts/{id}/duplicate` | Authed | 201 copy-as-draft |
 | DELETE | `/posts/{id}` | P/A | 204 |
-| DELETE | `/posts/bulk` | P/A (method stricter than URL) | body = JSON id array |
+| DELETE | `/posts/bulk` | E/P/A (*corrected 2026-08-23: the explicit `/posts/bulk` matcher grants EDITOR too, `SecurityConfig` — it precedes and does **not** inherit the stricter `DELETE /api/v1/posts/**` P/A rule*) | body = JSON id array |
 | POST | `/posts/{id}/share` | P/A | `ShareRequest{message,tags}` → LinkedIn (501 if disabled) |
 
 ## 4. Categories, Contact, Files

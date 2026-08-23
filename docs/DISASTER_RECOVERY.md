@@ -1,6 +1,6 @@
 # DISASTER_RECOVERY — Treishvaam BCDR Plan (`finance-api`)
 
-> **Location:** `finance-api/docs/DISASTER_RECOVERY.md` · **Version:** 1.0 (2026-08-22)
+> **Location:** `finance-api/docs/DISASTER_RECOVERY.md` · **Version:** 1.1 (2026-08-23 re-verification: restore.sh-no-decrypt warning re-confirmed against source; Keycloak Web Origins wording made literal)
 > **Companion:** `RUNBOOKS.md` (routine ops) · `BE-03-DEPLOYMENT.md` (pipeline detail). All commands verified against the repository scripts.
 
 ---
@@ -129,7 +129,7 @@ docker compose up -d --no-deps keycloak          # start --import-realm rebuilds
    curl -s https://backend.treishvaamgroup.com/auth/realms/treishvaam/.well-known/openid-configuration | head -5
    curl -s "http://keycloak:8080/auth/realms/treishvaam/protocol/openid-connect/certs"   # from inside treish_net, or via backend JWKS env
    ```
-4. Confirm clients: `finance-app` (public, PKCE, Web Origins include `https://treishvaamfinance.com` + wildcard subdomain) and `finance-api` (bearer-only). Brute-force protection reactivates from the export (5 failures → lockout).
+4. Confirm clients: `finance-app` (public, PKCE, Web Origins literally `https://treishvaamfinance.com` · `https://www.treishvaamfinance.com` · `http://localhost:3000` · `+` — the `+` wildcard covers all registered redirect-URI origins, which is the subdomain coverage) and `finance-api` (bearer-only). Brute-force protection reactivates from the export (5 failures → 60 s initial lockout, 900 s max).
 5. User impact note: all user sessions/tokens invalidate on realm rebuild — users re-login. The backend itself needs no restart (it fetches JWKS per token validation with Spring's cache).
 
 ---

@@ -91,7 +91,12 @@ Full topology (24 services), request lifecycle, filter chain, and the services d
 | [docs/BE-05-DATABASE.md](docs/BE-05-DATABASE.md) | MariaDB TDE, Liquibase matrix, 23-table inventory, Redis/Rabbit/ES/MinIO |
 | [docs/BE-06-OBSERVABILITY.md](docs/BE-06-OBSERVABILITY.md) | Metrics, logs, traces, dashboards, telemetry reality |
 | [docs/CROSS-SYSTEM-CONTEXT.md](docs/CROSS-SYSTEM-CONTEXT.md) | **Integration bridge** — exact wire contract for Frontend/Edge |
-| `docs/archive_legacy/` | Retired legacy docs (historical reference only — contain known errors) |
+| [docs/DISASTER_RECOVERY.md](docs/DISASTER_RECOVERY.md) | BCDR plan — Sev-1 bridge collapse, PITR, Keycloak realm rebuild, MTD split-brain, frontend rollback |
+| [docs/RUNBOOKS.md](docs/RUNBOOKS.md) | Operational runbooks — AEGIS 403/429 triage, secret rotation, KV purge, runner recovery, TDE keyfile rotation |
+| [docs/DOCS_AUDIT_REPORT.md](docs/DOCS_AUDIT_REPORT.md) | 2026-08-22 audit of the retired legacy doc set (historical record) |
+
+> [!NOTE]
+> The retired legacy docs (`BE-02-CORE` … `BE-14`) referenced by older editions are **not shipped** with the current export — no `docs/archive_legacy/` folder exists in the repository as exported (verified 2026-08-23).
 
 ---
 
