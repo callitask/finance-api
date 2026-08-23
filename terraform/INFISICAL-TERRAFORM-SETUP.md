@@ -113,7 +113,43 @@ provider config and is **not** stored in state). Rules:
 - Remote state (OCI Object Storage backend) is the eventual enterprise
   upgrade — noted as future work, not needed for one instance.
 
-## 6. What changed in the delivered files for this
+## 6. Troubleshooting — `did not find a proper configuration for private key`
+
+Seen on 2026-08-24 (first live plan, Windows/PowerShell). It means BOTH key
+inputs reached terraform empty: `TF_VAR_oci_api_private_key` didn't survive the
+trip (the PEM is multiline — either the Infisical UI paste lost its newlines,
+or the CLI's Windows env injection dropped it), so the dual-mode provider fell
+back to `private_key_path`, which was also unset.
+
+**Deterministic unblock — now ZERO-path (2026-08-24 refinement):** the
+provider resolves the key in three tiers, in order:
+1. `TF_VAR_oci_api_private_key` (full PEM from Infisical — where multiline env injection works; not reliable on Windows)
+2. `TF_VAR_private_key_path` (explicit override — now **optional**, delete it if you created it)
+3. **Convention default: `~/.oci/oci_api_key.pem`** — terraform's own `pathexpand()` resolves this on whatever machine runs the plan. **No machine-specific path is stored anywhere.**
+
+So on Windows: keep the pem at the standard location (it already is:
+`C:\Users\<you>\.oci\oci_api_key.pem` IS `~/.oci/oci_api_key.pem`), delete the
+`TF_VAR_private_key_path` secret if you added it, empty/delete
+`TF_VAR_oci_api_private_key`, delete the stale `oci.tfplan`, re-run. On any
+future PC: install terraform + infisical CLI, drop the pem at `~/.oci/` —
+works with zero edits.
+
+Security posture: unchanged in practice — the local pem exists regardless (it
+was generated locally), lives outside the repo, is git-ignored via `*.pem`,
+and the Infisical copy remains as the laptop-loss backup.
+
+**60-second diagnostic (tells you WHICH failure it was — run before emptying the secret if you want the answer):**
+
+```powershell
+infisical secrets export --projectId <PROJECT_ID> --env dev --format dot-env | Out-File -Encoding utf8 $env:TEMP\infcheck.env
+(Get-Content $env:TEMP\infcheck.env | Where-Object { $_ -like 'TF_VAR_oci_api_private_key=*' }).Length
+Remove-Item $env:TEMP\infcheck.env
+```
+
+- ≈ **1755–1790** → the stored PEM is intact; the CLI's env injection is the culprit → stay on Option A permanently.
+- ≈ **30–40** → the secret value is empty/short (paste lost the PEM) → re-paste via `Get-Content $env:USERPROFILE\.oci\oci_api_key.pem | Set-Clipboard` if you want Option B back.
+
+## 7. What changed in the delivered files for this
 
 | File | Change |
 |---|---|

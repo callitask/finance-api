@@ -37,6 +37,11 @@
  * • private_key_path replaced by dual-mode private_key/private_key_path
  *   selection so the API private key can live in Infisical instead of a
  *   workstation file. No other behavior changed.
+ * - EDITED (2026-08-24, pathless-default refinement):
+ * • Three-tier fallback added — when no path secret exists, terraform itself
+ *   resolves the Oracle-conventional ~/.oci/oci_api_key.pem via pathexpand()
+ *   on whatever machine runs it. Machine-specific paths no longer need to be
+ *   stored in Infisical at all.
  */
 
 terraform {
@@ -49,12 +54,21 @@ terraform {
 }
 
 provider "oci" {
-  tenancy_ocid     = var.tenancy_ocid
-  user_ocid        = var.user_ocid
-  fingerprint      = var.fingerprint
-  region           = var.region
+  tenancy_ocid = var.tenancy_ocid
+  user_ocid    = var.user_ocid
+  fingerprint  = var.fingerprint
+  region       = var.region
 
-  # Dual-mode key delivery (contents from Infisical preferred; local file fallback)
+  # Three-tier key delivery (no hardcoded machine paths anywhere):
+  #   1. TF_VAR_oci_api_private_key — full PEM contents from Infisical
+  #      (works only where the CLI survives multiline env injection — not Windows).
+  #   2. TF_VAR_private_key_path    — explicit override path from Infisical.
+  #   3. CONVENTION DEFAULT: ~/.oci/oci_api_key.pem — resolved by terraform's
+  #      pathexpand() on WHATEVER machine runs the plan (Linux/macOS/Windows),
+  #      matching Oracle's own tooling convention. A new PC only needs the pem
+  #      dropped into the standard location — nothing to edit anywhere.
   private_key      = var.oci_api_private_key != "" ? var.oci_api_private_key : null
-  private_key_path = var.oci_api_private_key != "" ? null : var.private_key_path
+  private_key_path = var.oci_api_private_key != "" ? null : (
+    var.private_key_path != "" ? var.private_key_path : pathexpand("~/.oci/oci_api_key.pem")
+  )
 }
