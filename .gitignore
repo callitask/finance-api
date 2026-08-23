@@ -76,6 +76,14 @@ Thumbs.db
 *.pem
 *.key
 
+# Terraform values (added 2026-08-23, OCI Migration Phase 1) — tfvars carry
+# tenancy/user OCIDs, API key fingerprints and Bastion CIDRs; oci_api_key.pem
+# is already covered by *.pem above.
+terraform.tfvars
+*.tfvars
+*.tfstate
+*.tfstate.backup
+
 # ============================================================
 # AI SESSION & TEMPORARY WORKSPACE FOLDERS
 # ============================================================

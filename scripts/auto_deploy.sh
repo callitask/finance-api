@@ -215,6 +215,23 @@ LOG_FILE="deploy_pipeline.log"
 ENV_FILE=".env"
 TEMPLATE_FILE=".env.template"
 
+# ── HOST-LOCAL COMPOSE VARIANT (OCI Migration Phase 1 — 2026-08-23) ──────────
+# If the host carries a .compose_file marker, use the compose file it names
+# (e.g. "docker-compose.oci.yml" on the OCI host). Hosts WITHOUT the marker
+# (the VirtualBox VM) behave exactly as before — docker compose resolves the
+# implicit default docker-compose.yml. Opt-in, additive, zero behavior change
+# on marker-less hosts. Remove after the VM is decommissioned and the two
+# files are collapsed back into one.
+if [ -f "$PROJECT_DIR/.compose_file" ]; then
+    COMPOSE_VARIANT="$(tr -d '[:space:]' < "$PROJECT_DIR/.compose_file")"
+    if [ -n "$COMPOSE_VARIANT" ] && [ -f "$PROJECT_DIR/$COMPOSE_VARIANT" ]; then
+        export COMPOSE_FILE="$PROJECT_DIR/$COMPOSE_VARIANT"
+        echo "INFO: Using host-local compose variant: \$COMPOSE_FILE=$COMPOSE_FILE"
+    else
+        echo "WARN: $PROJECT_DIR/.compose_file exists but names a missing file ('$COMPOSE_VARIANT') — falling back to default docker-compose.yml"
+    fi
+fi
+
 cd "$PROJECT_DIR" || { echo "CRITICAL: Could not find project directory $PROJECT_DIR"; exit 1; }
 
 # ── TELEMETRY DIRECTORY SETUP ─────────────────────────────────────────────────

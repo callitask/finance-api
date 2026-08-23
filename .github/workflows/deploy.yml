@@ -276,6 +276,9 @@ jobs:
         cp -a aegis/. /opt/treishvaam/aegis/
         cp Dockerfile /opt/treishvaam/
         cp docker-compose.yml /opt/treishvaam/
+        # OCI variant (staged to every host; only ACTIVATED on hosts carrying
+        # the /opt/treishvaam/.compose_file marker — see auto_deploy.sh).
+        [ -f docker-compose.oci.yml ] && cp docker-compose.oci.yml /opt/treishvaam/
         cp -a config/. /opt/treishvaam/config/ 2>/dev/null || true
         cp -a nginx/. /opt/treishvaam/nginx/ 2>/dev/null || true
         cp -a transcoder/. /opt/treishvaam/transcoder/ 2>/dev/null || true

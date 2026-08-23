@@ -37,6 +37,16 @@
 #  * • Failure Mode: Container panics with `Exit Code 2` (missing dependencies) immediately after ignition.
 #  * • Date/Phase: 2026-07-02
 #  * • Future AI Warning: DO NOT revert to a multi-stage build. The container must use a single-stage `golang:1.26-alpine` footprint to run successfully. The Compose constraints (`cpus: 0.50`, `memory: 256M`) provide the actual resource throttling.
+#  *
+#  * - EDITED (ARM64 Target Fix - 2026-08-23, OCI Migration Phase 1):
+#  * • Replaced the hardcoded `GOARCH=amd64` with BuildKit's automatic
+#  *   `TARGETARCH` build argument.
+#  * • Reason: The OCI target is Ampere A1 (linux/arm64). The amd64 binary
+#  *   cannot execute there ("exec format error") — this was the ONLY arch pin
+#  *   in the entire 24-service stack. BuildKit sets TARGETARCH per build host,
+#  *   so the same Dockerfile now builds amd64 on the VM/workstation and arm64
+#  *   on OCI with zero behavioral change on amd64 hosts.
+#  * • Single-stage mandate and all resource constraints remain untouched.
 #  */
 
 FROM golang:1.26-alpine
@@ -69,8 +79,14 @@ RUN go get github.com/consensys/gnark@v0.14.0 google.golang.org/grpc@v1.81.1
 # Fetch dependencies
 RUN go mod tidy
 
-# Build statically linked binary without debug info to shrink footprint
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o zkp-service main.go
+# Build statically linked binary without debug info to shrink footprint.
+# ARCH FIX (2026-08-23, OCI Migration Phase 1): the hardcoded GOARCH=amd64
+# produced a dead binary on the ARM64 (Ampere A1) OCI host — exec format error
+# at container start. BuildKit injects TARGETARG/TARGETARCH automatically for
+# the build platform (amd64 on the VM/workstation, arm64 on OCI); the binary
+# is compiled FOR the host it will run on. Single-stage mandate unchanged.
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -ldflags="-w -s" -o zkp-service main.go
 
 # Expose gRPC port
 EXPOSE 9090

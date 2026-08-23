@@ -1,0 +1,81 @@
+# =============================================================================
+# OCI Bootstrap Overlay (OCI Migration Phase 1 — 2026-08-23)
+# Run BEFORE ansible/setup-server.yml against the fresh OCI instance:
+#
+#   ansible-playbook -i inventory-oci.ini oci-bootstrap-overlay.yml
+#   ansible-playbook -i inventory-oci.ini ../<repo>/ansible/setup-server.yml \
+#       --extra-vars "@oci-extra-vars.yml"   # or inline, see below
+#
+# Scope discipline (per the migration brief): this overlay is a thin,
+# host-shape adapter — it does NOT extend Ansible's role beyond the existing
+# one-time OS bootstrap. setup-server.yml itself is NOT modified. Only three
+# deltas are handled here:
+#   1. The deploy account `vboxuser` does not exist on a fresh Canonical
+#      Ubuntu OCI image (boot user is `ubuntu`). setup-server.yml's
+#      `usermod -aG docker vboxuser`, its sudoers drop-in, and Engine A's
+#      `systemd-run --uid=vboxuser` handoff all require the NAME to exist.
+#      We do NOT pin uid 1000 (occupied by `ubuntu`); any uid works because
+#      file permissions in the stack use numeric 1000:1000 (permission-fixer),
+#      which already exists.
+#   2. UFW: setup-server.yml opens 22/80/443. On OCI the target is
+#      ZERO public inbound — the tunnel is outbound-only — so 80/443 are
+#      removed after the main playbook runs (this overlay's post task runs
+#      idempotently even if re-run standalone after setup-server.yml).
+#   3. Swap: setup-server.yml creates 4G swap — appropriate for the 12 GB
+#      node too, kept as-is (no delta needed; documented for completeness).
+#
+# The GitHub Actions runner remains a MANUAL, human-supervised step
+# (setup-server.yml's own final message says the same) — see PHASE-2-PLAN.md.
+# =============================================================================
+---
+- name: OCI host-shape adapter (pre/post tasks around setup-server.yml)
+  hosts: treishvaam_oci
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Ensure vboxuser group exists
+      ansible.builtin.group:
+        name: vboxuser
+        state: present
+
+    - name: Ensure vboxuser deploy account exists (name expected by setup-server.yml + Engine A)
+      ansible.builtin.user:
+        name: vboxuser
+        group: vboxuser
+        shell: /bin/bash
+        create_home: true
+        # uid intentionally NOT pinned: 1000 belongs to the `ubuntu` cloud user.
+        comment: Treishvaam deploy account (Engine A/B, ansible, runner)
+
+    - name: vboxuser exists verification (fail fast with a clear message)
+      ansible.builtin.command: id vboxuser
+      changed_when: false
+
+    # UFW 80/443 removal — runs AFTER setup-server.yml enabled them.
+    # failed_when: false keeps this idempotent when no such rule exists
+    # (fresh run of the overlay alone, or a re-run).
+    - name: UFW - remove public HTTP (tunnel is outbound-only; zero-inbound target)
+      community.general.ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+        delete: true
+      failed_when: false
+
+    - name: UFW - remove public HTTPS
+      community.general.ufw:
+        rule: allow
+        port: "443"
+        proto: tcp
+        delete: true
+      failed_when: false
+
+    - name: UFW - show final ruleset (expect 22 + defaults only)
+      ansible.builtin.command: ufw status numbered
+      changed_when: false
+      register: ufw_final
+
+    - name: Display final UFW state
+      ansible.builtin.debug:
+        var: ufw_final.stdout_lines

@@ -14,6 +14,12 @@
  * - ADDED:
  * • Variable definitions for OCI authentication and SSH.
  * • Phase 1 Execution.
+ * - EDITED (2026-08-23, OCI Migration Phase 1):
+ * • region description corrected to ap-hyderabad-1 (tenancy home region —
+ *   Always Free A1 capacity exists only there; the old ap-mumbai-1 example
+ *   was wrong).
+ * • ADDED bastion_source_cidrs / bastion_client_cidr (Bastion-only SSH),
+ *   alert_email + budget_compartment_ocid (budget guardrail).
  */
 
 variable "tenancy_ocid" {
@@ -37,8 +43,9 @@ variable "private_key_path" {
 }
 
 variable "region" {
-  description = "The OCI region (e.g., ap-mumbai-1)"
+  description = "The OCI region — MUST be ap-hyderabad-1 (tenancy home region; Always Free A1 capacity exists only in the home region)"
   type        = string
+  default     = "ap-hyderabad-1"
 }
 
 variable "compartment_ocid" {
@@ -48,5 +55,32 @@ variable "compartment_ocid" {
 
 variable "ssh_public_key" {
   description = "The public SSH key for accessing the OCI instance"
+  type        = string
+}
+
+# --- Bastion-only SSH access (added 2026-08-23) ---
+
+variable "bastion_source_cidrs" {
+  description = "Source CIDRs of the OCI Bastion service for ap-hyderabad-1, allowed to reach the instance on TCP/22. Oracle publishes the per-region Bastion service IP ranges in the Bastion documentation ('Bastion service' -> 'Allowed IP ranges'); populate them in terraform.tfvars. No public 0.0.0.0/0 SSH exists."
+  type        = list(string)
+  default     = []
+}
+
+variable "bastion_client_cidr" {
+  description = "Your own public IP (CIDR, e.g. 203.0.113.5/32) permitted to OPEN Bastion sessions. Restricts who can create sessions even if the Bastion OCID leaks."
+  type        = string
+  default     = "0.0.0.0/0" # tighten to your IP in tfvars
+}
+
+# --- Budget guardrail (added 2026-08-23) ---
+
+variable "alert_email" {
+  description = "Email for the $1 budget alert. Empty string disables the alert RULE (the budget itself is always created)."
+  type        = string
+  default     = ""
+}
+
+variable "budget_compartment_ocid" {
+  description = "Compartment the budget watches. Defaults to the tenancy root."
   type        = string
 }
