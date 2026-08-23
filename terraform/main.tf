@@ -48,6 +48,12 @@
  * • bastion_source_cidrs now filtered through local.bastion_ingress_cidrs —
  *   a blank TF_VAR secret ("" from Infisical) can never inject an invalid CIDR.
  * • Comment block updated for the Infisical-based flow (no tfvars file exists).
+ * - EDITED (2026-08-24, schema corrections — caught by the first live
+ *   `terraform plan`, verified via terraform validate):
+ * • oci_bastion_bastion: subnet_id -> target_subnet_id; vcn_id REMOVED
+ *   (subnet implies VCN); client_cidr_block -> client_cidr_block_allow_list
+ *   (list type).
+ * • oci_budget_budget: reset_period = "MONTHLY" added (required attribute).
  */
 
 # 1. Fetch Latest Ubuntu 24.04 ARM Image Dynamically
@@ -128,21 +134,25 @@ locals {
 }
 
 # 5.5 OCI Bastion Service (zero public SSH — sessions are created on demand)
+# SCHEMA-CORRECTED 2026-08-24: target_subnet_id (not subnet_id); NO vcn_id
+# (the subnet implies the VCN); client CIDR via client_cidr_block_allow_list
+# (a LIST) — caught by terraform plan, verified against the provider schema.
 resource "oci_bastion_bastion" "enterprise_bastion" {
-  compartment_id       = var.compartment_ocid
-  vcn_id               = oci_core_vcn.enterprise_vcn.id
-  client_cidr_block    = var.bastion_client_cidr # who may OPEN a session (your IP)
-  name                 = "treishvaam-bastion"
-  bastion_type         = "STANDARD"
-  max_session_ttl_in_seconds = 10800 # 3 h — reconnect for longer operations
-  subnet_id            = oci_core_subnet.enterprise_subnet.id
+  compartment_id                = var.compartment_ocid
+  target_subnet_id              = oci_core_subnet.enterprise_subnet.id
+  name                          = "treishvaam-bastion"
+  bastion_type                  = "STANDARD"
+  client_cidr_block_allow_list  = [var.bastion_client_cidr] # who may OPEN a session (0.0.0.0/0 + MFA, per Jio decision)
+  max_session_ttl_in_seconds    = 10800 # 3 h — reconnect for longer operations
 }
 
 # 5.6 Budget guardrail (bill-shock prevention — target spend on this project is $0)
+# SCHEMA-CORRECTED 2026-08-24: reset_period is REQUIRED by the provider ("MONTHLY").
 resource "oci_budget_budget" "enterprise_budget" {
   compartment_id = var.budget_compartment_ocid
   display_name   = "treishvaam-budget"
   amount         = "1" # USD — anything above this means we left the Free tier
+  reset_period   = "MONTHLY"
 }
 
 resource "oci_budget_alert_rule" "enterprise_budget_alert" {

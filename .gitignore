@@ -83,6 +83,7 @@ terraform.tfvars
 *.tfvars
 *.tfstate
 *.tfstate.backup
+.terraform/
 
 # ============================================================
 # AI SESSION & TEMPORARY WORKSPACE FOLDERS
@@ -103,4 +104,7 @@ docs_file_list.json
 New Text Document.txt
 verification_test.txt
 auth_trigger.txt
+
+
+
 
