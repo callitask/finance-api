@@ -148,11 +148,14 @@ resource "oci_bastion_bastion" "enterprise_bastion" {
 
 # 5.6 Budget guardrail (bill-shock prevention — target spend on this project is $0)
 # SCHEMA-CORRECTED 2026-08-24: reset_period is REQUIRED by the provider ("MONTHLY").
+# API-CORRECTED 2026-08-24: the Budgets API rejects creation without `targets`
+# (schema-optional, API-required — only the live apply catches this class).
 resource "oci_budget_budget" "enterprise_budget" {
   compartment_id = var.budget_compartment_ocid
   display_name   = "treishvaam-budget"
   amount         = "1" # USD — anything above this means we left the Free tier
   reset_period   = "MONTHLY"
+  targets        = [var.budget_compartment_ocid] # the tenancy root compartment this budget watches
 }
 
 resource "oci_budget_alert_rule" "enterprise_budget_alert" {
