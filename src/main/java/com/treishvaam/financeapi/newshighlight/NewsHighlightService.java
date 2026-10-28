@@ -1,3 +1,21 @@
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - News ingestion, scraping, image optimization, and archival service.
+ *
+ * <p>Security Constraints: - Outbound scraping must enforce HTTPS + SSRF protections and bounded
+ * streams (CWE-918/CWE-400).
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED (Security Remediation - SSRF & Stream Cap -
+ * 2026-10-27): Added isSafeExternalHttpsUrl validation, redirect blocking, and 5 MB stream ceiling.
+ *
+ * <p>- EDITED (Security Remediation - News API Key Redaction - 2026-10-28): Added redactApiKey
+ * helper and applied it to fetchAndStoreNews exception logging (CWE-532).
+ *
+ * <p>- DO-NOT-DELETE RULE (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the
+ * institutional memory for future AI sessions. It must never be deleted, truncated, rewritten, or
+ * regenerated. Future AI must append only.
+ */
 package com.treishvaam.financeapi.newshighlight;
 
 import com.treishvaam.financeapi.newshighlight.dto.NewsDataArticle;
@@ -7,6 +25,8 @@ import com.treishvaam.financeapi.service.ImageService;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
+import java.net.URI;
 import java.net.URL;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -37,6 +57,9 @@ import org.springframework.web.client.RestTemplate;
 public class NewsHighlightService {
 
     private static final Logger logger = LoggerFactory.getLogger(NewsHighlightService.class);
+
+    private static final int MAX_IMAGE_BYTES =
+            5 * 1024 * 1024; // 5 MB ceiling to protect 256MB JVM heap
 
     private final NewsHighlightRepository repository;
     private final FileStorageService fileStorageService; // Kept for legacy healing if needed
@@ -145,7 +168,7 @@ public class NewsHighlightService {
             logger.info("✅ Cycle Complete. New Items: {}", newCount);
             archiveOldStories();
         } catch (Exception e) {
-            logger.error("❌ News Fetch Cycle Error: {}", e.getMessage());
+            logger.error("❌ News Fetch Cycle Error: {}", redactApiKey(e.getMessage()));
         }
     }
 
@@ -206,16 +229,77 @@ public class NewsHighlightService {
         return null;
     }
 
+    private boolean isSafeExternalHttpsUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return false;
+        }
+        try {
+            URI uri = new URI(rawUrl.trim());
+            if (!"https".equalsIgnoreCase(uri.getScheme())) {
+                return false;
+            }
+            String host = uri.getHost();
+            if (host == null || host.isBlank() || "localhost".equalsIgnoreCase(host)) {
+                return false;
+            }
+            InetAddress[] addresses = InetAddress.getAllByName(host);
+            if (addresses.length == 0) {
+                return false;
+            }
+            for (InetAddress addr : addresses) {
+                if (addr.isAnyLocalAddress()
+                        || addr.isLoopbackAddress()
+                        || addr.isLinkLocalAddress()
+                        || addr.isSiteLocalAddress()
+                        || addr.isMulticastAddress()) {
+                    return false;
+                }
+                byte[] rawBytes = addr.getAddress();
+                if (rawBytes.length == 4) {
+                    int b0 = rawBytes[0] & 0xFF;
+                    int b1 = rawBytes[1] & 0xFF;
+                    if (b0 == 0
+                            || (b0 == 100 && b1 >= 64 && b1 <= 127)
+                            || (b0 == 169 && b1 == 254)) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private String redactApiKey(String input) {
+        if (input == null) {
+            return "";
+        }
+        String sanitized = input.replaceAll("(?i)(apikey=)[^&\\s]+", "$1[REDACTED]");
+        if (apiKey != null && !apiKey.isBlank()) {
+            sanitized = sanitized.replace(apiKey, "[REDACTED]");
+        }
+        return sanitized;
+    }
+
     private String scrapeImageFromUrl(String articleUrl) {
+        if (!isSafeExternalHttpsUrl(articleUrl)) {
+            return null;
+        }
         try {
             Document doc =
                     Jsoup.connect(articleUrl)
                             .userAgent(
                                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)")
                             .timeout(5000)
+                            .maxBodySize(2 * 1024 * 1024)
+                            .followRedirects(false)
                             .get();
             Element metaOg = doc.selectFirst("meta[property='og:image']");
-            if (metaOg != null) return metaOg.attr("content");
+            if (metaOg != null) {
+                String candidate = metaOg.attr("content");
+                return isSafeExternalHttpsUrl(candidate) ? candidate : null;
+            }
         } catch (Exception e) {
             /* Ignore */
         }
@@ -224,21 +308,40 @@ public class NewsHighlightService {
 
     /**
      * REFACTORED: Now delegates to ImageService for Multi-Variant generation. Uses prefix
-     * 'news-mv-' to distinguish Enterprise News from Legacy News.
+     * 'news-mv-' to distinguish Enterprise News from Legacy News. Enforces SSRF validation and a
+     * strict 5 MB stream cap to protect the 256MB JVM heap.
      */
     private String downloadAndOptimizeImage(String imageUrl) {
+        if (!isSafeExternalHttpsUrl(imageUrl)) {
+            return null;
+        }
         try {
-            URL url = new URL(imageUrl);
+            URL url = URI.create(imageUrl.trim()).toURL();
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setInstanceFollowRedirects(false);
             conn.setRequestProperty("User-Agent", "Mozilla/5.0");
             conn.setConnectTimeout(5000);
             conn.setReadTimeout(5000);
 
+            int contentLength = conn.getContentLength();
+            if (contentLength > MAX_IMAGE_BYTES) {
+                conn.disconnect();
+                return null;
+            }
+
             try (InputStream in = conn.getInputStream()) {
                 ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-                byte[] data = new byte[1024];
+                byte[] data = new byte[4096];
                 int nRead;
+                int totalRead = 0;
                 while ((nRead = in.read(data, 0, data.length)) != -1) {
+                    totalRead += nRead;
+                    if (totalRead > MAX_IMAGE_BYTES) {
+                        logger.warn(
+                                "Aborted news image download exceeding 5MB cap from host: {}",
+                                url.getHost());
+                        return null;
+                    }
                     buffer.write(data, 0, nRead);
                 }
                 buffer.flush();
@@ -246,21 +349,15 @@ public class NewsHighlightService {
 
                 if (imageBytes.length == 0) return null;
 
-                // ENTERPRISE INTEGRATION: Call ImageService
-                // Prefix: "news-mv-" (News Multi-Variant)
-                // Profile: NEWS (Aggressive compression)
                 ImageService.ImageMetadataDto metadata =
                         imageService.processImage(
                                 imageBytes, "news-mv-", ImageService.OptimizationProfile.NEWS);
 
-                // Return the simple filename (e.g., "news-mv-uuid.webp")
-                // The FileController expects the file to be in the standard uploads directory.
-                // ImageService.saveImageAndGetMetadata/processImage handles the storage to that
-                // directory.
                 return "api/v1/uploads/" + metadata.getFullPath();
+            } finally {
+                conn.disconnect();
             }
         } catch (Exception e) {
-            // Fallback: If download fails, return null so we use the external URL or placeholder
             return null;
         }
     }

@@ -28,12 +28,20 @@
  * SHA3-256 for cryptographic signing. • Added safe fallback and error handling to preserve DB
  * availability during initialization. • Phase 7 / Batch 7 (Database Zero-Trust).
  *
+ * <p>- EDITED (Security Remediation - Hardcoded Fallback Key Removal - 2026-10-27): Removed
+ * hardcoded fallback value `default-aegis-db-key-replace-in-vault` from
+ * `@Value("${aegis.db.signing.key:}")` and added a single-shot AtomicBoolean warning guard when
+ * unset. Why: Enforces Rule 7.2 / CWE-798 ban on hardcoded cryptographic fallback keys in source
+ * code while preserving fail-safe query execution when the variable is absent in local/test
+ * profiles.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
 package com.treishvaam.financeapi.security;
 
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.bouncycastle.jcajce.provider.digest.SHA3;
@@ -48,13 +56,21 @@ import org.springframework.stereotype.Component;
 public class AegisQueryInterceptor implements StatementInspector {
 
     private static final Logger log = LoggerFactory.getLogger(AegisQueryInterceptor.class);
+    private static final AtomicBoolean MISSING_KEY_WARNED = new AtomicBoolean(false);
 
-    @Value("${aegis.db.signing.key:default-aegis-db-key-replace-in-vault}")
+    @Value("${aegis.db.signing.key:}")
     private String dbSigningKey;
 
     @Override
     public String inspect(String sql) {
         if (sql == null || sql.trim().isEmpty()) {
+            return sql;
+        }
+        if (dbSigningKey == null || dbSigningKey.isBlank()) {
+            if (MISSING_KEY_WARNED.compareAndSet(false, true)) {
+                log.warn(
+                        "AEGIS DB SEC: AEGIS_DB_SIGNING_KEY is not configured. Executing SQL queries unsigned in fail-safe mode.");
+            }
             return sql;
         }
 

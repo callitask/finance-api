@@ -225,6 +225,10 @@
 #  * • Increased start_period for `backend` service from 160s to 240s.
 #  * • Reason: Prevents Docker healthcheck timeouts and false-positive Nginx 502 Bad Gateway responses while Spring Boot initializes heavy startup services.
 #  *
+#  * - EDITED (Cloudflare Tunnel eMudhra CA Compromise Remediation - 2026-10-27):
+#  *   Pinned `tunnel` (`treishvaam-tunnel`) image from unversioned `cloudflare/cloudflared` to `cloudflare/cloudflared:2026.10.3`.
+#  *   Reason: Remediates CVE-2026-111943 / CVE-2026-111944 (CERT-In CIAD-2026-0050) where eight eMudhra intermediate CA certificates with weak private keys were trusted by cloudflared versions prior to 2026.10.2. Explicit version pinning forces Engine B to pull the patched image rather than reusing a cached local `:latest` tag.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
@@ -479,7 +483,7 @@ services:
       retries: 10
 
   tunnel:
-    image: cloudflare/cloudflared
+    image: cloudflare/cloudflared:2026.10.3
     container_name: treishvaam-tunnel
     restart: always
     networks:

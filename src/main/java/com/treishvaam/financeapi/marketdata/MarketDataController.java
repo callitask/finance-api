@@ -22,10 +22,18 @@ package com.treishvaam.financeapi.marketdata;
  * `@GetMapping("/quote/{ticker}")` and `@GetMapping("/data/{ticker}")`. • Injected
  * `QuoteDataRepository`. • Why: Resolves BUG-01 where frontend requested these endpoints but they
  * did not exist, causing 500 errors via Nginx. • Date: 2026-05-17 (Phase 1 Bug Fixes)
+ *
+ * <p>- EDITED (Security Remediation - Batch DoS Cap & Exception Sanitization - 2026-10-27): Added a
+ * 100-ticker ceiling to `POST /api/v1/market/quotes/batch` (CWE-400) and replaced raw
+ * `e.getMessage()` HTTP 500/503 responses with sanitized error messages while logging full
+ * exceptions server-side (CWE-209).
  */
 import com.treishvaam.financeapi.apistatus.PasswordDto;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
@@ -37,6 +45,9 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/market")
 public class MarketDataController {
 
+    private static final Logger logger = LoggerFactory.getLogger(MarketDataController.class);
+    private static final int MAX_BATCH_TICKERS = 100;
+
     @Autowired
     @Qualifier("apiMarketDataService")
     private MarketDataService marketDataService;
@@ -45,6 +56,12 @@ public class MarketDataController {
 
     @PostMapping("/quotes/batch")
     public ResponseEntity<List<QuoteData>> getBatchQuotes(@RequestBody List<String> tickers) {
+        if (tickers == null || tickers.isEmpty()) {
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+        if (tickers.size() > MAX_BATCH_TICKERS) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Collections.emptyList());
+        }
         return ResponseEntity.ok(marketDataService.getQuotesBatch(tickers));
     }
 
@@ -70,8 +87,14 @@ public class MarketDataController {
             }
             return ResponseEntity.ok(quote);
         } catch (Exception e) {
+            logger.error("MarketDataController error: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", true, "message", e.getMessage()));
+                    .body(
+                            Map.of(
+                                    "error",
+                                    true,
+                                    "message",
+                                    "Internal server error processing market data request."));
         }
     }
 
@@ -92,8 +115,14 @@ public class MarketDataController {
             }
             return ResponseEntity.ok(widgetData);
         } catch (Exception e) {
+            logger.error("MarketDataController error: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", true, "message", e.getMessage()));
+                    .body(
+                            Map.of(
+                                    "error",
+                                    true,
+                                    "message",
+                                    "Internal server error processing market data request."));
         }
     }
 
@@ -118,8 +147,14 @@ public class MarketDataController {
             Object data = marketDataService.fetchHistoricalData(ticker);
             return ResponseEntity.ok(data);
         } catch (Exception e) {
+            logger.error("MarketDataController error: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body(Map.of("error", true, "message", e.getMessage()));
+                    .body(
+                            Map.of(
+                                    "error",
+                                    true,
+                                    "message",
+                                    "Historical market data is temporarily unavailable."));
         }
     }
 
@@ -131,8 +166,14 @@ public class MarketDataController {
             return ResponseEntity.ok(
                     Map.of("message", "Market movers data refresh triggered successfully."));
         } catch (Exception e) {
+            logger.error("MarketDataController error: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", true, "message", e.getMessage()));
+                    .body(
+                            Map.of(
+                                    "error",
+                                    true,
+                                    "message",
+                                    "Internal server error processing market data request."));
         }
     }
 
@@ -144,8 +185,14 @@ public class MarketDataController {
             return ResponseEntity.ok(
                     Map.of("message", "Market indices data refresh triggered successfully."));
         } catch (Exception e) {
+            logger.error("MarketDataController error: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", true, "message", e.getMessage()));
+                    .body(
+                            Map.of(
+                                    "error",
+                                    true,
+                                    "message",
+                                    "Internal server error processing market data request."));
         }
     }
 
@@ -159,8 +206,14 @@ public class MarketDataController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", true, "message", e.getMessage()));
         } catch (Exception e) {
+            logger.error("MarketDataController error: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", true, "message", e.getMessage()));
+                    .body(
+                            Map.of(
+                                    "error",
+                                    true,
+                                    "message",
+                                    "Internal server error processing market data request."));
         }
     }
 
@@ -175,8 +228,14 @@ public class MarketDataController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", true, "message", e.getMessage()));
         } catch (Exception e) {
+            logger.error("MarketDataController error: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", true, "message", e.getMessage()));
+                    .body(
+                            Map.of(
+                                    "error",
+                                    true,
+                                    "message",
+                                    "Internal server error processing market data request."));
         }
     }
 }
