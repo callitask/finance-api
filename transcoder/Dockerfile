@@ -14,7 +14,7 @@
 FROM alpine:3.19
 
 # Install FFmpeg, Python3, and the Alpine package for Pika (RabbitMQ client) to avoid heavy pip overhead
-RUN apk add --no-cache ffmpeg python3 py3-pika
+RUN apk add --no-cache ffmpeg python3 py3-pip && pip3 install --no-cache-dir --break-system-packages pika
 
 # Fort Knox: Create non-root system user
 RUN addgroup -S transcoder && adduser -S transcoder -G transcoder
