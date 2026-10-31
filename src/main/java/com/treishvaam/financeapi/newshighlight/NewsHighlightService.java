@@ -12,6 +12,11 @@
  * <p>- EDITED (Security Remediation - News API Key Redaction - 2026-10-28): Added redactApiKey
  * helper and applied it to fetchAndStoreNews exception logging (CWE-532).
  *
+ * <p>- EDITED (Phase 6 - Resolve Best Image Fallback & Relative Path Fix - 2026-10-31): Fixed
+ * resolveBestImage to not return raw unsafe candidateUrl when download fails; added https/http
+ * scheme validation for normalizedLink in saveArticleSafe; changed downloadAndOptimizeImage return
+ * to leading-slash "/api/v1/uploads/" path.
+ *
  * <p>- DO-NOT-DELETE RULE (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the
  * institutional memory for future AI sessions. It must never be deleted, truncated, rewritten, or
  * regenerated. Future AI must append only.
@@ -178,7 +183,9 @@ public class NewsHighlightService {
             String rawLink = apiArticle.getLink();
             if (rawLink == null) return false;
             String normalizedLink = rawLink.trim();
-
+            if (!normalizedLink.startsWith("https://") && !normalizedLink.startsWith("http://")) {
+                return false;
+            }
             if (repository.existsByLink(normalizedLink)) return false;
             if (apiArticle.getTitle() != null && repository.existsByTitle(apiArticle.getTitle()))
                 return false;
@@ -224,7 +231,10 @@ public class NewsHighlightService {
         }
         if (candidateUrl != null && !candidateUrl.isEmpty()) {
             String localFilename = downloadAndOptimizeImage(candidateUrl);
-            return (localFilename != null) ? localFilename : candidateUrl;
+            if (localFilename != null) {
+                return localFilename;
+            }
+            return isSafeExternalHttpsUrl(candidateUrl) ? candidateUrl.trim() : null;
         }
         return null;
     }
@@ -353,7 +363,7 @@ public class NewsHighlightService {
                         imageService.processImage(
                                 imageBytes, "news-mv-", ImageService.OptimizationProfile.NEWS);
 
-                return "api/v1/uploads/" + metadata.getFullPath();
+                return "/api/v1/uploads/" + metadata.getFullPath();
             } finally {
                 conn.disconnect();
             }

@@ -41,7 +41,10 @@
  * wrapped request caused `DispatcherServlet` to throw `IllegalArgumentException: Expected parsed
  * RequestPath`. FIX: Injected `ServletRequestPathUtils.parseAndCache(wrappedRequest)` immediately
  * after wrapping. This safely regenerates the Spring 6 routing cache using the unwrapped canonical
- * URI, allowing `DispatcherServlet` to route successfully without 500 errors.
+ * URI, allowing `DispatcherServlet` to route successfully without 500 errors. - EDITED (Phase 6 -
+ * CanonicalPathRequestWrapper PATH eviction hardening - 2026-10-31): • Added `getAttribute()`
+ * override returning null for cached `ServletRequestPathUtils.PATH`. Why: Ensures Spring 6
+ * DispatcherServlet re-parses the canonical URI.
  */
 package com.treishvaam.financeapi.security.aegis;
 
@@ -177,6 +180,14 @@ public class AegisMainFilter extends OncePerRequestFilter {
         @Override
         public String getServletPath() {
             return this.canonicalUri;
+        }
+
+        @Override
+        public Object getAttribute(String name) {
+            if ("org.springframework.web.util.ServletRequestPathUtils.PATH".equals(name)) {
+                return null;
+            }
+            return super.getAttribute(name);
         }
 
         @Override

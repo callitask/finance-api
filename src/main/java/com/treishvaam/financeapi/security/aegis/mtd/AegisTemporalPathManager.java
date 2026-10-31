@@ -41,7 +41,11 @@
  * backend to 2 replicas caused an in-memory split-brain where isolated JVM heaps generated entirely
  * different temporal paths on boot. The Edge Worker routed traffic using Replica B's paths, causing
  * 500 `NoResourceFoundException` crashes when Nginx load-balanced to Replica A. Redis now enforces
- * a single source of truth across the cluster.
+ * a single source of truth across the cluster. - EDITED (Phase 6 - KV Manifest Sync on Startup -
+ * 2026-10-31): • Added Cloudflare KV push in `loadManifestFromJson()` and an
+ * `@EventListener(ApplicationReadyEvent)` to push the current manifest on startup. • Added
+ * `rawManifestJson` field. Why: Prevents stale `/api/v1/node/{hex}` token in Cloudflare KV after
+ * backend redeploy.
  */
 package com.treishvaam.financeapi.security.aegis.mtd;
 
@@ -57,6 +61,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -95,6 +101,20 @@ public class AegisTemporalPathManager {
     private final Map<String, String> reverseLookup = new ConcurrentHashMap<>();
 
     private String signedManifestJson = "";
+    private String rawManifestJson = "";
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void pushManifestOnStartup() {
+        if (rawManifestJson != null && !rawManifestJson.isBlank()) {
+            try {
+                cloudflareEdgeSyncService.pushManifestToCloudflareKv(rawManifestJson);
+                log.info(
+                        "AEGIS L2-PPO: Pushed current MTD manifest to Cloudflare KV on ApplicationReady.");
+            } catch (Exception e) {
+                log.warn("AEGIS L2-PPO: Failed to push MTD manifest on ApplicationReady", e);
+            }
+        }
+    }
 
     public AegisTemporalPathManager(
             AegisEntropyManager entropyManager,
@@ -172,7 +192,18 @@ public class AegisTemporalPathManager {
             }
 
             this.signedManifestJson = pqcJwtService.issueHybridToken(json, "SYSTEM", "MANIFEST");
+            this.rawManifestJson = json;
             log.info("AEGIS L2-PPO: Local state synchronized successfully from cluster truth.");
+
+            // Phase 6: Ensure Cloudflare KV never holds a stale manifest after backend restart.
+            // Push the freshly loaded manifest to the Edge so the Worker uses the current token.
+            try {
+                cloudflareEdgeSyncService.pushManifestToCloudflareKv(json);
+            } catch (Exception pushEx) {
+                log.warn(
+                        "AEGIS L2-PPO: Failed to push synchronized manifest to Cloudflare KV",
+                        pushEx);
+            }
         } catch (Exception e) {
             log.error("AEGIS L2-PPO: Failed to load manifest from JSON", e);
         }
@@ -201,6 +232,7 @@ public class AegisTemporalPathManager {
 
             // Envelope it in a PQC signature to prevent Man-in-the-Middle manifest poisoning
             this.signedManifestJson = pqcJwtService.issueHybridToken(rawJson, "SYSTEM", "MANIFEST");
+            this.rawManifestJson = rawJson;
 
             // Push actively to Cloudflare Edge KV
             cloudflareEdgeSyncService.pushManifestToCloudflareKv(rawJson);
