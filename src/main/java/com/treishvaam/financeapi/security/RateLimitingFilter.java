@@ -34,7 +34,11 @@
  * `LettuceBasedProxyManager`.
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
- * rewritten, or regenerated. Future AI must append only.
+ * rewritten, or regenerated. Future AI must append only. - EDITED (Phase 7 - Isolate try/catch
+ * around Bucket4j/Redis only - 2026-11-01): • Moved `filterChain.doFilter(request, response)`
+ * OUTSIDE the Redis/Bucket4j try-catch block. • Added `allowed` flag. Why: Prevents downstream
+ * servlet/controller exceptions (404, path parsing) from being misreported as "Rate Limiting
+ * Service Failed (Failing Closed)" with 503.
  */
 package com.treishvaam.financeapi.security;
 
@@ -91,6 +95,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         String bucketKey = clientIp + ":" + getCategoryKey(path);
         byte[] bucketKeyBytes = bucketKey.getBytes(StandardCharsets.UTF_8);
 
+        boolean allowed = true;
         try {
             BucketConfiguration configuration =
                     BucketConfiguration.builder()
@@ -101,14 +106,13 @@ public class RateLimitingFilter extends OncePerRequestFilter {
 
             Bucket bucket = proxyManager.builder().build(bucketKeyBytes, configuration);
 
-            if (bucket.tryConsume(1)) {
-                filterChain.doFilter(request, response);
-            } else {
+            if (!bucket.tryConsume(1)) {
                 logger.warn("Rate limit exceeded for IP: {} on path: {}", clientIp, path);
                 response.setStatus(429);
                 response.setContentType("application/json");
                 response.getWriter()
                         .write("{\"error\":\"Rate limit exceeded. Try again in 60 seconds.\"}");
+                allowed = false;
             }
         } catch (Exception e) {
             // CRITICAL RESILIENCE: Fail CLOSED under rate limiter exception conditions (CVE-003)
@@ -116,7 +120,13 @@ public class RateLimitingFilter extends OncePerRequestFilter {
             response.setStatus(503);
             response.setContentType("application/json");
             response.getWriter().write("{\"error\":\"Service temporarily unavailable\"}");
-            return; // DO NOT call filterChain.doFilter()
+            allowed = false;
+        }
+
+        // Phase 7: Delegate downstream OUTSIDE the Redis/Bucket4j try-catch so downstream
+        // servlet/controller exceptions are NOT misreported as rate-limit failures.
+        if (allowed && !response.isCommitted()) {
+            filterChain.doFilter(request, response);
         }
     }
 

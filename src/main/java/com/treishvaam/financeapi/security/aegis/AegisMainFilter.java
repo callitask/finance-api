@@ -44,7 +44,11 @@
  * URI, allowing `DispatcherServlet` to route successfully without 500 errors. - EDITED (Phase 6 -
  * CanonicalPathRequestWrapper PATH eviction hardening - 2026-10-31): • Added `getAttribute()`
  * override returning null for cached `ServletRequestPathUtils.PATH`. Why: Ensures Spring 6
- * DispatcherServlet re-parses the canonical URI.
+ * DispatcherServlet re-parses the canonical URI. - EDITED (Phase 7 - Remove PATH null override &
+ * cache RequestPath in constructor - 2026-11-01): • Removed `getAttribute()` null override (caused
+ * `IllegalArgumentException: Expected parsed RequestPath`). • Moved
+ * `ServletRequestPathUtils.parseAndCache(this)` into constructor. Why: Eliminates 503/504 on MTD
+ * routes.
  */
 package com.treishvaam.financeapi.security.aegis;
 
@@ -170,6 +174,10 @@ public class AegisMainFilter extends OncePerRequestFilter {
         public CanonicalPathRequestWrapper(HttpServletRequest request, String canonicalUri) {
             super(request);
             this.canonicalUri = canonicalUri;
+            // Phase 7: Re-parse and cache the new RequestPath on THIS wrapper so downstream
+            // Spring Security / DispatcherServlet find a valid parsed RequestPath for canonicalUri
+            // instead of throwing "Expected parsed RequestPath in request attribute ... PATH".
+            org.springframework.web.util.ServletRequestPathUtils.parseAndCache(this);
         }
 
         @Override
@@ -180,14 +188,6 @@ public class AegisMainFilter extends OncePerRequestFilter {
         @Override
         public String getServletPath() {
             return this.canonicalUri;
-        }
-
-        @Override
-        public Object getAttribute(String name) {
-            if ("org.springframework.web.util.ServletRequestPathUtils.PATH".equals(name)) {
-                return null;
-            }
-            return super.getAttribute(name);
         }
 
         @Override
