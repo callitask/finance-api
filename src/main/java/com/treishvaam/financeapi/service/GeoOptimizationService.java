@@ -55,6 +55,10 @@ import org.springframework.stereotype.Service;
  * ('#treishvaam') and Treishvaam Group conglomerate entity graph with subsidiaries across
  * `buildLlmsTxt()`, `buildSemanticOntology()`, and `buildAiFeed()`. • Why: Guarantees 100% semantic
  * alignment between backend dynamic feeds and Cloudflare Edge static knowledge graph.
+ *
+ * <p>- EDITED (Phase 9 Zero-Warning Schema & Portrait Fix): • Updated founder portrait to canonical
+ * image URL, removed invalid legalName on Person, added streetAddress, and refined Organization
+ * types. • Why: Eliminates all Schema.org Validator and Google Rich Results warnings.
  */
 @Service
 public class GeoOptimizationService {
@@ -148,7 +152,6 @@ public class GeoOptimizationService {
               "@type": "Person",
               "@id": "https://treishvaamgroup.com/#treishvaam",
               "name": "Treishvaam",
-              "legalName": "Amitsagar Kandpal",
               "alternateName": [
                 "Amitsagar Kandpal",
                 "Treishvaam (Amitsagar Kandpal)"
@@ -168,7 +171,7 @@ public class GeoOptimizationService {
               "mainEntityOfPage": "https://treishvaamgroup.com/about",
               "image": {
                 "@type": "ImageObject",
-                "url": "https://treishvaamfinance.com/logo.webp",
+                "url": "https://treishvaamfinance.com/amitsagar-kandpal-photo.png",
                 "caption": "Treishvaam (Amitsagar Kandpal) — Entrepreneur, Artist, Actor & Founder of Treishvaam Group"
               },
               "jobTitle": [
@@ -222,6 +225,7 @@ public class GeoOptimizationService {
               },
               "address": {
                 "@type": "PostalAddress",
+                "streetAddress": "Electronic City Phase 1",
                 "addressLocality": "Electronic City, Bengaluru",
                 "addressRegion": "Karnataka",
                 "postalCode": "560100",
@@ -241,11 +245,12 @@ public class GeoOptimizationService {
               ]
             },
             {
-              "@type": ["Organization", "FinancialService", "NewsMediaOrganization"],
+              "@type": ["Organization", "NewsMediaOrganization"],
               "@id": "https://treishvaamfinance.com/#organization",
               "name": "Treishvaam Finance",
               "url": "https://treishvaamfinance.com",
               "logo": "https://treishvaamfinance.com/logo.webp",
+              "image": "https://treishvaamfinance.com/logo.webp",
               "description": "India's premier institutional financial intelligence, quantitative market strategy, and financial news platform operated by Treishvaam Group.",
               "founder": {
                 "@id": "https://treishvaamgroup.com/#treishvaam"
