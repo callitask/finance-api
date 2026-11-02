@@ -103,6 +103,11 @@
  * the wildcard `/**` occasionally fails to map exact leaf endpoints for anonymous POST bodies,
  * resolving the 401 Unauthorized telemetry lockout.
  *
+ * <p>- EDITED (Phase 12.3 - HLS DRM Key & Video Endpoint Access): • Added HttpMethod.GET
+ * "/api/v1/video", "/api/v1/video/**" to Section 2 permitAll() matchers. • Why: Prevents 401
+ * Unauthorized on HLS AES-128 DRM key delivery (/api/v1/video/internal/key/**) when fetched by the
+ * Edge Worker using HMAC AEGIS signatures rather than Keycloak JWT tokens.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -237,6 +242,8 @@ public class SecurityConfig {
                                                 HttpMethod.GET,
                                                 "/api/v1/uploads",
                                                 "/api/v1/uploads/**",
+                                                "/api/v1/video",
+                                                "/api/v1/video/**",
                                                 "/sitemap.xml",
                                                 "/sitemap-news.xml",
                                                 "/feed.xml",

@@ -50,6 +50,12 @@ package com.treishvaam.financeapi.service;
  * <p>- EDITED (Phase 8.1 - VideoService Decoupling Integration): • Formally integrated the
  * standalone `VideoService.java` to handle `processVideoUpload()`.
  *
+ * <p>- EDITED (Phase 12.3 - Post Media Self-Healing Sanitizer): • Injected sanitizePostMedia() to
+ * automatically sanitize and purge [object Object] artifacts from coverImageUrl and content on save
+ * (persistPost, updateDraft, createDraft) and read (findById, findBySlug, findByUrlArticleId,
+ * findPostForUrl, findAllForAdmin). • Automatically links raw video files
+ * (/api/v1/uploads/raw/{id}.mp4) if present on disk when coverImageUrl is corrupted.
+ *
  * <p>- DO-NOT-DELETE RULE (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the
  * institutional memory for future AI sessions. It must never be deleted, truncated, rewritten, or
  * regenerated. Future AI must append only.
@@ -157,17 +163,25 @@ public class BlogPostServiceImpl implements BlogPostService {
 
     @Override
     public List<BlogPost> findAllForAdmin() {
-        return blogPostRepository.findAllByOrderByCreatedAtDesc();
+        List<BlogPost> posts = blogPostRepository.findAllByOrderByCreatedAtDesc();
+        if (posts != null) {
+            posts.forEach(this::sanitizePostMedia);
+        }
+        return posts;
     }
 
     @Override
     public Optional<BlogPost> findById(Long id) {
-        return blogPostRepository.findById(id);
+        Optional<BlogPost> postOpt = blogPostRepository.findById(id);
+        postOpt.ifPresent(this::sanitizePostMedia);
+        return postOpt;
     }
 
     @Override
     public Optional<BlogPost> findBySlug(String slug) {
-        return blogPostRepository.findBySlug(slug);
+        Optional<BlogPost> postOpt = blogPostRepository.findBySlug(slug);
+        postOpt.ifPresent(this::sanitizePostMedia);
+        return postOpt;
     }
 
     @Override
@@ -175,6 +189,7 @@ public class BlogPostServiceImpl implements BlogPostService {
         Optional<BlogPost> postOpt = blogPostRepository.findByUrlArticleId(urlArticleId);
         postOpt.ifPresent(
                 p -> {
+                    sanitizePostMedia(p);
                     boolean intact =
                             contentIntegrityService.verifySignature(
                                     p.getContentSignature(),
@@ -189,7 +204,12 @@ public class BlogPostServiceImpl implements BlogPostService {
 
     @Override
     public List<BlogPost> findDrafts() {
-        return blogPostRepository.findAllByStatusOrderByUpdatedAtDesc(PostStatus.DRAFT);
+        List<BlogPost> drafts =
+                blogPostRepository.findAllByStatusOrderByUpdatedAtDesc(PostStatus.DRAFT);
+        if (drafts != null) {
+            drafts.forEach(this::sanitizePostMedia);
+        }
+        return drafts;
     }
 
     @Override
@@ -216,6 +236,7 @@ public class BlogPostServiceImpl implements BlogPostService {
         newPost.setSlug(generateUniqueId());
         newPost.setLayoutStyle("DEFAULT");
         newPost.setUserFriendlySlug(generateUserFriendlySlug(newPost.getTitle()));
+        sanitizePostMedia(newPost);
         return blogPostRepository.save(newPost);
     }
 
@@ -241,6 +262,7 @@ public class BlogPostServiceImpl implements BlogPostService {
         if (existingPost.getSlug() == null || existingPost.getSlug().isEmpty())
             existingPost.setSlug(generateUniqueId());
         existingPost.setUserFriendlySlug(generateUserFriendlySlug(existingPost.getTitle()));
+        sanitizePostMedia(existingPost);
         return blogPostRepository.save(existingPost);
     }
 
@@ -326,6 +348,7 @@ public class BlogPostServiceImpl implements BlogPostService {
             key = "#result.urlArticleId",
             condition = "#result.urlArticleId != null")
     public BlogPost persistPost(BlogPost blogPost, List<PostThumbnail> processedThumbnails) {
+        sanitizePostMedia(blogPost);
         blogPost.getThumbnails().clear();
         blogPost.getThumbnails().addAll(processedThumbnails);
 
@@ -562,6 +585,7 @@ public class BlogPostServiceImpl implements BlogPostService {
 
             postOpt.ifPresent(
                     p -> {
+                        sanitizePostMedia(p);
                         boolean intact =
                                 contentIntegrityService.verifySignature(
                                         p.getContentSignature(),
@@ -587,5 +611,41 @@ public class BlogPostServiceImpl implements BlogPostService {
     @Override
     public long countPublishedPosts() {
         return blogPostRepository.countByStatus(PostStatus.PUBLISHED);
+    }
+
+    private void sanitizePostMedia(BlogPost post) {
+        if (post == null) return;
+
+        // 1. Sanitize coverImageUrl
+        String cover = post.getCoverImageUrl();
+        if (cover != null) {
+            String trimmed = cover.trim();
+            if (trimmed.equals("[object Object]") || trimmed.contains("[object Object]")) {
+                Long id = post.getId();
+                if (id != null
+                        && java.nio.file.Files.exists(
+                                java.nio.file.Paths.get("/app/uploads/raw/" + id + ".mp4"))) {
+                    post.setCoverImageUrl("/api/v1/uploads/raw/" + id + ".mp4");
+                } else {
+                    post.setCoverImageUrl(null);
+                }
+            }
+        }
+
+        // 2. Sanitize content
+        String content = post.getContent();
+        if (content != null && content.contains("[object Object]")) {
+            Long id = post.getId();
+            String replacement = "";
+            if (id != null
+                    && java.nio.file.Files.exists(
+                            java.nio.file.Paths.get("/app/uploads/raw/" + id + ".mp4"))) {
+                replacement = "/api/v1/uploads/raw/" + id + ".mp4";
+            }
+            content = content.replace("src=\"[object Object]\"", "src=\"" + replacement + "\"");
+            content = content.replace("src='[object Object]'", "src='" + replacement + "'");
+            content = content.replace("[object Object]", replacement);
+            post.setContent(content);
+        }
     }
 }

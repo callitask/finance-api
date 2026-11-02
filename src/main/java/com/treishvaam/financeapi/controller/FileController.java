@@ -2,8 +2,10 @@ package com.treishvaam.financeapi.controller;
 
 import com.treishvaam.financeapi.service.FileStorageService;
 import com.treishvaam.financeapi.service.ImageService;
+import jakarta.servlet.http.HttpServletRequest;
 import java.io.InputStream;
 import java.net.MalformedURLException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -22,6 +24,7 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -30,6 +33,11 @@ import org.springframework.web.multipart.MultipartFile;
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED: • Added Fallback Extension Strategy to
  * serveFile() • Reason: Fix 404s when frontend requests UUID without extension but MinIO has .webp
+ * - EDITED (Phase 12.3 - Multi-Segment Video & HLS Streaming): • Expanded @GetMapping to
+ * {"/uploads/{filename:.+}", "/uploads/**"} to support multi-segment paths (/raw/**, /hls/**). •
+ * Resolved local filesystem files (/app/uploads) with UrlResource for full HTTP Range 206 streaming
+ * before MinIO fallback. • Added MIME types for .m3u8 (application/vnd.apple.mpegurl), .ts
+ * (video/mp2t), .mp4 (video/mp4), and .webm (video/webm).
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -76,50 +84,104 @@ public class FileController {
     }
 
     /**
-     * NEW: Streaming Endpoint for MinIO Files Serves files directly from Object Storage, bypassing
-     * local disk. Includes "Smart Extension Matching" for robustness.
+     * Streaming Endpoint for Files (Local Disk + MinIO) Supports single-segment and multi-segment
+     * paths (e.g. /uploads/raw/71.mp4, /uploads/hls/71/master.m3u8). Local UrlResource allows
+     * native Spring HTTP Range (206 Partial Content) video streaming.
      */
-    @GetMapping("/uploads/{filename:.+}")
-    public ResponseEntity<Resource> serveFile(@PathVariable String filename) {
+    @GetMapping({"/uploads/{filename:.+}", "/uploads/**"})
+    public ResponseEntity<Resource> serveFile(
+            @PathVariable(required = false) String filename, HttpServletRequest request) {
         try {
-            InputStream stream;
-            String actualFilename = filename;
+            String uri = request.getRequestURI();
+            String prefix = "/api/v1/uploads/";
+            String subPath;
+            if (uri != null && uri.contains(prefix)) {
+                subPath = uri.substring(uri.indexOf(prefix) + prefix.length());
+            } else if (uri != null && uri.contains("/uploads/")) {
+                subPath = uri.substring(uri.indexOf("/uploads/") + "/uploads/".length());
+            } else {
+                subPath = filename != null ? filename : "";
+            }
 
-            // 1. Try fetching exact filename
+            subPath = StringUtils.cleanPath(subPath);
+            if (subPath.isEmpty() || subPath.contains("..")) {
+                return ResponseEntity.badRequest().build();
+            }
+
+            // 1. Check local disk first (/app/uploads/<subPath> or uploadDir/<subPath>)
+            Path localPath = Paths.get("/app/uploads").resolve(subPath).normalize();
+            if (!Files.exists(localPath) || !Files.isRegularFile(localPath)) {
+                localPath = this.fileStorageLocation.resolve(subPath).normalize();
+            }
+
+            if (Files.exists(localPath) && Files.isRegularFile(localPath)) {
+                Resource resource = new UrlResource(localPath.toUri());
+                if (resource.isReadable()) {
+                    MediaType mediaType = determineMediaType(subPath);
+                    CacheControl cacheControl =
+                            subPath.endsWith(".m3u8")
+                                    ? CacheControl.noCache().mustRevalidate()
+                                    : CacheControl.maxAge(30, TimeUnit.DAYS).cachePublic();
+
+                    return ResponseEntity.ok()
+                            .contentType(mediaType)
+                            .cacheControl(cacheControl)
+                            .header(
+                                    HttpHeaders.CONTENT_DISPOSITION,
+                                    "inline; filename=\"" + resource.getFilename() + "\"")
+                            .body(resource);
+                }
+            }
+
+            // 2. Check MinIO Object Storage
+            InputStream stream;
+            String actualFilename = subPath;
+
             try {
-                stream = fileStorageService.loadFileAsStream(filename);
+                stream = fileStorageService.loadFileAsStream(subPath);
             } catch (Exception e) {
-                // 2. Fallback: Try fetching with .webp extension (common for this architecture)
                 try {
-                    actualFilename = filename + ".webp";
+                    actualFilename = subPath + ".webp";
                     stream = fileStorageService.loadFileAsStream(actualFilename);
                 } catch (Exception ex) {
-                    // If both fail, it's a true 404
-                    logger.warn("File not found in MinIO (Exact or WebP fallback): {}", filename);
+                    logger.warn(
+                            "File not found in local disk or MinIO (Exact or WebP fallback): {}",
+                            subPath);
                     return ResponseEntity.notFound().build();
                 }
             }
 
             InputStreamResource resource = new InputStreamResource(stream);
+            MediaType mediaType = determineMediaType(actualFilename);
+            CacheControl cacheControl =
+                    actualFilename.endsWith(".m3u8")
+                            ? CacheControl.noCache().mustRevalidate()
+                            : CacheControl.maxAge(30, TimeUnit.DAYS).cachePublic();
 
-            // 3. Determine Content Type
-            MediaType mediaType = MediaType.APPLICATION_OCTET_STREAM;
-            if (actualFilename.endsWith(".webp"))
-                mediaType = MediaType.parseMediaType("image/webp");
-            else if (actualFilename.endsWith(".jpg") || actualFilename.endsWith(".jpeg"))
-                mediaType = MediaType.IMAGE_JPEG;
-            else if (actualFilename.endsWith(".png")) mediaType = MediaType.IMAGE_PNG;
-
-            // 4. Return with Caching
             return ResponseEntity.ok()
                     .contentType(mediaType)
-                    .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS).cachePublic())
+                    .cacheControl(cacheControl)
                     .body(resource);
 
         } catch (Exception e) {
-            logger.error("Error serving file: {}", filename, e);
+            logger.error("Error serving file for URI: {}", request.getRequestURI(), e);
             return ResponseEntity.internalServerError().build();
         }
+    }
+
+    private MediaType determineMediaType(String path) {
+        String lower = path.toLowerCase();
+        if (lower.endsWith(".webp")) return MediaType.parseMediaType("image/webp");
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return MediaType.IMAGE_JPEG;
+        if (lower.endsWith(".png")) return MediaType.IMAGE_PNG;
+        if (lower.endsWith(".gif")) return MediaType.parseMediaType("image/gif");
+        if (lower.endsWith(".svg")) return MediaType.parseMediaType("image/svg+xml");
+        if (lower.endsWith(".m3u8"))
+            return MediaType.parseMediaType("application/vnd.apple.mpegurl");
+        if (lower.endsWith(".ts")) return MediaType.parseMediaType("video/mp2t");
+        if (lower.endsWith(".mp4")) return MediaType.parseMediaType("video/mp4");
+        if (lower.endsWith(".webm")) return MediaType.parseMediaType("video/webm");
+        return MediaType.APPLICATION_OCTET_STREAM;
     }
 
     @PostMapping("/files/upload")
