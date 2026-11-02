@@ -21,10 +21,11 @@ logging.basicConfig(
 
 TICKERS = [
     "^GSPC", "^DJI", "^IXIC", "^RUT", "^VIX", "^NYA", "^GDAXI", "^FTSE", "^FCHI", "^IBEX", "^STOXX50E",
-    "^NSEI", "^BSESN", "^NSEBANK", "^CNXIT", "^HSI", "^N225", "^STI", "000001.SS",
+    "^NSEI", "^BSESN", "^NSEBANK", "^CNXIT", "^BSESCP", "^HSI", "^N225", "^STI", "000001.SS",
     "GC=F", "SI=F", "CL=F", "NG=F", "HG=F",
     "USDINR=X", "EURINR=X", "JPYINR=X", "GBPINR=X", "AUDINR=X", "EURUSD=X",
-    "BTC-INR", "ETH-INR", "SOL-INR", "XRP-INR", "DOGE-INR"
+    "BTC-INR", "ETH-INR", "SOL-INR", "XRP-INR", "DOGE-INR",
+    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS"
 ]
 
 def get_db_engine():

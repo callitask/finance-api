@@ -37,6 +37,10 @@
  * HikariCP connection. The python script connects to the DB independently. Holding the transaction
  * causes connection closed timeouts and rollback failures.
  *
+ * <p>- EDITED (Phase 10): • Bounded `getWidgetData` historical payload to most recent 365 days via
+ * subList to prevent serializing 5,000+ rows. • Expanded SUPPORTED_ETFS list to cover all 29+ UI
+ * market tickers.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -81,8 +85,40 @@ public class MarketDataService {
 
     private static final List<String> SUPPORTED_ETFS =
             Arrays.asList(
-                    "^GSPC", "^DJI", "^IXIC", "^RUT", "^NYA", "^VIX", "^GDAXI", "^FTSE", "^HSI",
-                    "GC=F", "CL=F", "SI=F", "^NSEI", "^BSESN");
+                    "^DJI",
+                    "^GSPC",
+                    "^IXIC",
+                    "^RUT",
+                    "^VIX",
+                    "^GDAXI",
+                    "^FTSE",
+                    "^FCHI",
+                    "^IBEX",
+                    "^STOXX50E",
+                    "^NSEI",
+                    "^BSESN",
+                    "^NSEBANK",
+                    "^CNXIT",
+                    "^BSESCP",
+                    "GC=F",
+                    "CL=F",
+                    "SI=F",
+                    "USDINR=X",
+                    "EURINR=X",
+                    "JPYINR=X",
+                    "GBPINR=X",
+                    "AUDINR=X",
+                    "BTC-INR",
+                    "ETH-INR",
+                    "SOL-INR",
+                    "XRP-INR",
+                    "DOGE-INR",
+                    "RELIANCE.NS",
+                    "TCS.NS",
+                    "HDFCBANK.NS",
+                    "INFY.NS",
+                    "^NYA",
+                    "^HSI");
 
     private static final Map<String, List<String>> PEER_MAP =
             Map.of(
@@ -229,6 +265,9 @@ public class MarketDataService {
         if (quote == null) logger.warn("No quote data found in DB for {}.", ticker);
         List<HistoricalPrice> history =
                 historicalPriceRepository.findByTickerOrderByPriceDateAsc(ticker);
+        if (history != null && history.size() > 365) {
+            history = history.subList(history.size() - 365, history.size());
+        }
         List<String> peerTickers = PEER_MAP.getOrDefault(ticker, Collections.emptyList());
         List<QuoteData> peers = Collections.emptyList();
         if (!peerTickers.isEmpty()) {
