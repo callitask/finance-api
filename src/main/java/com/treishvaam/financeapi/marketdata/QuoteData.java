@@ -1,5 +1,6 @@
 package com.treishvaam.financeapi.marketdata;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.persistence.Column; // --- NEW IMPORT ---
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -36,6 +37,8 @@ public class QuoteData {
     private BigDecimal dividendYield;
     private BigDecimal fiftyTwoWeekHigh;
     private BigDecimal fiftyTwoWeekLow;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime lastUpdated;
 
     // Getters and Setters

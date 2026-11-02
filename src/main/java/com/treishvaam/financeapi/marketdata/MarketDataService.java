@@ -41,6 +41,9 @@
  * subList to prevent serializing 5,000+ rows. • Expanded SUPPORTED_ETFS list to cover all 29+ UI
  * market tickers.
  *
+ * <p>- EDITED (Phase 11): Added dual-resolution 20Y history, self-healing Yahoo fallback, Redis
+ * cache guards (@CacheEvict), and @Cacheable unless conditions.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -58,9 +61,11 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import jakarta.annotation.PostConstruct;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -71,6 +76,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -153,6 +159,7 @@ public class MarketDataService {
     @Autowired private DatabaseCredentialProvider credentialProvider;
 
     @Autowired private MessagePublisher messagePublisher;
+    @Autowired private YahooHistoricalProvider yahooHistoricalProvider;
 
     @Value("${app.python.script.path:scripts/market_data_updater.py}")
     private String pythonScriptPath;
@@ -177,6 +184,9 @@ public class MarketDataService {
     // connection causes starvation.
     // --- CIRCUIT BREAKER: Fault Tolerance for Python Pipeline ---
     @CircuitBreaker(name = "pythonScript", fallbackMethod = "fallbackPythonUpdate")
+    @CacheEvict(
+            value = {"marketWidget", "quotesBatch"},
+            allEntries = true)
     public void runPythonHistoryAndQuoteUpdate(String triggerSource) {
         String apiLabel = "Market Data Pipeline (Python)";
         logger.info("Starting Python data update script... Trigger: {}", triggerSource);
@@ -256,24 +266,121 @@ public class MarketDataService {
             unless = "#result == null || #result.isEmpty()")
     public List<QuoteData> getQuotesBatch(List<String> tickers) {
         if (tickers == null || tickers.isEmpty()) return Collections.emptyList();
-        return quoteDataRepository.findByTickerIn(tickers);
+        List<QuoteData> found = quoteDataRepository.findByTickerIn(tickers);
+        java.util.Set<String> foundTickers = new java.util.HashSet<>();
+        for (QuoteData q : found) foundTickers.add(q.getTicker());
+        for (String t : tickers) {
+            if (!foundTickers.contains(t)) {
+                try {
+                    WidgetDataDto wd = getWidgetData(t);
+                    if (wd != null && wd.getQuoteData() != null) {
+                        found.add(wd.getQuoteData());
+                        foundTickers.add(t);
+                    }
+                } catch (Exception e) {
+                    logger.warn("Self-heal quote failed for {}: {}", t, e.getMessage());
+                }
+            }
+        }
+        return found;
     }
 
-    @Cacheable(value = "marketWidget", key = "#ticker", unless = "#result == null")
+    @Cacheable(
+            value = "marketWidget",
+            key = "#ticker",
+            unless =
+                    "#result == null || #result.quoteData == null || #result.historicalData == null || #result.historicalData.isEmpty()")
     public WidgetDataDto getWidgetData(String ticker) {
         QuoteData quote = quoteDataRepository.findById(ticker).orElse(null);
         if (quote == null) logger.warn("No quote data found in DB for {}.", ticker);
-        List<HistoricalPrice> history =
+
+        List<HistoricalPrice> fullHistory =
                 historicalPriceRepository.findByTickerOrderByPriceDateAsc(ticker);
-        if (history != null && history.size() > 365) {
-            history = history.subList(history.size() - 365, history.size());
+
+        // Self-heal missing history via Yahoo provider
+        if (fullHistory == null || fullHistory.isEmpty()) {
+            try {
+                List<HistoricalPrice> fetched = yahooHistoricalProvider.fetchFullHistory(ticker);
+                if (fetched != null && !fetched.isEmpty()) {
+                    try {
+                        historicalPriceRepository.saveAll(fetched);
+                    } catch (Exception dupEx) {
+                        logger.warn(
+                                "Duplicate history rows ignored for {}: {}",
+                                ticker,
+                                dupEx.getMessage());
+                    }
+                    fullHistory = fetched;
+                }
+            } catch (Exception e) {
+                logger.error("Yahoo self-heal failed for {}: {}", ticker, e.getMessage());
+            }
         }
+
+        // Self-heal missing quote from last 2 history points
+        if (quote == null && fullHistory != null && !fullHistory.isEmpty()) {
+            try {
+                HistoricalPrice last = fullHistory.get(fullHistory.size() - 1);
+                HistoricalPrice prev =
+                        fullHistory.size() >= 2 ? fullHistory.get(fullHistory.size() - 2) : last;
+                QuoteData synth = new QuoteData();
+                synth.setTicker(ticker);
+                synth.setName(ticker);
+                synth.setCurrency(
+                        ticker.endsWith(".NS")
+                                        || ticker.endsWith(".BSE")
+                                        || ticker.endsWith("-INR")
+                                        || ticker.endsWith("=X")
+                                ? "INR"
+                                : "USD");
+                synth.setCurrentPrice(last.getClosePrice());
+                synth.setPreviousClose(prev.getClosePrice());
+                if (last.getClosePrice() != null && prev.getClosePrice() != null) {
+                    synth.setChangeAmount(last.getClosePrice().subtract(prev.getClosePrice()));
+                    if (prev.getClosePrice().compareTo(BigDecimal.ZERO) != 0) {
+                        synth.setChangePercent(
+                                last.getClosePrice()
+                                        .subtract(prev.getClosePrice())
+                                        .divide(
+                                                prev.getClosePrice(),
+                                                4,
+                                                java.math.RoundingMode.HALF_UP)
+                                        .multiply(new BigDecimal("100")));
+                    }
+                }
+                synth.setDayHigh(last.getClosePrice());
+                synth.setDayLow(last.getClosePrice());
+                synth.setOpenPrice(prev.getClosePrice());
+                synth.setLastUpdated(java.time.LocalDateTime.now());
+                quoteDataRepository.save(synth);
+                quote = synth;
+            } catch (Exception e) {
+                logger.error("Quote self-heal failed for {}: {}", ticker, e.getMessage());
+            }
+        }
+
+        // Dual-resolution 20-year history
+        List<HistoricalPrice> optimizedHistory = new ArrayList<>();
+        if (fullHistory != null) {
+            if (fullHistory.size() <= 400) {
+                optimizedHistory.addAll(fullHistory);
+            } else {
+                int dailyStartIdx = fullHistory.size() - 365;
+                for (int i = 0; i < dailyStartIdx; i++) {
+                    if (i % 5 == 0) optimizedHistory.add(fullHistory.get(i));
+                }
+                for (int i = dailyStartIdx; i < fullHistory.size(); i++) {
+                    optimizedHistory.add(fullHistory.get(i));
+                }
+            }
+        }
+
         List<String> peerTickers = PEER_MAP.getOrDefault(ticker, Collections.emptyList());
         List<QuoteData> peers = Collections.emptyList();
         if (!peerTickers.isEmpty()) {
             peers = quoteDataRepository.findByTickerIn(peerTickers);
         }
-        return new WidgetDataDto(quote, history, peers);
+        return new WidgetDataDto(quote, optimizedHistory, peers);
     }
 
     @Transactional

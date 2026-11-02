@@ -1,5 +1,6 @@
 package com.treishvaam.financeapi.marketdata;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -14,7 +15,10 @@ public class HistoricalPrice {
     private Long id;
 
     private String ticker;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd")
     private LocalDate priceDate;
+
     private BigDecimal closePrice;
 
     public HistoricalPrice() {}
