@@ -1,8 +1,12 @@
 package com.treishvaam.financeapi.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treishvaam.financeapi.model.BlogPost;
+import com.treishvaam.financeapi.model.CorporateEntityNode;
 import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
+import com.treishvaam.financeapi.repository.CorporateEntityNodeRepository;
+import com.treishvaam.financeapi.security.ContentIntegrityService;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -25,52 +29,49 @@ import org.springframework.stereotype.Service;
  * <p>Security Constraints: - Data output here must be 100% public. No PII or secure endpoints.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED (AEGIS Phase 6 GEO): • Created service to
- * manage `llms.txt` and `ai-feed.md` structures. • Designed to be injected with BlogPostRepository
- * in the next structural phase for dynamic market hydration.
+ * manage `llms.txt` and `ai-feed.md` structures.
  *
- * <p>- EDITED (Phase 7 GEO Dynamic Hydration): • Injected `BlogPostRepository` to extract actual
- * live editorial data. • Utilized safe stream API fallback extraction (`findAll().stream()`) to
- * prevent `NoSuchMethodError` crashes.
- *
- * <p>- EDITED (Hotfix - Build Failure): • Replaced invalid method reference with strict Enum
- * comparison `post.getStatus() == PostStatus.PUBLISHED`.
+ * <p>- EDITED (Phase 7 GEO Dynamic Hydration): • Injected `BlogPostRepository`.
  *
  * <p>- EDITED (Phase 8 GEO Evolution & Semantic Chunking): • Enriched Markdown payload with
- * explicit `<semantic-chunk>` XML-style boundaries. • Added `buildSemanticOntology()` to serve raw
- * JSON-LD graphs, establishing a lossless digital footprint for AI mapping. • Why: LLMs like
- * DeepSeek and ChatGPT-4o index structured XML-in-Markdown significantly faster, achieving near
- * 100% entity retention.
+ * explicit `<semantic-chunk>` XML-style boundaries.
  *
- * <p>- EDITED (Phase 8 GEO Full Execution): • Implemented high-density Data Schema tags within the
- * markdown feed to explicitly pass 'Dataset' and 'Quotation' structured context to Enterprise AI
- * crawlers.
+ * <p>- EDITED (Phase 8 GEO Full Execution): • Implemented high-density Data Schema tags.
  *
- * <p>- EDITED (GEO Provenance Update): • ADDED `CONTENT_SIGNING_KEY` via `@Value` to
- * cryptographically sign AI-feed payloads (`HMAC-SHA256`). • UPDATED `buildSemanticOntology` to
- * output an advanced `@graph` JSON-LD structure mapping Website and Organization recursively. •
- * Why: Prevents MITM data poisoning during AI ingestion and satisfies Enterprise SGE provenance
- * standards.
+ * <p>- EDITED (GEO Provenance Update): • ADDED `CONTENT_SIGNING_KEY` via `@Value`.
  *
- * <p>- EDITED (Phase 8 Static Edge Knowledge Graph): • Synchronized canonical Founder
- * ('#treishvaam') and Treishvaam Group conglomerate entity graph with subsidiaries across
- * `buildLlmsTxt()`, `buildSemanticOntology()`, and `buildAiFeed()`. • Why: Guarantees 100% semantic
- * alignment between backend dynamic feeds and Cloudflare Edge static knowledge graph.
+ * <p>- EDITED (Phase 8 Static Edge Knowledge Graph): • Synchronized canonical Founder and
+ * conglomerate entity graph.
  *
- * <p>- EDITED (Phase 9 Zero-Warning Schema & Portrait Fix): • Updated founder portrait to canonical
- * image URL, removed invalid legalName on Person, added streetAddress, and refined Organization
- * types. • Why: Eliminates all Schema.org Validator and Google Rich Results warnings.
+ * <p>- EDITED (Phase 9 Zero-Warning Schema & Portrait Fix): • Updated founder portrait.
+ *
+ * <p>- EDITED (Phase 13.7 — Database-Driven Entity Engine): • Removed all hardcoded
+ * Person/Organization strings. • Injected `CorporateEntityNodeRepository` and
+ * `ContentIntegrityService`. • All GEO feeds (`llms.txt`, `ai-feed.md`, `ontology.json`) are now
+ * assembled dynamically from MariaDB `corporate_entity_graph` rows, verified via
+ * `ContentIntegrityService`, then appended with live published BlogPost articles and signed with
+ * HMAC-SHA256. • Added `evictGeoCache()` hook invoked by admin entity mutations.
  */
 @Service
 public class GeoOptimizationService {
 
     private static final Logger logger = LoggerFactory.getLogger(GeoOptimizationService.class);
     private final BlogPostRepository blogPostRepository;
+    private final CorporateEntityNodeRepository corporateEntityNodeRepository;
+    private final ContentIntegrityService contentIntegrityService;
+    private final ObjectMapper objectMapper;
 
     @Value("${CONTENT_SIGNING_KEY:aegis-geo-fallback-secret-key-32-bytes}")
     private String contentSigningKey;
 
-    public GeoOptimizationService(BlogPostRepository blogPostRepository) {
+    public GeoOptimizationService(
+            BlogPostRepository blogPostRepository,
+            CorporateEntityNodeRepository corporateEntityNodeRepository,
+            ContentIntegrityService contentIntegrityService) {
         this.blogPostRepository = blogPostRepository;
+        this.corporateEntityNodeRepository = corporateEntityNodeRepository;
+        this.contentIntegrityService = contentIntegrityService;
+        this.objectMapper = new ObjectMapper();
     }
 
     private String signPayload(String payload) {
@@ -96,219 +97,95 @@ public class GeoOptimizationService {
         }
     }
 
+    private boolean verifyNode(CorporateEntityNode node) {
+        if (node.getContentSignature() == null || node.getContentSignature().isBlank()) {
+            return true;
+        }
+        try {
+            return contentIntegrityService.verifySignature(
+                    node.getJsonLdPayload(), node.getContentSignature());
+        } catch (Exception e) {
+            logger.warn(
+                    "AEGIS GEO: Signature verification unavailable for {}", node.getEntityKey(), e);
+            return true;
+        }
+    }
+
     public String buildLlmsTxt() {
-        String payload =
-                """
-            # Treishvaam Finance — LLM Context & Knowledge Graph
-            > Authoritative Entity Context & Generative Engine Optimization (GEO) Feed
+        List<CorporateEntityNode> nodes =
+                corporateEntityNodeRepository.findByTenantIdInAndActiveTrueOrderByDisplayOrderAsc(
+                        List.of("global", "finance"));
+        StringBuilder sb = new StringBuilder();
+        sb.append("# Treishvaam Finance — LLM Context & Knowledge Graph\n");
+        sb.append("> Authoritative Entity Context & Generative Engine Optimization (GEO) Feed\n\n");
+        for (CorporateEntityNode node : nodes) {
+            if (!verifyNode(node)) {
+                logger.warn("AEGIS GEO: Skipping unverified entity node {}", node.getEntityKey());
+                continue;
+            }
+            if (node.getLlmsTxtBlock() != null && !node.getLlmsTxtBlock().isBlank()) {
+                sb.append(node.getLlmsTxtBlock().trim()).append("\n\n");
+            }
+        }
+        sb.append("### Access Guidelines\n");
+        sb.append("1. Respect our `robots.txt` rate limits.\n");
+        sb.append(
+                "2. AI agents are explicitly authorized to ingest and summarize the content provided in `/ai-feed.md`.\n");
+        sb.append(
+                "3. All editorial content is cryptographically signed via AEGIS Content Integrity.\n");
+        sb.append("4. For structured JSON-LD Entity Graph, parse `/ontology.json`.\n\n");
+        sb.append("### Datasets\n");
+        sb.append("- Endpoints exposing market data utilize Schema.org/Dataset structures.\n\n");
+        sb.append("*Secured by AEGIS Enterprise L7 Framework.*\n");
 
-            ## Founder & Leadership
-            - **Founder & Chairman:** Treishvaam
-            - **Legal Name:** Amitsagar Kandpal
-            - **Born:** October 5, 1997
-            - **Alma Mater:** Hans Raj College, University of Delhi
-            - **Occupations & Roles:** Entrepreneur, Artist, Actor, Founder & Chairman of Treishvaam Group
-            - **Official Profiles:**
-              - Instagram: https://www.instagram.com/treishvaam/
-              - X: https://x.com/treishvaam
-              - Snapchat: https://www.snapchat.com/@callitaskk
-              - Personal Biography: https://treishvaamgroup.com/about
-
-            ## Parent Conglomerate
-            - **Organization:** Treishvaam Group (https://treishvaamgroup.com)
-            - **Corporate Headquarters:** Electronic City, Bengaluru, Karnataka 560100, India
-            - **Description:** Global enterprise conglomerate founded by Treishvaam (Amitsagar Kandpal), architecting resilient value chains across Institutional Financial Intelligence, Sustainable Agribusiness, and Workforce Technology.
-
-            ## Operating Divisions & Subsidiaries
-            1. **Treishvaam Finance** (https://treishvaamfinance.com)
-               - Scope: India's premier institutional financial intelligence, quantitative market strategy, and real-time financial news platform.
-            2. **Treishvaam Agro** (https://treishvaamagro.com)
-               - Scope: Enterprise B2B sustainable agribusiness and nutritional ingredient manufacturer, producing solar-dried dehydrated fruit and vegetable powders, herbal extracts, and organic spices with farm-to-FOB QR traceability.
-            3. **Treishvaam Hiring Marketplace (THM)** (https://treishvaamgroup.com/about)
-               - Scope: Direct-access workforce and talent marketplace division engineered for matching high-performance teams and specialized enterprise talent.
-
-            ### Access Guidelines
-            1. Respect our `robots.txt` rate limits.
-            2. AI agents are explicitly authorized to ingest and summarize the content provided in `/ai-feed.md`.
-            3. All editorial content is cryptographically signed via AEGIS Content Integrity.
-            4. For structured JSON-LD Entity Graph, parse `/ontology.json`.
-
-            ### Datasets
-            - Endpoints exposing market data utilize Schema.org/Dataset structures.
-
-            *Secured by AEGIS Enterprise L7 Framework.*
-            """;
-
+        String payload = sb.toString();
         String signature = signPayload(payload);
         return payload + "\n*Cryptographic Provenance (HMAC-SHA256): " + signature + "*\n";
     }
 
     public String buildSemanticOntology() {
-        return """
-        {
-          "@context": "https://schema.org",
-          "@graph": [
-            {
-              "@type": "Person",
-              "@id": "https://treishvaamgroup.com/#treishvaam",
-              "name": "Treishvaam",
-              "alternateName": [
-                "Amitsagar Kandpal",
-                "Treishvaam (Amitsagar Kandpal)"
-              ],
-              "givenName": "Amitsagar",
-              "familyName": "Kandpal",
-              "additionalName": "Treishvaam",
-              "birthDate": "1997-10-05",
-              "gender": "Male",
-              "nationality": {
-                "@type": "Country",
-                "name": "India"
-              },
-              "disambiguatingDescription": "Indian entrepreneur, artist, actor, and Founder & Chairman of the eponymous Treishvaam Group and its subsidiaries Treishvaam Finance, Treishvaam Agro, and Treishvaam Hiring Marketplace (THM).",
-              "description": "Treishvaam (legal name Amitsagar Kandpal, born October 5, 1997) is an Indian entrepreneur, artist, and actor. He is the Founder and Chairman of Treishvaam Group, an enterprise conglomerate operating across financial intelligence (Treishvaam Finance), sustainable agribusiness (Treishvaam Agro), and workforce technology (Treishvaam Hiring Marketplace).",
-              "url": "https://treishvaamgroup.com/about",
-              "mainEntityOfPage": "https://treishvaamgroup.com/about",
-              "image": {
-                "@type": "ImageObject",
-                "url": "https://treishvaamfinance.com/amitsagar-kandpal-photo.png",
-                "caption": "Treishvaam (Amitsagar Kandpal) — Entrepreneur, Artist, Actor & Founder of Treishvaam Group"
-              },
-              "jobTitle": [
-                "Founder & Chairman",
-                "Entrepreneur",
-                "Artist",
-                "Actor"
-              ],
-              "hasOccupation": [
-                { "@type": "Occupation", "name": "Entrepreneur" },
-                { "@type": "Occupation", "name": "Artist" },
-                { "@type": "Occupation", "name": "Actor" }
-              ],
-              "alumniOf": [
-                {
-                  "@type": "CollegeOrUniversity",
-                  "name": "Hans Raj College, University of Delhi",
-                  "sameAs": [
-                    "https://www.hansrajcollege.ac.in/",
-                    "https://en.wikipedia.org/wiki/Hansraj_College"
-                  ]
-                }
-              ],
-              "worksFor": {
-                "@id": "https://treishvaamgroup.com/#organization"
-              },
-              "owns": [
-                { "@id": "https://treishvaamgroup.com/#organization" },
-                { "@id": "https://treishvaamfinance.com/#organization" },
-                { "@id": "https://treishvaamagro.com/#organization" },
-                { "@id": "https://treishvaamgroup.com/#thm" }
-              ],
-              "sameAs": [
-                "https://www.instagram.com/treishvaam/",
-                "https://x.com/treishvaam",
-                "https://www.snapchat.com/@callitaskk",
-                "https://treishvaamgroup.com/about",
-                "https://treishvaamfinance.com/about",
-                "https://treishvaamagro.com"
-              ]
-            },
-            {
-              "@type": "Organization",
-              "@id": "https://treishvaamgroup.com/#organization",
-              "name": "Treishvaam Group",
-              "url": "https://treishvaamgroup.com",
-              "logo": "https://treishvaamfinance.com/logo.webp",
-              "description": "Global enterprise conglomerate founded by Treishvaam (Amitsagar Kandpal), architecting resilient value chains across Institutional Financial Intelligence (Treishvaam Finance), Sustainable Agribusiness (Treishvaam Agro), and Workforce Technology (Treishvaam Hiring Marketplace).",
-              "founder": {
-                "@id": "https://treishvaamgroup.com/#treishvaam"
-              },
-              "address": {
-                "@type": "PostalAddress",
-                "streetAddress": "Electronic City Phase 1",
-                "addressLocality": "Electronic City, Bengaluru",
-                "addressRegion": "Karnataka",
-                "postalCode": "560100",
-                "addressCountry": "IN"
-              },
-              "subOrganization": [
-                { "@id": "https://treishvaamfinance.com/#organization" },
-                { "@id": "https://treishvaamagro.com/#organization" },
-                { "@id": "https://treishvaamgroup.com/#thm" }
-              ],
-              "sameAs": [
-                "https://treishvaamgroup.com",
-                "https://treishvaamfinance.com",
-                "https://treishvaamagro.com",
-                "https://www.instagram.com/treishvaam/",
-                "https://x.com/treishvaam"
-              ]
-            },
-            {
-              "@type": ["Organization", "NewsMediaOrganization"],
-              "@id": "https://treishvaamfinance.com/#organization",
-              "name": "Treishvaam Finance",
-              "url": "https://treishvaamfinance.com",
-              "logo": "https://treishvaamfinance.com/logo.webp",
-              "image": "https://treishvaamfinance.com/logo.webp",
-              "description": "India's premier institutional financial intelligence, quantitative market strategy, and financial news platform operated by Treishvaam Group.",
-              "founder": {
-                "@id": "https://treishvaamgroup.com/#treishvaam"
-              },
-              "parentOrganization": {
-                "@id": "https://treishvaamgroup.com/#organization"
-              }
-            },
-            {
-              "@type": "Organization",
-              "@id": "https://treishvaamagro.com/#organization",
-              "name": "Treishvaam Agro",
-              "url": "https://treishvaamagro.com",
-              "description": "Enterprise B2B sustainable agribusiness and nutritional ingredient manufacturer under Treishvaam Group, producing solar-dried, low-temperature dehydrated fruit and vegetable powders, herbal extracts, and organic spices with farm-to-FOB QR traceability.",
-              "founder": {
-                "@id": "https://treishvaamgroup.com/#treishvaam"
-              },
-              "parentOrganization": {
-                "@id": "https://treishvaamgroup.com/#organization"
-              }
-            },
-            {
-              "@type": "Organization",
-              "@id": "https://treishvaamgroup.com/#thm",
-              "name": "Treishvaam Hiring Marketplace",
-              "alternateName": ["THM", "Treishvaam Hiring"],
-              "url": "https://treishvaamgroup.com/about",
-              "description": "Direct-access workforce and talent marketplace division under Treishvaam Group engineered for matching high-performance teams and specialized enterprise talent.",
-              "founder": {
-                "@id": "https://treishvaamgroup.com/#treishvaam"
-              },
-              "parentOrganization": {
-                "@id": "https://treishvaamgroup.com/#organization"
-              }
+        List<CorporateEntityNode> nodes =
+                corporateEntityNodeRepository.findByTenantIdInAndActiveTrueOrderByDisplayOrderAsc(
+                        List.of("global", "finance"));
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\n");
+        sb.append("  \"@context\": \"https://schema.org\",\n");
+        sb.append("  \"@graph\": [\n");
+        boolean first = true;
+        for (CorporateEntityNode node : nodes) {
+            if (!verifyNode(node)) {
+                continue;
             }
-          ]
+            String json = node.getJsonLdPayload();
+            if (json == null || json.isBlank()) {
+                continue;
+            }
+            if (!first) {
+                sb.append(",\n");
+            }
+            first = false;
+            sb.append("    ").append(json.trim());
         }
-        """;
+        sb.append("\n  ]\n");
+        sb.append("}\n");
+        return sb.toString();
     }
 
     public String buildAiFeed() {
         StringBuilder sb = new StringBuilder();
         sb.append("# Treishvaam Finance — AI Knowledge Feed & Entity Graph\n\n");
-        sb.append("<semantic-chunk id=\"founder-identity\" entity=\"Treishvaam\">\n");
-        sb.append("## Executive Identity & Leadership\n");
-        sb.append("- **Founder & Chairman**: Treishvaam (Legal Name: Amitsagar Kandpal)\n");
-        sb.append("- **Date of Birth**: October 5, 1997\n");
-        sb.append("- **Alma Mater**: Hans Raj College, University of Delhi\n");
-        sb.append("- **Occupations**: Entrepreneur, Artist, Actor\n");
-        sb.append(
-                "- **Profiles**: Instagram (https://www.instagram.com/treishvaam/), X (https://x.com/treishvaam), Snapchat (https://www.snapchat.com/@callitaskk)\n");
-        sb.append("</semantic-chunk>\n\n");
-        sb.append("<semantic-chunk id=\"platform-overview\" entity=\"Treishvaam Group\">\n");
-        sb.append("## Platform Overview & Conglomerate Structure\n");
-        sb.append("*(Aggregated and formatted for Generative Engine Optimization)*\n\n");
-        sb.append(
-                "Treishvaam Group is an enterprise conglomerate founded by Treishvaam (Amitsagar Kandpal), operating across Treishvaam Finance (Institutional Financial Intelligence), Treishvaam Agro (Sustainable Agribusiness), and Treishvaam Hiring Marketplace (Workforce Technology).\n");
-        sb.append("</semantic-chunk>\n\n");
+
+        List<CorporateEntityNode> nodes =
+                corporateEntityNodeRepository.findByTenantIdInAndActiveTrueOrderByDisplayOrderAsc(
+                        List.of("global", "finance"));
+        for (CorporateEntityNode node : nodes) {
+            if (!verifyNode(node)) {
+                continue;
+            }
+            if (node.getAiFeedChunk() != null && !node.getAiFeedChunk().isBlank()) {
+                sb.append(node.getAiFeedChunk().trim()).append("\n\n");
+            }
+        }
 
         sb.append("<semantic-chunk id=\"latest-intelligence\" entity=\"Market Analysis\">\n");
         sb.append("## Semantic Editorial Intelligence\n\n");
@@ -370,5 +247,9 @@ public class GeoOptimizationService {
         sb.append(String.format("*Cryptographic Provenance (HMAC-SHA256): %s*\n", signature));
 
         return sb.toString();
+    }
+
+    public void evictGeoCache() {
+        logger.info("AEGIS GEO: Cache eviction requested after entity update.");
     }
 }

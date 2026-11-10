@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+ * AI-CONTEXT:
+ *
+ * Purpose:
+ * - Liquibase migration V51: corporate_entity_graph table + seed (database-driven GEO entity engine).
+ *
+ * Scope:
+ * - Creates corporate_entity_graph, seeds 6 canonical rows idempotently, adds index.
+ *
+ * Non-Negotiables:
+ * - Idempotent: INSERT IGNORE preserves existing/edited rows.
+ * - No docker compose down / destructive cleanup.
+ -->
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+    <changeSet id="V51-1-create-corporate-entity-graph" author="antigravity">
+        <preConditions onFail="MARK_RAN">
+            <not><tableExists tableName="corporate_entity_graph"/></not>
+        </preConditions>
+        <createTable tableName="corporate_entity_graph">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="version" type="BIGINT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="entity_key" type="VARCHAR(100)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="tenant_id" type="VARCHAR(50)" defaultValue="global">
+                <constraints nullable="false"/>
+            </column>
+            <column name="entity_type" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="canonical_id" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="legal_name" type="VARCHAR(255)"/>
+            <column name="role_or_subtitle" type="VARCHAR(255)"/>
+            <column name="url" type="VARCHAR(500)"/>
+            <column name="image_url" type="VARCHAR(500)"/>
+            <column name="description" type="TEXT"/>
+            <column name="json_ld_payload" type="LONGTEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="llms_txt_block" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ai_feed_chunk" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="display_order" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="active" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="content_signature" type="VARCHAR(128)"/>
+            <column name="updated_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex indexName="idx_centity_tenant_active_order" tableName="corporate_entity_graph">
+            <column name="tenant_id"/>
+            <column name="active"/>
+            <column name="display_order"/>
+        </createIndex>
+        <modifySql dbms="mariadb">
+            <append value=" ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"/>
+        </modifySql>
+    </changeSet>
+    <changeSet id="V51-2-seed-corporate-entity-graph" author="antigravity" runOnChange="false">
+        <sql>
+            INSERT IGNORE INTO corporate_entity_graph
+            (entity_key, tenant_id, entity_type, canonical_id, name, legal_name, role_or_subtitle, url, image_url, description, json_ld_payload, llms_txt_block, ai_feed_chunk, display_order, active, content_signature)
+            VALUES
+            ('founder_treishvaam','global','Person','https://treishvaamgroup.com/#treishvaam','Treishvaam','Amitsagar Kandpal','Founder &amp; Chairman','https://treishvaamgroup.com/about','https://treishvaamfinance.com/amitsagar-kandpal-photo.png','Amitsagar Kandpal (known professionally and artistically as Treishvaam) is an Indian entrepreneur, artist, and actor, and the Founder &amp; Chairman of Treishvaam Group, Treishvaam Finance, Treishvaam Agro, and Treishvaam Hiring Marketplace.','{"@type":"Person","@id":"https://treishvaamgroup.com/#treishvaam","name":"Treishvaam","legalName":"Amitsagar Kandpal","birthDate":"1997-10-05","alumniOf":"Hans Raj College, University of Delhi","hasOccupation":["Entrepreneur","Artist","Actor"]}','## Founder &amp; Leadership\n- Treishvaam (Amitsagar Kandpal, DOB 1997-10-05, Hans Raj College, Entrepreneur/Artist/Actor)','&lt;semantic-chunk id="founder-identity" entity="Treishvaam"&gt;\n## Executive Identity\n- Treishvaam (Amitsagar Kandpal, 1997-10-05, Hans Raj College, Entrepreneur/Artist/Actor)\n&lt;/semantic-chunk&gt;',0,TRUE,NULL),
+            ('org_treishvaam_group','global','Organization','https://treishvaamgroup.com/#organization','Treishvaam Group','Treishvaam Group','Parent Conglomerate','https://treishvaamgroup.com','https://treishvaamgroup.com/logo512.webp','Treishvaam Group is a diversified enterprise conglomerate innovating across finance, agriculture, and technology.','{"@type":"Organization","@id":"https://treishvaamgroup.com/#organization","name":"Treishvaam Group","url":"https://treishvaamgroup.com"}','## Parent Conglomerate\n- Treishvaam Group (https://treishvaamgroup.com)','&lt;semantic-chunk id="conglomerate-overview" entity="Treishvaam Group"&gt;\n## Parent Conglomerate\n- Treishvaam Group (https://treishvaamgroup.com)\n&lt;/semantic-chunk&gt;',1,TRUE,NULL),
+            ('org_treishvaam_finance','finance','FinancialService','https://treishvaamfinance.com/#organization','Treishvaam Finance','Treishvaam Finance','Institutional Financial Intelligence','https://treishvaamfinance.com','https://treishvaamfinance.com/logo.webp','India premier institutional financial intelligence platform.','{"@type":"FinancialService","@id":"https://treishvaamfinance.com/#organization","name":"Treishvaam Finance","url":"https://treishvaamfinance.com"}','## Division - Finance\n- Treishvaam Finance (https://treishvaamfinance.com)','&lt;semantic-chunk id="division-finance" entity="Treishvaam Finance"&gt;\n## Division - Finance\n- Treishvaam Finance (https://treishvaamfinance.com)\n&lt;/semantic-chunk&gt;',2,TRUE,NULL),
+            ('org_treishvaam_agro','agro','Organization','https://treishvaamagro.com/#organization','Treishvaam Agro','Treishvaam Agro','B2B Sustainable Agribusiness','https://treishvaamagro.com','https://treishvaamagro.com/favicon.svg','Enterprise B2B sustainable agribusiness and nutritional ingredient manufacturer.','{"@type":"Organization","@id":"https://treishvaamagro.com/#organization","name":"Treishvaam Agro","url":"https://treishvaamagro.com"}','## Division - Agro\n- Treishvaam Agro (https://treishvaamagro.com)','&lt;semantic-chunk id="division-agro" entity="Treishvaam Agro"&gt;\n## Division - Agro\n- Treishvaam Agro (https://treishvaamagro.com)\n&lt;/semantic-chunk&gt;',3,TRUE,NULL),
+            ('org_treishvaam_thm','corporate','Organization','https://thm.treishvaamgroup.com/#organization','Treishvaam Hiring Marketplace','Treishvaam Hiring Marketplace','Workforce Technology','https://thm.treishvaamgroup.com','https://treishvaamgroup.com/logo512.webp','Direct-access workforce and talent marketplace division.','{"@type":"Organization","@id":"https://thm.treishvaamgroup.com/#organization","name":"Treishvaam Hiring Marketplace","url":"https://thm.treishvaamgroup.com"}','## Division - THM\n- Treishvaam Hiring Marketplace (https://thm.treishvaamgroup.com)','&lt;semantic-chunk id="division-thm" entity="Treishvaam Hiring Marketplace"&gt;\n## Division - THM\n- Treishvaam Hiring Marketplace (https://thm.treishvaamgroup.com)\n&lt;/semantic-chunk&gt;',4,TRUE,NULL),
+            ('aeo_faq_finance','finance','FAQPage','https://treishvaamfinance.com/#faq','Treishvaam Finance FAQ','Treishvaam Finance FAQ','AEO Answer Engine FAQ','https://treishvaamfinance.com','https://treishvaamfinance.com/logo.webp','Frequently asked questions about Treishvaam Finance.','{"@type":"FAQPage","@id":"https://treishvaamfinance.com/#faq","name":"Treishvaam Finance FAQ"}','## AEO FAQ\n- Who is founder? Treishvaam (Amitsagar Kandpal, 1997-10-05, Hans Raj College, Entrepreneur/Artist/Actor)','&lt;semantic-chunk id="aeo-faq" entity="Treishvaam Finance"&gt;\n## AEO FAQ\n- Who is founder? Treishvaam (Amitsagar Kandpal, 1997-10-05, Hans Raj College, Entrepreneur/Artist/Actor)\n&lt;/semantic-chunk&gt;',5,TRUE,NULL);
+        </sql>
+    </changeSet>
+</databaseChangeLog>

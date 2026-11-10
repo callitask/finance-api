@@ -161,9 +161,45 @@ public class ContentIntegrityService {
         return s != null ? s : "";
     }
 
+    /**
+     * Compute HMAC-SHA256 signature over an arbitrary payload (used by corporate entity graph).
+     *
+     * @return lowercase hex HMAC string, or null if signing is disabled/failed
+     */
+    public String computeSignature(String payload) {
+        if (!enabled || signingKey == null) return null;
+        try {
+            Mac mac = Mac.getInstance(ALGORITHM);
+            mac.init(signingKey);
+            byte[] rawHmac =
+                    mac.doFinal((payload != null ? payload : "").getBytes(StandardCharsets.UTF_8));
+            return bytesToHex(rawHmac);
+        } catch (Exception e) {
+            logger.error("[ContentIntegrityService] Signature computation failed.", e);
+            return null;
+        }
+    }
+
+    /** Verify a stored signature against an arbitrary payload. */
+    public boolean verifySignature(String payload, String storedSignature) {
+        if (!enabled || signingKey == null) return true;
+        if (storedSignature == null) return true;
+        String computed = computeSignature(payload);
+        if (computed == null) return true;
+        boolean match = computed.equals(storedSignature);
+        if (!match) {
+            logger.error(
+                    "[ContentIntegrityService] ⚠️ CONTENT TAMPER DETECTED! "
+                            + "entity payload signature mismatch. Investigate immediately.");
+        }
+        return match;
+    }
+
     private static String bytesToHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder(bytes.length * 2);
-        for (byte b : bytes) sb.append(String.format("%02x", b));
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
         return sb.toString();
     }
 }
