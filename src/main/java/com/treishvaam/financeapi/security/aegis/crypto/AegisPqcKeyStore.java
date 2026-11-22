@@ -21,8 +21,13 @@
  * <p>Future AI Guidance: - When HashiCorp Vault is integrated, modify this class to pull the
  * private key from Vault instead of generating it in memory on boot.
  *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • BouncyCastle PQC provider registration. •
- * ML-DSA key generation mapped to NIST Level 5. • Phase 1/2 Orchestration Batch.
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: Ã¢â‚¬Â¢ BouncyCastle PQC provider
+ * registration. Ã¢â‚¬Â¢ ML-DSA key generation mapped to NIST Level 5. Ã¢â‚¬Â¢ Phase
+ * 1/2 Orchestration Batch. - EDITED (BouncyCastle 1.87 FIPS 204 Migration, P1.1): BC 1.87 removed
+ * org.bouncycastle.pqc.jcajce.spec.DilithiumParameterSpec; migrated key generation to FIPS 204
+ * MLDSAParameterSpec.ml_dsa_87. New wiring verified live: KeyPairGenerator.getInstance("ML-DSA",
+ * BouncyCastleProvider.PROVIDER_NAME) + initialize(MLDSAParameterSpec.ml_dsa_87, rand) + generate +
+ * sign/verify round trip (sigLen=4627).
  */
 package com.treishvaam.financeapi.security.aegis.crypto;
 
@@ -30,9 +35,9 @@ import jakarta.annotation.PostConstruct;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.Security;
+import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.pqc.jcajce.provider.BouncyCastlePQCProvider;
-import org.bouncycastle.pqc.jcajce.spec.DilithiumParameterSpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -65,11 +70,10 @@ public class AegisPqcKeyStore {
             log.info(
                     "AEGIS L1-PQCf: Generating ML-DSA-87 (Dilithium5) KeyPair. This may take a moment...");
             KeyPairGenerator kpg =
-                    KeyPairGenerator.getInstance(
-                            "Dilithium", BouncyCastlePQCProvider.PROVIDER_NAME);
+                    KeyPairGenerator.getInstance("ML-DSA", BouncyCastleProvider.PROVIDER_NAME);
 
             // Dilithium5 is equivalent to ML-DSA-87 (NIST Level 5)
-            kpg.initialize(DilithiumParameterSpec.dilithium5, entropyManager.getSecureRandom());
+            kpg.initialize(MLDSAParameterSpec.ml_dsa_87, entropyManager.getSecureRandom());
             this.currentPqcKeyPair = kpg.generateKeyPair();
             log.info("AEGIS L1-PQCf: ML-DSA-87 KeyPair generated successfully.");
         } catch (Exception e) {

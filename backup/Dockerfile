@@ -12,8 +12,10 @@
 #  * • Added `openssl` to support AES-256-CBC encryption of database dumps.
 #  * • Added `coreutils` to replace Alpine's busybox `date` with GNU `date`, resolving `-7 days` retention syntax errors.
 #  * • Added AI-CONTEXT block.
+#  * - EDITED (P1.2 - Alpine Base Patch):
+#  * • Upgraded the base image from the EOL Alpine 3.19 to Alpine 3.24 (supported to June 2028).
 #  */
-FROM alpine:3.19
+FROM alpine:3.24
 
 # Install dependencies for MySQL backup, S3 upload, encryption, and GNU date manipulation
 RUN apk add --no-cache mysql-client aws-cli bash gzip openssl coreutils

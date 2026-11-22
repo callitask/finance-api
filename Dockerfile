@@ -51,6 +51,10 @@
 #  * • Removed the multi-stage Maven builder entirely. 
 #  * • Reason: Engine A (`deploy.yml`) already natively builds the artifact to `/opt/treishvaam/backend-app.war`. Executing a secondary Maven compilation inside Docker caused catastrophic Java Heap OOMs, crashing the Git Runner and wiping the `.env` vault. The Dockerfile now strictly consumes the pre-built WAR artifact, eliminating the double-build starvation.
 #  *
+#  * - EDITED (P1.2 — Docker Hub Pin & OS Upgrade):
+#  * • Pinned base image to `eclipse-temurin:21.0.13.1_2-jdk-jammy` (verified on the Docker Hub tags API, read-only, 2026-11-23 — the tag exists; this permanently fixes Java4Shell CVE-2026-114938; P0.2's `-XX:-UseBASE64Intrinsics` remains active).
+#  * • Added `apt-get upgrade -y` inside the `apt-get update` layer to patch OS Brotli (CVE-2026-111497) and OpenSSL.
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
@@ -61,13 +65,14 @@
 # ------------------------------------------------------------------------------
 # We use a lightweight Java 21 image for running the app.
 # The WAR file is provided natively by Engine A (deploy.yml).
-FROM eclipse-temurin:21-jdk-jammy
+FROM eclipse-temurin:21.0.13.1_2-jdk-jammy
 
 WORKDIR /app
 
 # 1. Install Python 3 and Dependencies
 # We removed 'infisical' to prevent authentication errors inside the container.
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y python3 python3-pip python-is-python3 && \
     rm -rf /var/lib/apt/lists/*
 

@@ -10,6 +10,10 @@
 # never hardcoded). Legacy unencrypted .sql.gz backups still restore cleanly:
 # the decrypt step is skipped when the key is absent AND the file is not .enc.
 
+# IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+#   - EDITED (P1.2 - Credential Exposure Fix):
+#     • Replaced the `mysql` CLI password flag with the `MYSQL_PWD` environment assignment — no password in the process table (VULN-18c).
+
 BACKUP_FILE=$1
 
 if [ -z "$BACKUP_FILE" ]; then
@@ -61,7 +65,7 @@ else
 fi
 
 echo "Restoring database..."
-gunzip < "/tmp/restore.sql.gz" | mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME"
+gunzip < "/tmp/restore.sql.gz" | MYSQL_PWD="$DB_PASS" mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME"
 
 if [ $? -eq 0 ]; then
     echo "RESTORE COMPLETE. System data recovered."

@@ -201,6 +201,11 @@
 #  - EDITED (Phase 0.5 - Transcoder Build Exit-Code Gating, Nov 22 2026):
 #     • Replaced the unconditional `docker compose build treishvaam-transcoder` followed by `echo "$TRANSCODER_HASH" > "$TRANSCODER_LAST_SHA_FILE"` with exit-code gated logic: the SHA is now recorded only when the build succeeds; on failure a WARNING is emitted and the SHA is NOT recorded so the next deploy retries the build.
 #     • Reason: Under `set +e`, a failed transcoder build previously still poisoned the SHA cache, so subsequent deploys silently skipped rebuilding — a 100% media/image/video/HLS outage risk. Exit-code gating makes the self-heal path real.
+#
+#  - EDITED (P1.2 - Tier 0 Backup Service MD5 Build Gate & Cold-Start Keycloak/Loki):
+#     � Added exit-gated MD5-gated docker compose build backup-service block right after the transcoder build (hashes ./backup; records /opt/treishvaam/.backup_last_built_sha only on exit 0).
+#     � Tier 2: explicitly added keycloak - docker compose up -d --no-deps elasticsearch rabbitmq wazuh-manager keycloak.
+#     � Tier 3C: explicitly added loki - docker compose up -d --no-deps loki promtail prometheus tempo grafana.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -557,6 +562,20 @@ if [ "$TRANSCODER_HASH" != "$TRANSCODER_LAST_SHA" ] || [ "$TRANSCODER_HASH" = "u
     fi
 fi
 
+# --- Backup service build (MD5-gated, P1.2) ---
+BACKUP_HASH=$(find ./backup -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | awk '{print $1}' || echo "unknown")
+BACKUP_LAST_SHA_FILE="/opt/treishvaam/.backup_last_built_sha"
+BACKUP_LAST_SHA=$(cat "$BACKUP_LAST_SHA_FILE" 2>/dev/null || echo "none")
+
+if [ "$BACKUP_HASH" != "$BACKUP_LAST_SHA" ] || [ "$BACKUP_HASH" = "unknown" ]; then
+    echo "  > Backup service Dockerfile changed. Rebuilding..."
+    if docker compose build backup-service; then
+        echo "$BACKUP_HASH" > "$BACKUP_LAST_SHA_FILE"
+    else
+        echo "  > [WARNING] Backup service image build failed; SHA not recorded so next deploy will retry."
+    fi
+fi
+
 echo "  > Compiling Java Backend Image..."
 docker compose build backend
 BUILD_EXIT_CODE=$?
@@ -596,7 +615,7 @@ sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
 
 # ── TIER 2: Queue & Analytics Infrastructure ──
 echo "[Ignition - Tier 2] Starting Search Engine and Messaging pipelines..."
-docker compose up -d --no-deps elasticsearch rabbitmq wazuh-manager
+docker compose up -d --no-deps elasticsearch rabbitmq wazuh-manager keycloak
 
 echo "[Ignition - Tier 2] Reclaiming volatile memory allocations..."
 sleep 15
@@ -620,7 +639,7 @@ sudo -n sync && echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null
 
 # ── TIER 3C: Observability Pipeline ──
 echo "[Ignition - Tier 3C] Igniting Observability Stack..."
-docker compose up -d --no-deps promtail prometheus tempo grafana
+docker compose up -d --no-deps loki promtail prometheus tempo grafana
 
 echo "[Ignition - Tier 3C] Reclaiming volatile memory allocations..."
 sleep 15

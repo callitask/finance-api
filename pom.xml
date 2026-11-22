@@ -6,7 +6,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.4.0</version>
+        <version>3.5.16</version>
         <relativePath/> 
     </parent>
     <groupId>com.treishvaam</groupId>
@@ -18,12 +18,14 @@
 
     <properties>
         <java.version>21</java.version>
-        <spring-cloud.version>2024.0.0</spring-cloud.version>
+        <spring-cloud.version>2025.0.3</spring-cloud.version>
         <nvd.api.key></nvd.api.key>
         
-        <tomcat.version>10.1.36</tomcat.version>       
-        <netty.version>4.1.119.Final</netty.version>     
-        <elasticsearch.version>8.17.0</elasticsearch.version> 
+        <tomcat.version>10.1.62</tomcat.version>       
+        <netty.version>4.1.138.Final</netty.version>     
+        <elasticsearch.version>8.19.24</elasticsearch.version>
+        <jackson-bom.version>2.18.12</jackson-bom.version>
+        <rabbitmq-amqp-client.version>5.35.0</rabbitmq-amqp-client.version> 
         <angus-activation.version>2.0.2</angus-activation.version>
         <antlr4.version>4.13.1</antlr4.version>
     </properties>
@@ -72,6 +74,12 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+
+            <dependency>
+                <groupId>com.rabbitmq</groupId>
+                <artifactId>amqp-client</artifactId>
+                <version>5.35.0</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -107,7 +115,7 @@
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>2.5.0</version>
+            <version>2.10.1</version>
         </dependency>
 
         <dependency>
@@ -179,7 +187,7 @@
         <dependency>
             <groupId>io.github.resilience4j</groupId>
             <artifactId>resilience4j-spring-boot3</artifactId>
-            <version>2.2.0</version>
+            <version>2.3.0</version>
         </dependency>
         
         <dependency>
@@ -242,7 +250,7 @@
         <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
-            <version>1.17.2</version>
+            <version>1.18.3</version>
         </dependency>
         
         <dependency>
@@ -254,18 +262,18 @@
         <dependency>
             <groupId>org.apache.tika</groupId>
             <artifactId>tika-core</artifactId>
-            <version>2.9.2</version>
+            <version>3.3.3</version>
         </dependency>
 
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcpkix-jdk18on</artifactId>
-            <version>1.78.1</version>
+            <version>1.87</version>
         </dependency>
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
-            <version>1.78.1</version>
+            <version>1.87</version>
         </dependency>
         <dependency>
             <groupId>de.mkammerer</groupId>
@@ -275,17 +283,17 @@
         <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-netty-shaded</artifactId>
-            <version>1.64.0</version>
+            <version>1.70.0</version>
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-protobuf</artifactId>
-            <version>1.64.0</version>
+            <version>1.70.0</version>
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-stub</artifactId>
-            <version>1.64.0</version>
+            <version>1.70.0</version>
         </dependency>
         <dependency>
             <groupId>javax.annotation</groupId>
@@ -415,9 +423,9 @@
                 <artifactId>protobuf-maven-plugin</artifactId>
                 <version>0.6.1</version>
                 <configuration>
-                    <protocArtifact>com.google.protobuf:protoc:3.25.1:exe:${os.detected.classifier}</protocArtifact>
+                    <protocArtifact>com.google.protobuf:protoc:3.25.5:exe:${os.detected.classifier}</protocArtifact>
                     <pluginId>grpc-java</pluginId>
-                    <pluginArtifact>io.grpc:protoc-gen-grpc-java:1.64.0:exe:${os.detected.classifier}</pluginArtifact>
+                    <pluginArtifact>io.grpc:protoc-gen-grpc-java:1.70.0:exe:${os.detected.classifier}</pluginArtifact>
                     <protoSourceRoot>${project.basedir}/aegis/zkp-service</protoSourceRoot>
                 </configuration>
                 <executions>

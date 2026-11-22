@@ -26,6 +26,10 @@
 #  * - EDITED (Retention Rotation Fix):
 #  * • Replaced `date -d "-7 days"` with POSIX epoch arithmetic `$(($(date +%s) - RETENTION_DAYS * 86400))`.
 #  * • Reason: Alpine Linux intercepts GNU date syntax and routes it to Busybox's limited date utility, causing a fatal `invalid date` crash. POSIX math is immune to Alpine OS package variations.
+#  *
+#  * - EDITED (P1.2 - Credential Exposure & Encryption Key Propagation):
+#  * • Replaced the `mysqldump` CLI password flag with the `MYSQL_PWD` environment assignment — password no longer appears in the process table (`ps aux`).
+#  * • Replaced the `openssl` `-pass` flag with the environment-read `env:BACKUP_ENCRYPTION_KEY` value — key read from the process environment, never from CLI args (VULN-18c).
 #  */
 
 DB_HOST="${DB_HOST:-treishvaam-db}"
@@ -60,7 +64,7 @@ while true; do
     echo "[Job Started] Creating backup: $FILE_NAME"
 
     # Dump and compress (PITR Flag Restored)
-    mysqldump -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" --single-transaction --quick --master-data=2 "$DB_NAME" | gzip > "/tmp/$FILE_NAME"
+    MYSQL_PWD="$DB_PASS" mysqldump -h "$DB_HOST" -u "$DB_USER" --single-transaction --quick --master-data=2 "$DB_NAME" | gzip > "/tmp/$FILE_NAME"
 
     if [ -f "/tmp/$FILE_NAME" ]; then
         FILE_SIZE=$(du -h "/tmp/$FILE_NAME" | cut -f1)
@@ -68,7 +72,7 @@ while true; do
 
         # Phase 4: Encrypt the dump
         echo "Encrypting backup file with AES-256-CBC..."
-        openssl enc -aes-256-cbc -salt -in "/tmp/$FILE_NAME" -out "/tmp/$ENC_FILE_NAME" -pass pass:"$BACKUP_ENCRYPTION_KEY" -pbkdf2
+        openssl enc -aes-256-cbc -salt -in "/tmp/$FILE_NAME" -out "/tmp/$ENC_FILE_NAME" -pass env:BACKUP_ENCRYPTION_KEY -pbkdf2
 
         if [ $? -eq 0 ] && [ -f "/tmp/$ENC_FILE_NAME" ]; then
             echo "Encryption SUCCESS. Uploading to MinIO..."

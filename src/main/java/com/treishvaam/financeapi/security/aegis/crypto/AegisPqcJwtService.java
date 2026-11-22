@@ -20,8 +20,13 @@
  * <p>Future AI Guidance: - Keep this manual token structure until Nimbus/Auth0 officially support
  * FIPS 204 ML-DSA.
  *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Manual JWT construction for ML-DSA. •
- * Base64Url encoding for header, payload, and signature. • Phase 1/2 Orchestration Batch.
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Manual JWT
+ * construction for ML-DSA. ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Base64Url encoding for header, payload,
+ * and signature. ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Phase 1/2 Orchestration Batch. - EDITED
+ * (BouncyCastle 1.87 FIPS 204 Migration, P1.1): BC 1.87 removed the Dilithium JCA algorithm name
+ * (no longer registered in BC 1.87); migrated to FIPS 204 MLDSAParameterSpec.ml_dsa_87. New wiring
+ * verified live: Signature.getInstance("ML-DSA", BouncyCastleProvider.PROVIDER_NAME) + initSign +
+ * sign + initVerify + verify round trip.
  */
 package com.treishvaam.financeapi.security.aegis.crypto;
 
@@ -31,7 +36,7 @@ import java.security.Signature;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
-import org.bouncycastle.pqc.jcajce.provider.BouncyCastlePQCProvider;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -66,8 +71,7 @@ public class AegisPqcJwtService {
 
             // 3. Sign (Header + "." + Payload)
             String signingInput = headerB64 + "." + payloadB64;
-            Signature sig =
-                    Signature.getInstance("Dilithium", BouncyCastlePQCProvider.PROVIDER_NAME);
+            Signature sig = Signature.getInstance("ML-DSA", BouncyCastleProvider.PROVIDER_NAME);
             sig.initSign(keyStore.getCurrentKeyPair().getPrivate());
             sig.update(signingInput.getBytes(StandardCharsets.UTF_8));
             byte[] signatureBytes = sig.sign();
@@ -90,8 +94,7 @@ public class AegisPqcJwtService {
             String signingInput = parts[0] + "." + parts[1];
             byte[] signatureBytes = decodeB64(parts[2]);
 
-            Signature sig =
-                    Signature.getInstance("Dilithium", BouncyCastlePQCProvider.PROVIDER_NAME);
+            Signature sig = Signature.getInstance("ML-DSA", BouncyCastleProvider.PROVIDER_NAME);
             sig.initVerify(keyStore.getCurrentKeyPair().getPublic());
             sig.update(signingInput.getBytes(StandardCharsets.UTF_8));
 
