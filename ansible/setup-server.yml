@@ -75,6 +75,10 @@
 #   - EDITED (Session Validation - 2026-07-08):
 #     • Final confirmation of all CI/CD remediation steps including swapaccount enablement and dependency hooks.
 #     • Reason: Fulfills FLAW-7 & FLAW-10 execution requirements. The playbook is complete and production-ready for Zero-State Ignition.
+#
+#  - EDITED (P0 - Phase 0 Security Hardening, Nov 22 2026):
+#     • Added Task 2.7 writing `/etc/modprobe.d/treishvaam-hardening.conf` (mode 0644) with `install <mod> /bin/false` + `blacklist <mod>` for `sctp`, `dccp`, `rds`, `tipc` (Linux SCTP/DCCP container-escape surface; CVE-2026-114938 adjacency).
+#     • No live VM mutation in this pass (SSH apply deferred post-approval; see execution report for the one-time operator command).
 # ==============================================================================
 
 - name: Treishvaam Zero-State Ignition (ZSI)
@@ -161,6 +165,20 @@
         value: '1'
         state: present
         sysctl_file: /etc/sysctl.d/99-treishvaam.conf
+
+    - name: 2.7 Blacklist Legacy Protocol Modules (SCTP / DCCP / RDS / TIPC)
+      copy:
+        dest: /etc/modprobe.d/treishvaam-hardening.conf
+        mode: '0644'
+        content: |
+          install sctp /bin/false
+          blacklist sctp
+          install dccp /bin/false
+          blacklist dccp
+          install rds /bin/false
+          blacklist rds
+          install tipc /bin/false
+          blacklist tipc
 
     - name: 3. Configure Docker Daemon Log Rotation
       copy:

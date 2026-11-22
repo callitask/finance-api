@@ -22,7 +22,10 @@ package com.treishvaam.financeapi.security;
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED (Phase 4 - SEC-10 Fix): • Created
  * InputSanitizationFilter. • Why it was added: Intercepts request parameters globally to apply
- * QuerySanitizationService validation. • Date: Phase 4 Implementation.
+ * QuerySanitizationService validation. • Date: Phase 4 Implementation. - EDITED (P0 - Phase 0
+ * Security Hardening, Nov 22 2026): • Removed `@Order(Ordered.HIGHEST_PRECEDENCE + 2)` — filter
+ * order now owned exclusively by `SecurityConfig.java` + `FilterConfig.java` (auto-registration
+ * disabled).
  */
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -32,13 +35,10 @@ import java.io.IOException;
 import java.util.Enumeration;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 2) // Runs right after CORS filter
 public class InputSanitizationFilter extends OncePerRequestFilter {
 
     @Autowired private QuerySanitizationService querySanitizationService;

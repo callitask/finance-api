@@ -26,7 +26,13 @@ package com.treishvaam.financeapi.controller;
  * `SecurityUtils.extractAuthorDisplayName` for the `author` field. • Why the edit was required:
  * Resolves the bug where the Keycloak Subject UUID was being saved as the visible author name. •
  * What behavior must remain unchanged: The `tenantId` must still map to the raw principal ID to
- * preserve strict row-level data isolation.
+ * preserve strict row-level data isolation. - EDITED (P0 - Phase 0 Security Hardening, Nov 22
+ * 2026): • Added `@PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")`
+ * on `getAllPostsForAdmin()`, `getDrafts()`, `createDraft()`, `updateDraft()`, and
+ * `duplicatePost()` (P0.6). • `getPostById()`: anonymous non-`PUBLISHED` reads return 404;
+ * authenticated `ROLE_EDITOR`/`ROLE_PUBLISHER`/`ROLE_ADMIN` callers may load drafts
+ * (BlogEditorPage.js authenticated draft load preserved). • Added `callerHasEditorRole()` helper +
+ * `PostStatus` import.
  */
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,6 +42,7 @@ import com.treishvaam.financeapi.dto.ShareRequest;
 import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.Category;
 import com.treishvaam.financeapi.model.DisplaySection;
+import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.service.BlogPostService;
 import com.treishvaam.financeapi.service.LinkedInService;
 import com.treishvaam.financeapi.util.SecurityUtils;
@@ -55,6 +62,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -80,7 +88,7 @@ public class BlogPostController {
     }
 
     @GetMapping("/admin/all")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
     public ResponseEntity<List<BlogPost>> getAllPostsForAdmin() {
         return ResponseEntity.ok(blogPostService.findAllForAdmin());
     }
@@ -88,6 +96,13 @@ public class BlogPostController {
     @GetMapping("/{id}")
     public ResponseEntity<BlogPost> getPostById(@PathVariable Long id) {
         Optional<BlogPost> post = blogPostService.findById(id);
+        // P0.6: Anonymous callers may only read PUBLISHED posts; drafts/scheduled stay 404.
+        // Authenticated ROLE_EDITOR/PUBLISHER/ADMIN callers may load drafts (BlogEditorPage.js).
+        if (post.isPresent()
+                && post.get().getStatus() != PostStatus.PUBLISHED
+                && !callerHasEditorRole()) {
+            return ResponseEntity.notFound().build();
+        }
         return post.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
@@ -119,17 +134,20 @@ public class BlogPostController {
     }
 
     @GetMapping("/admin/drafts")
+    @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
     public ResponseEntity<List<BlogPost>> getDrafts() {
         return ResponseEntity.ok(blogPostService.findDrafts());
     }
 
     @PostMapping("/draft")
+    @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
     public ResponseEntity<BlogPost> createDraft(@RequestBody BlogPostDto postDto) {
         BlogPost createdPost = blogPostService.createDraft(postDto);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdPost);
     }
 
     @PutMapping("/draft/{id}")
+    @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
     public ResponseEntity<BlogPost> updateDraft(
             @PathVariable Long id, @RequestBody BlogPostDto postDto) {
         BlogPost updatedDraft = blogPostService.updateDraft(id, postDto);
@@ -214,7 +232,7 @@ public class BlogPostController {
     }
 
     @PostMapping("/{id}/duplicate")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyAuthority('ROLE_EDITOR', 'ROLE_PUBLISHER', 'ROLE_ADMIN')")
     public ResponseEntity<BlogPost> duplicatePost(@PathVariable Long id) {
         try {
             BlogPost duplicatedPost = blogPostService.duplicatePost(id);
@@ -222,6 +240,21 @@ public class BlogPostController {
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
+    }
+
+    /** P0.6: true when the caller holds ROLE_EDITOR/ROLE_PUBLISHER/ROLE_ADMIN. */
+    private boolean callerHasEditorRole() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return false;
+        }
+        return auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(
+                        a ->
+                                "ROLE_EDITOR".equals(a)
+                                        || "ROLE_PUBLISHER".equals(a)
+                                        || "ROLE_ADMIN".equals(a));
     }
 
     @PutMapping("/{id}")

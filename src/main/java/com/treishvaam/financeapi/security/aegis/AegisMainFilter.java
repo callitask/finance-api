@@ -48,7 +48,12 @@
  * cache RequestPath in constructor - 2026-11-01): • Removed `getAttribute()` null override (caused
  * `IllegalArgumentException: Expected parsed RequestPath`). • Moved
  * `ServletRequestPathUtils.parseAndCache(this)` into constructor. Why: Eliminates 503/504 on MTD
- * routes.
+ * routes. - EDITED (P0 - Phase 0 Security Hardening, Nov 22 2026): • Replaced `String sessionId =
+ * request.getSession().getId();` with `jakarta.servlet.http.HttpSession existingSession =
+ * request.getSession(false); String sessionId = (existingSession != null) ? existingSession.getId()
+ * : "stateless";` — stops unauthenticated Tomcat `HttpSession` + `JSESSIONID` creation on the
+ * stateless path (VULN-11). • Removed `@Order(Ordered.HIGHEST_PRECEDENCE + 1)` — filter order now
+ * owned exclusively by `SecurityConfig.java`.
  */
 package com.treishvaam.financeapi.security.aegis;
 
@@ -63,14 +68,11 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ServletRequestPathUtils;
 
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class AegisMainFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(AegisMainFilter.class);
@@ -108,7 +110,9 @@ public class AegisMainFilter extends OncePerRequestFilter {
             }
 
             // 2. Byzantine Consensus Evaluation (L8-BCSM)
-            String sessionId = request.getSession().getId();
+            // P0.4 - Session-Table OOM DoS Fix: never create a session on the stateless path.
+            jakarta.servlet.http.HttpSession existingSession = request.getSession(false);
+            String sessionId = (existingSession != null) ? existingSession.getId() : "stateless";
             SecurityDecision decision = bcsm.evaluate(request, sessionId);
 
             switch (decision) {

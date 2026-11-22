@@ -108,6 +108,14 @@
  * Unauthorized on HLS AES-128 DRM key delivery (/api/v1/video/internal/key/**) when fetched by the
  * Edge Worker using HMAC AEGIS signatures rather than Keycloak JWT tokens.
  *
+ * <p>- EDITED (P0 - Phase 0 Security Hardening, Nov 22 2026): • Moved `/api/v1/posts/admin/**`
+ * matcher ABOVE `GET /api/v1/posts/**` (P0.6 — Spring Security first-match semantics; fixes
+ * anonymous draft leakage, VULN-03). • Changed `POST /api/v1/posts/draft` + `PUT
+ * /api/v1/posts/draft/**` from `.authenticated()` to `hasAnyAuthority("ROLE_EDITOR",
+ * "ROLE_PUBLISHER", "ROLE_ADMIN")` (P0.6). • Added explicit `POST /api/v1/posts/{id}/duplicate`
+ * matcher → `hasAnyAuthority("ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")` (P0.6 — no anonymous
+ * duplicates).
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -256,6 +264,14 @@ public class SecurityConfig {
                                                 "/api/public/**") // Includes GEO endpoints
                                         .permitAll()
 
+                                        // 6. Secure Admin/Dashboard Routes — P0.6: MUST precede
+                                        // public GET rules
+                                        // (Spring Security first-match semantics; fixes anonymous
+                                        // draft leakage, VULN-03).
+                                        .requestMatchers("/api/v1/posts/admin/**")
+                                        .hasAnyAuthority(
+                                                "ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
+
                                         // 3. Public API Read Access
                                         .requestMatchers(
                                                 HttpMethod.GET,
@@ -291,23 +307,22 @@ public class SecurityConfig {
                                                 "/api/v1/aegis/telemetry")
                                         .permitAll()
 
-                                        // --- Draft Operations (Authenticated — any logged-in user)
-                                        // ---
+                                        // --- Draft Operations (Role-restricted — P0.6, no
+                                        // anonymous drafts) ---
                                         .requestMatchers(HttpMethod.POST, "/api/v1/posts/draft")
-                                        .authenticated()
+                                        .hasAnyAuthority(
+                                                "ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
                                         .requestMatchers(HttpMethod.PUT, "/api/v1/posts/draft/**")
-                                        .authenticated()
+                                        .hasAnyAuthority(
+                                                "ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
 
                                         // --- Auth Endpoints MUST be Authenticated ---
                                         .requestMatchers("/api/v1/auth/**")
                                         .authenticated()
 
-                                        // 6. Secure Admin/Dashboard Routes
+                                        // 6. Secure Admin/Dashboard Routes (role-restricted)
                                         .requestMatchers("/api/v1/analytics/**") // Dashboard Reads
                                         .hasAnyAuthority("ROLE_ANALYST", "ROLE_ADMIN")
-                                        .requestMatchers("/api/v1/posts/admin/**")
-                                        .hasAnyAuthority(
-                                                "ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
 
                                         // --- Post Publish & Edit (requires PUBLISHER or ADMIN) ---
                                         .requestMatchers(HttpMethod.POST, "/api/v1/posts")
@@ -320,6 +335,13 @@ public class SecurityConfig {
                                                 "ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
                                         .requestMatchers(HttpMethod.DELETE, "/api/v1/posts/**")
                                         .hasAnyAuthority("ROLE_PUBLISHER", "ROLE_ADMIN")
+
+                                        // --- Post Duplicate (Role-restricted — P0.6, no anonymous
+                                        // duplicates) ---
+                                        .requestMatchers(
+                                                HttpMethod.POST, "/api/v1/posts/*/duplicate")
+                                        .hasAnyAuthority(
+                                                "ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")
 
                                         // --- File Upload (requires PUBLISHER or ADMIN) ---
                                         .requestMatchers("/api/v1/files/upload")

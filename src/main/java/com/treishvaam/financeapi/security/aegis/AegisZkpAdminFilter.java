@@ -32,6 +32,15 @@
  * level to prevent 403 Forbidden errors while preserving global L3-ZKA integrity for other admin
  * routes. • Date: 2026-08-05
  *
+ * <p>- EDITED (P0 - Phase 0 Security Hardening, Nov 22 2026): • Removed the live production CI/CD
+ * automation bypass from `AegisZkpAdminFilter` (0 frontend callers in `src/apiConfig.js`; the
+ * bypass string was the literal test-token value `true`). • Added OPTIONS preflight pass-through at
+ * the top of `doFilterInternal`. • Replaced non-constant-time
+ * `internalSecret.equals(providedZkpOrSecret)` on `/api/v1/admin/actions/analytics/heal` with
+ * constant-time `MessageDigest.isEqual()` over UTF-8 byte arrays + non-blank guards (preserves
+ * `AudiencePage.js` `healHistoricalAnalytics()`). • Disabled root auto-registration in
+ * `FilterConfig.java`; removed `@Order(...)` (order now owned by `SecurityConfig.java`).
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -42,15 +51,14 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 @Slf4j
 public class AegisZkpAdminFilter extends OncePerRequestFilter {
 
@@ -67,17 +75,16 @@ public class AegisZkpAdminFilter extends OncePerRequestFilter {
     protected void doFilterInternal(
             HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        String path = request.getRequestURI();
-
-        // 1. Only intercept /api/v1/admin/ endpoints
-        if (path == null || !path.startsWith("/api/v1/admin/")) {
+        // Skip CORS preflight — the ZKP gate does not apply to OPTIONS preflight.
+        if ("OPTIONS".equals(request.getMethod())) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        // 1.5. Architectural CI/CD Automation Bypass (Strictly Enforced)
-        if ("true".equals(request.getHeader("X-AEGIS-Test-Token"))) {
-            log.info("AEGIS L3-ZKA: Automation Pipeline bypass recognized for CI/CD framework.");
+        String path = request.getRequestURI();
+
+        // 1. Only intercept /api/v1/admin/ endpoints
+        if (path == null || !path.startsWith("/api/v1/admin/")) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -87,10 +94,14 @@ public class AegisZkpAdminFilter extends OncePerRequestFilter {
         if ("/api/v1/admin/actions/analytics/heal".equals(path)) {
             String providedZkpOrSecret = request.getHeader("X-AEGIS-ZKP");
 
-            // 1. Check if it's the internal secret bypass
+            // 1. Check if it's the internal secret bypass (constant-time, CWE-208 hardened)
             if (internalSecret != null
                     && !internalSecret.isBlank()
-                    && internalSecret.equals(providedZkpOrSecret)) {
+                    && providedZkpOrSecret != null
+                    && !providedZkpOrSecret.isBlank()
+                    && MessageDigest.isEqual(
+                            internalSecret.getBytes(StandardCharsets.UTF_8),
+                            providedZkpOrSecret.getBytes(StandardCharsets.UTF_8))) {
                 log.info("AEGIS L3-ZKA: Internal Secret Bypass authenticated for path: {}", path);
                 request.setAttribute("AEGIS_ZKP_VERIFIED", true);
                 filterChain.doFilter(request, response);

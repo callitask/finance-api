@@ -189,6 +189,18 @@
 #   - EDITED (Phase 8.1 - Transcoder Ignition):
 #     • Added `treishvaam-transcoder` to the Tier 4 ignition array alongside the `backend` container.
 #     • Reason: The Alpine FFmpeg transcoder was built but never started, causing RabbitMQ events to drop and videos to fail playback. Igniting it at Tier 4 ensures the queues are bound securely before Tomcat fully initializes.
+#
+#  - EDITED (P0 - Phase 0 Security Hardening, Nov 22 2026):
+#     • Replaced transcoder user GID with `1000` in `transcoder/Dockerfile` (`addgroup -g 1000 -S transcoder && adduser -S -G transcoder transcoder`) for setgid alignment with backend `1000:1000`.
+#     • Added MD5-gated `docker compose build treishvaam-transcoder` to the Tier 0 pre-compilation block (hash of `./transcoder/` via `md5sum`, stored in `/opt/treishvaam/.transcoder_last_built_sha`) so the GID change builds on deploy.
+#
+#  - EDITED (P0 - Phase 0 Security Hardening, Nov 22 2026):
+#     • Added `LOCAL_EDGE_SECRET` extraction + fail-closed non-blank `AEGIS_EDGE_SECRET` check to the Secret Integrity Gate (P0.5).
+#     • Reason: Fail-closed startup on missing/blank AEGIS_EDGE_SECRET — prevents the EE + GEO signature fail-open path when secrets are missing (VULN-05).
+#
+#  - EDITED (Phase 0.5 - Transcoder Build Exit-Code Gating, Nov 22 2026):
+#     • Replaced the unconditional `docker compose build treishvaam-transcoder` followed by `echo "$TRANSCODER_HASH" > "$TRANSCODER_LAST_SHA_FILE"` with exit-code gated logic: the SHA is now recorded only when the build succeeds; on failure a WARNING is emitted and the SHA is NOT recorded so the next deploy retries the build.
+#     • Reason: Under `set +e`, a failed transcoder build previously still poisoned the SHA cache, so subsequent deploys silently skipped rebuilding — a 100% media/image/video/HLS outage risk. Exit-code gating makes the self-heal path real.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -442,12 +454,13 @@ if [ $EXPORT_EXIT_CODE -eq 0 ] && grep -q "=" "$TEMP_SECRETS"; then
     # ── SECRET INTEGRITY GATE (ANTI-NOAUTH POISONING) ──────────────────────────
     LOCAL_REDIS_PASS=$(grep -E '^REDIS_PASSWORD=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
     LOCAL_DB_PASS=$(grep -E '^PROD_DB_PASSWORD=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
+    LOCAL_EDGE_SECRET=$(grep -E '^AEGIS_EDGE_SECRET=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
 
-    if [ -z "$LOCAL_REDIS_PASS" ] || [ -z "$LOCAL_DB_PASS" ]; then
+    if [ -z "$LOCAL_REDIS_PASS" ] || [ -z "$LOCAL_DB_PASS" ] || [ -z "$LOCAL_EDGE_SECRET" ]; then
         echo "CRITICAL ERROR: Secret Integrity Gate Failed!"
         rm -f "$TEMP_SECRETS"
-        log_telemetry "INFISICAL_INJECTION" "FAILURE" "Secret Integrity Gate failed: Critical passwords are blank."
-        notify "INFISICAL_INJECTION" "FAILURE" "Secret Integrity Gate failed. Blank passwords detected."
+        log_telemetry "INFISICAL_INJECTION" "FAILURE" "Secret Integrity Gate failed: Critical secrets are blank."
+        notify "INFISICAL_INJECTION" "FAILURE" "Secret Integrity Gate failed. Blank secrets detected."
         exit 1
     fi
 
@@ -528,6 +541,20 @@ if [ "$ZKP_HASH" != "$ZKP_LAST_SHA" ] || [ "$ZKP_HASH" = "unknown" ]; then
     echo "  > ZKP service changed. Compiling Go binary..."
     docker compose build aegis-zkp-service
     echo "$ZKP_HASH" > "$ZKP_LAST_SHA_FILE"
+fi
+
+# --- Transcoder build (MD5-gated, P0.9) ---
+TRANSCODER_HASH=$(find ./transcoder -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | awk '{print $1}' || echo "unknown")
+TRANSCODER_LAST_SHA_FILE="/opt/treishvaam/.transcoder_last_built_sha"
+TRANSCODER_LAST_SHA=$(cat "$TRANSCODER_LAST_SHA_FILE" 2>/dev/null || echo "none")
+
+if [ "$TRANSCODER_HASH" != "$TRANSCODER_LAST_SHA" ] || [ "$TRANSCODER_HASH" = "unknown" ]; then
+    echo "  > Transcoder Dockerfile changed. Rebuilding..."
+    if docker compose build treishvaam-transcoder; then
+        echo "$TRANSCODER_HASH" > "$TRANSCODER_LAST_SHA_FILE"
+    else
+        echo "  > [WARNING] Transcoder image build failed; SHA not recorded so next deploy will retry."
+    fi
 fi
 
 echo "  > Compiling Java Backend Image..."

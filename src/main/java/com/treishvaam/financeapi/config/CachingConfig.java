@@ -3,7 +3,6 @@ package com.treishvaam.financeapi.config;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.Duration;
 import java.util.HashMap;
@@ -46,11 +45,24 @@ public class CachingConfig implements CachingConfigurer {
         // ENTERPRISE FIX: Fail Safe Deserialization
         objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-        // Enable polymorphic type handling so Redis knows which class to deserialize into
+        // P0.8 (VULN-08): Restricted polymorphic type validation (cache-safe).
+        // `.allowIfSubType(...)`
+        // is MANDATORY — the unrestricted base-type validator is forbidden:
+        // `GenericJackson2JsonRedisSerializer`
+        // deserializes with the declared base type `Object.class`, so base-type validation would
+        // deny EVERY cached DTO (silent 100% cache-miss regression). Subtypes must pass the
+        // allowlist — our DTOs (com.treishvaam.financeapi.*), JDK values
+        // (java.util./java.time./java.math.).
+        com.fasterxml.jackson.databind.jsontype.PolymorphicTypeValidator ptv =
+                com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator.builder()
+                        .allowIfSubType("com.treishvaam.financeapi.")
+                        .allowIfSubType("java.util.")
+                        .allowIfSubType("java.time.")
+                        .allowIfSubType("java.math.")
+                        .build();
+
         objectMapper.activateDefaultTyping(
-                LaissezFaireSubTypeValidator.instance,
-                ObjectMapper.DefaultTyping.NON_FINAL,
-                JsonTypeInfo.As.PROPERTY);
+                ptv, ObjectMapper.DefaultTyping.NON_FINAL, JsonTypeInfo.As.PROPERTY);
 
         // 2. Create a serializer using this specific ObjectMapper
         GenericJackson2JsonRedisSerializer serializer =

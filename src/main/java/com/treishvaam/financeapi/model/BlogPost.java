@@ -1,6 +1,7 @@
 package com.treishvaam.financeapi.model;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import java.io.Serializable;
@@ -141,6 +142,7 @@ public class BlogPost implements Serializable {
     // Phase 2 — Content Integrity
     // AI-CONTEXT: HMAC-SHA256 signature computed on publish. Never sent to frontend.
     // NULL = pre-signature post (verification passes). 128-char hex string when present.
+    @JsonIgnore
     @Column(name = "content_signature", length = 128)
     private String contentSignature;
 

@@ -28,6 +28,10 @@
  * memorize a poisoned trap payload and inadvertently serve it to an organic user on a subsequent
  * request.
  *
+ * <p>- EDITED (P0 - Phase 0 Security Hardening, Nov 22 2026): • Removed `@Order(-105)` — filter
+ * order now owned exclusively by `SecurityConfig.java` + `FilterConfig.java` (auto-registration
+ * disabled).
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -41,12 +45,10 @@ import java.io.IOException;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
-@Order(-105) // Runs immediately after InputSanitizationFilter but before Auth
 public class AegisDeceptionFilter extends OncePerRequestFilter {
 
     private static final Logger logger = LoggerFactory.getLogger(AegisDeceptionFilter.class);

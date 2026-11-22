@@ -7,14 +7,10 @@ import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.repository.CorporateEntityNodeRepository;
 import com.treishvaam.financeapi.security.ContentIntegrityService;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.stream.Collectors;
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -50,7 +46,12 @@ import org.springframework.stereotype.Service;
  * `ContentIntegrityService`. • All GEO feeds (`llms.txt`, `ai-feed.md`, `ontology.json`) are now
  * assembled dynamically from MariaDB `corporate_entity_graph` rows, verified via
  * `ContentIntegrityService`, then appended with live published BlogPost articles and signed with
- * HMAC-SHA256. • Added `evictGeoCache()` hook invoked by admin entity mutations.
+ * HMAC-SHA256. • Added `evictGeoCache()` hook invoked by admin entity mutations. - EDITED (P0 -
+ * Phase 0 Security Hardening, Nov 22 2026): • Removed the hardcoded fail-open
+ * `@Value("${CONTENT_SIGNING_KEY:...}")` fallback on `contentSigningKey` — `signPayload()` now
+ * delegates to `contentIntegrityService.computeSignature()` (Base64-decoded key semantics — fixes
+ * the UTF-8 vs Base64 key-encoding mismatch, VULN-05). • `verifyNode()` now fails CLOSED (`return
+ * false`) on signature-verification exceptions instead of `return true`.
  */
 @Service
 public class GeoOptimizationService {
@@ -60,9 +61,6 @@ public class GeoOptimizationService {
     private final CorporateEntityNodeRepository corporateEntityNodeRepository;
     private final ContentIntegrityService contentIntegrityService;
     private final ObjectMapper objectMapper;
-
-    @Value("${CONTENT_SIGNING_KEY:aegis-geo-fallback-secret-key-32-bytes}")
-    private String contentSigningKey;
 
     public GeoOptimizationService(
             BlogPostRepository blogPostRepository,
@@ -75,26 +73,10 @@ public class GeoOptimizationService {
     }
 
     private String signPayload(String payload) {
-        try {
-            Mac mac = Mac.getInstance("HmacSHA256");
-            SecretKeySpec secretKeySpec =
-                    new SecretKeySpec(
-                            contentSigningKey.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-            mac.init(secretKeySpec);
-            byte[] hash = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hexString = new StringBuilder(2 * hash.length);
-            for (byte b : hash) {
-                String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) {
-                    hexString.append('0');
-                }
-                hexString.append(hex);
-            }
-            return hexString.toString();
-        } catch (Exception e) {
-            logger.error("AEGIS GEO: Failed to sign GEO payload", e);
-            return "UNVERIFIED-SIGNATURE-ERROR";
-        }
+        // Delegate to ContentIntegrityService (fixes UTF-8 vs Base64 key-encoding mismatch,
+        // VULN-05).
+        String sig = contentIntegrityService.computeSignature(payload);
+        return sig != null ? sig : "UNVERIFIED-KEY-MISSING";
     }
 
     private boolean verifyNode(CorporateEntityNode node) {
@@ -107,7 +89,8 @@ public class GeoOptimizationService {
         } catch (Exception e) {
             logger.warn(
                     "AEGIS GEO: Signature verification unavailable for {}", node.getEntityKey(), e);
-            return true;
+            // P0.5 — Fail closed: verification error => skip the node.
+            return false;
         }
     }
 

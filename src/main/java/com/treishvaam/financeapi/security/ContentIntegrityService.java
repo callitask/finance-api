@@ -32,12 +32,18 @@
  * tamper detection for published financial content. • Startup behavior: WARN (not throw) when key
  * missing — safe rollout. • Date: Phase 2 Security Implementation
  *
+ * <p>- EDITED (P0 - Phase 0 Security Hardening, Nov 22 2026): • Replaced non-constant-time
+ * `computed.equals(storedSignature)` in BOTH `verifySignature(...)` overloads with constant-time
+ * `MessageDigest.isEqual(computed.getBytes(StandardCharsets.UTF_8),
+ * storedSignature.getBytes(StandardCharsets.UTF_8))` (CWE-208).
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY must never be deleted, truncated, or
  * regenerated.
  */
 package com.treishvaam.financeapi.security;
 
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Base64;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -143,7 +149,10 @@ public class ContentIntegrityService {
         String computed = computeSignature(title, slug, content, author, tenantId);
         if (computed == null) return true; // Computation failure — fail open for reads
 
-        boolean match = computed.equals(storedSignature);
+        boolean match =
+                MessageDigest.isEqual(
+                        computed.getBytes(StandardCharsets.UTF_8),
+                        storedSignature.getBytes(StandardCharsets.UTF_8));
         if (!match) {
             logger.error(
                     "[ContentIntegrityService] ⚠️ CONTENT TAMPER DETECTED! "
@@ -186,7 +195,10 @@ public class ContentIntegrityService {
         if (storedSignature == null) return true;
         String computed = computeSignature(payload);
         if (computed == null) return true;
-        boolean match = computed.equals(storedSignature);
+        boolean match =
+                MessageDigest.isEqual(
+                        computed.getBytes(StandardCharsets.UTF_8),
+                        storedSignature.getBytes(StandardCharsets.UTF_8));
         if (!match) {
             logger.error(
                     "[ContentIntegrityService] ⚠️ CONTENT TAMPER DETECTED! "

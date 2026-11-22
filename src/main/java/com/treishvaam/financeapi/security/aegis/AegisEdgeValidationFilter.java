@@ -55,8 +55,12 @@ package com.treishvaam.financeapi.security.aegis;
  * <p>- EDITED: • Modified AegisEdgeValidationFilter to downgrade missing header warnings from
  * 172.18.* Docker bridge to DEBUG level. • Why: Silences log spam from Envoy/Prometheus probes
  * without globally exempting the subnet, which would violate Rule 21 and allow direct-IP bypasses
- * through Nginx.
+ * through Nginx. - EDITED (P0 - Phase 0 Security Hardening, Nov 22 2026): • Added `@PostConstruct
+ * validateEdgeSecret()` rejecting blank, `< 32`-char, or `"default-placeholder"`
+ * `AEGIS_EDGE_SECRET` values with `IllegalStateException` (fail-closed; removes the prod fallback
+ * from VULN-05).
  */
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -94,6 +98,19 @@ public class AegisEdgeValidationFilter extends OncePerRequestFilter {
     static {
         if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
             Security.addProvider(new BouncyCastleProvider());
+        }
+    }
+
+    /** Fail-closed P0.5 check: `AEGIS_EDGE_SECRET` must be a >=32-char, non-placeholder value. */
+    @PostConstruct
+    public void validateEdgeSecret() {
+        if (edgeSecret == null
+                || edgeSecret.isBlank()
+                || edgeSecret.length() < 32
+                || edgeSecret.startsWith("default-placeholder")) {
+            throw new IllegalStateException(
+                    "AEGIS_EDGE_SECRET is blank or too short (<32 chars) — fail-closed (P0.5). "
+                            + "Set AEGIS_EDGE_SECRET to the 64-char Infisical value.");
         }
     }
 

@@ -21,9 +21,18 @@ package com.treishvaam.financeapi.security;
  * `expectedSecret`. Why: Eliminates CWE-208 timing side-channel recovery of
  * `INTERNAL_API_SECRET_KEY` and prevents empty-secret authentication bypasses.
  *
+ * <p>- EDITED (P0 - Phase 0 Security Hardening, Nov 22 2026): • Verified live code already enforces
+ * constant-time `MessageDigest.isEqual()` on POST `/api/v1/posts` (no live change required).
+ *
  * <p>- DO-NOT-DELETE RULE (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the
  * institutional memory for future AI sessions. It must never be deleted, truncated, rewritten, or
  * regenerated. Future AI must append only.
+ *
+ * <p>- EDITED (Phase 0.5 - Pre-Deploy Surgical Patch, Nov 22 2026): • Removed the `Order` attribute
+ * and its now-unused imports (`org.springframework.core.Ordered` and
+ * `org.springframework.core.annotation.Order`) — the attribute value (`Ordered.HIGHEST_PRECEDENCE -
+ * 1`, which underflowed `Integer.MIN_VALUE - 1` to `Integer.MAX_VALUE`) is now owned exclusively by
+ * SecurityConfig.java + FilterConfig.java; constant-time `MessageDigest.isEqual()` logic untouched.
  */
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -34,8 +43,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Collections;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -43,7 +50,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE - 1)
 public class InternalSecretFilter extends OncePerRequestFilter {
 
     @Value("${app.security.internal-secret:}")

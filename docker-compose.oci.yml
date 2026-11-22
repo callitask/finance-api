@@ -257,6 +257,14 @@
 #  *   Pinned `tunnel` (`treishvaam-tunnel`) image from unversioned `cloudflare/cloudflared` to `cloudflare/cloudflared:2026.10.3`.
 #  *   Reason: Remediates CVE-2026-111943 / CVE-2026-111944 (CERT-In CIAD-2026-0050) where eight eMudhra intermediate CA certificates with weak private keys were trusted by cloudflared versions prior to 2026.10.2. Explicit version pinning forces Engine B to pull the patched image rather than reusing a cached local `:latest` tag.
 #  *
+#  * - EDITED (P0 - Phase 0 Security Hardening, Nov 22 2026):
+#  * Added `-XX:+UnlockDiagnosticVMOptions -XX:-UseBASE64Intrinsics` to `keycloak` (`JAVA_OPTS_APPEND`), `elasticsearch` (`ES_JAVA_OPTS`), and `backend` (`JAVA_TOOL_OPTIONS`) in BOTH `docker-compose.yml` and `docker-compose.oci.yml`.
+#  * Reason: Immediate Java4Shell (CVE-2026-114938) pre-auth heap buffer overflow mitigation — unlock flag MUST precede the disable flag; never the AVX=2-forcing OpenJDK flag (crashes ARM64 OCI JVMs). Heap limits preserved (VM: ES 192m, backend 256m; OCI: ES 750m, backend 512m).
+#  *
+#  * - EDITED (P0 - Phase 0 Security Hardening, Nov 22 2026):
+#  * Replaced the `permission-fixer` command's world-writable staging with setgid-safe `u=rwX,g=rX,o=rX` (logs/sitemaps) + `u=rwX,g=rwX,o=rX` (uploads) + `find /workspace/uploads -type d -exec chmod g+s {} +` (VULN-07b).
+#  * Disabled RediShell (CVE-2025-49844) Lua commands on `aegis-canary-redis` via `--rename-command` (`EVAL`, `EVALSHA`, `EVAL_RO`, `EVALSHA_RO`, `FCALL`, `FUNCTION` → `""`) + baseline `--maxmemory 200mb` (VULN-09).
+#  *
 #  * - DO-NOT-DELETE RULE (ABSOLUTE):
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
@@ -354,7 +362,7 @@ services:
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "true"
-      JAVA_OPTS_APPEND: "-Xmx384m -Xms256m"
+      JAVA_OPTS_APPEND: "-Xmx384m -Xms256m -XX:+UnlockDiagnosticVMOptions -XX:-UseBASE64Intrinsics"
       FINANCE_FRONTEND_URL: "${FINANCE_FRONTEND_URL:-https://treishvaamfinance.com}"
       FINANCE_FRONTEND_LOCAL_URL: "${FINANCE_FRONTEND_LOCAL_URL:-http://localhost:3000}"
     command: [ "start", "--import-realm" ]
@@ -434,6 +442,45 @@ services:
       - 200mb
       - --maxmemory-policy
       - noeviction
+      - --rename-command
+      - FLUSHALL
+      - ""
+      - --rename-command
+      - FLUSHDB
+      - ""
+      - --rename-command
+      - CONFIG
+      - ""
+      - --rename-command
+      - DEBUG
+      - ""
+      - --rename-command
+      - MODULE
+      - ""
+      - --rename-command
+      - SLAVEOF
+      - ""
+      - --rename-command
+      - REPLICAOF
+      - ""
+      - --rename-command
+      - EVAL
+      - ""
+      - --rename-command
+      - EVALSHA
+      - ""
+      - --rename-command
+      - EVAL_RO
+      - ""
+      - --rename-command
+      - EVALSHA_RO
+      - ""
+      - --rename-command
+      - FCALL
+      - ""
+      - --rename-command
+      - FUNCTION
+      - ""
     deploy:
       resources:
         limits:
@@ -503,7 +550,7 @@ services:
       - treish_net
     environment:
       - "discovery.type=single-node"
-      - "ES_JAVA_OPTS=-Xms750m -Xmx750m"
+      - "ES_JAVA_OPTS=-Xms750m -Xmx750m -XX:+UnlockDiagnosticVMOptions -XX:-UseBASE64Intrinsics"
       - "xpack.security.enabled=true"
       - "ELASTIC_PASSWORD=${ELASTIC_PASSWORD}"
       - "xpack.security.enrollment.enabled=false"
@@ -613,7 +660,7 @@ services:
       - app_logs:/workspace/logs
       - app_uploads:/workspace/uploads
       - app_sitemaps:/workspace/sitemaps
-    command: [ "sh", "-c", "mkdir -p /workspace/logs /workspace/uploads /workspace/sitemaps && chown -R 1000:1000 /workspace/logs /workspace/uploads /workspace/sitemaps && chmod -R 777 /workspace/logs /workspace/uploads /workspace/sitemaps" ]
+    command: [ "sh", "-c", "mkdir -p /workspace/logs /workspace/uploads/raw /workspace/uploads/hls /workspace/sitemaps && chown -R 1000:1000 /workspace/logs /workspace/uploads /workspace/sitemaps && chmod -R u=rwX,g=rX,o=rX /workspace/logs /workspace/sitemaps && chmod -R u=rwX,g=rwX,o=rX /workspace/uploads && find /workspace/uploads -type d -exec chmod g+s {} +" ]
 
   backend:
     build:
@@ -673,7 +720,7 @@ services:
       - "AUDIT_IP_ENCRYPTION_KEY=${AUDIT_IP_ENCRYPTION_KEY}"
       - "AEGIS_DB_SIGNING_KEY=${AEGIS_DB_SIGNING_KEY}"
       - "AEGIS_EDGE_SECRET=${AEGIS_EDGE_SECRET}"
-      - "JAVA_TOOL_OPTIONS=-Xmx512m -Xms512m"
+      - "JAVA_TOOL_OPTIONS=-Xmx512m -Xms512m -XX:+UnlockDiagnosticVMOptions -XX:-UseBASE64Intrinsics"
     volumes:
       - ./backend-app.war:/app/app.war
       - ./ga4-credentials.json:/app/ga4-credentials.json

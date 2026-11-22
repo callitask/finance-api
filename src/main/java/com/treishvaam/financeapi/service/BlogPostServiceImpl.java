@@ -56,6 +56,12 @@ package com.treishvaam.financeapi.service;
  * findPostForUrl, findAllForAdmin). • Automatically links raw video files
  * (/api/v1/uploads/raw/{id}.mp4) if present on disk when coverImageUrl is corrupted.
  *
+ * <p>- EDITED (P0 - Phase 0 Security Hardening, Nov 22 2026): • `findByUrlArticleId()` /
+ * `findPostForUrl()`: anonymous non-`PUBLISHED` reads now return `Optional.empty()` (anonymous
+ * draft SSR leak, VULN-03) — authenticated ROLE_EDITOR/PUBLISHER/ADMIN callers may load drafts. •
+ * `updateDraft()`: recomputes `contentSignature` when saving a `PUBLISHED` post (2s auto-save
+ * preserved). • Added `callerHasEditorRole()` helper + `GrantedAuthority` import.
+ *
  * <p>- DO-NOT-DELETE RULE (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the
  * institutional memory for future AI sessions. It must never be deleted, truncated, rewritten, or
  * regenerated. Future AI must append only.
@@ -99,6 +105,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -187,6 +194,13 @@ public class BlogPostServiceImpl implements BlogPostService {
     @Override
     public Optional<BlogPost> findByUrlArticleId(String urlArticleId) {
         Optional<BlogPost> postOpt = blogPostRepository.findByUrlArticleId(urlArticleId);
+        // P0.6: Anonymous non-PUBLISHED reads return empty (anonymous draft SSR leak, VULN-03);
+        // authenticated ROLE_EDITOR/PUBLISHER/ADMIN callers may load drafts.
+        if (postOpt.isPresent()
+                && postOpt.get().getStatus() != PostStatus.PUBLISHED
+                && !callerHasEditorRole()) {
+            return Optional.empty();
+        }
         postOpt.ifPresent(
                 p -> {
                     sanitizePostMedia(p);
@@ -263,6 +277,16 @@ public class BlogPostServiceImpl implements BlogPostService {
             existingPost.setSlug(generateUniqueId());
         existingPost.setUserFriendlySlug(generateUserFriendlySlug(existingPost.getTitle()));
         sanitizePostMedia(existingPost);
+        // P0.6: Recompute contentSignature when saving a PUBLISHED post (2s auto-save preserved).
+        if (existingPost.getStatus() == PostStatus.PUBLISHED) {
+            existingPost.setContentSignature(
+                    contentIntegrityService.computeSignature(
+                            existingPost.getTitle(),
+                            existingPost.getSlug(),
+                            existingPost.getContent(),
+                            existingPost.getAuthor(),
+                            existingPost.getTenantId()));
+        }
         return blogPostRepository.save(existingPost);
     }
 
@@ -582,7 +606,11 @@ public class BlogPostServiceImpl implements BlogPostService {
         if (postOpt.isEmpty() || postOpt.get().getCategory() == null) return Optional.empty();
         if (postOpt.get().getCategory().getSlug() != null
                 && postOpt.get().getCategory().getSlug().equals(categorySlug)) {
-
+            // P0.6: Anonymous non-PUBLISHED reads return empty (anonymous draft SSR leak);
+            // authenticated ROLE_EDITOR/PUBLISHER/ADMIN callers may load drafts.
+            if (postOpt.get().getStatus() != PostStatus.PUBLISHED && !callerHasEditorRole()) {
+                return Optional.empty();
+            }
             postOpt.ifPresent(
                     p -> {
                         sanitizePostMedia(p);
@@ -647,5 +675,20 @@ public class BlogPostServiceImpl implements BlogPostService {
             content = content.replace("[object Object]", replacement);
             post.setContent(content);
         }
+    }
+
+    /** P0.6: true when the caller holds ROLE_EDITOR/ROLE_PUBLISHER/ROLE_ADMIN. */
+    private boolean callerHasEditorRole() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return false;
+        }
+        return auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(
+                        a ->
+                                "ROLE_EDITOR".equals(a)
+                                        || "ROLE_PUBLISHER".equals(a)
+                                        || "ROLE_ADMIN".equals(a));
     }
 }
