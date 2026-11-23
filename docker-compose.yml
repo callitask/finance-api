@@ -243,10 +243,37 @@
 #  * If a future AI suggests a strategy listed under FAILED ATTEMPTS, it is a protocol error.
 #  * - EDITED (P1.3 - Nginx Snippet Mount):
 #  * • Added read-only mount `./nginx/snippets:/etc/nginx/snippets:ro` to the `nginx` service volumes (required for the new security-headers snippet used by every proxied location block).
+#  *
+#  * - EDITED (P1.4 - canary_net Isolation + Core Image Upgrades - Nov 22 2026):
+#  * • Added top-level `canary_net` (driver bridge, internal: true); `aegis-canary-redis` attached to `canary_net` ONLY (VULN-09b); `aegis-canary-server` attached to both `treish_net` + `canary_net`.
+#  * • `treishvaam-redis` image moved to `redis:7.4.12-alpine` (RediShell CVE-2025-49844) and healthcheck replaced with `["CMD-SHELL", "redis-cli ping | grep PONG"]` (zero password in `ps aux`).
+#  * • `redis` (canary) image → `redis:7.4.12-alpine`; all 13 P0.9 RediShell `--rename-command` entries untouched.
+#  * • `wazuh-manager` → `wazuh/wazuh-manager:4.14.10`; `wazuh-agent` → `wazuh/wazuh-agent:4.14.10`.
+#  * • `elasticsearch` → `docker.elastic.co/elasticsearch/elasticsearch:8.19.25` (ES_JAVA_OPTS heap preserved); `rabbitmq` → `rabbitmq:4.4.1-management` (verified on Docker Hub; zero classic-mirrored policies + zero vhosts in definitions.json); `envoy-sidecar` → `envoyproxy/envoy:v1.38.9` (config/envoy.yaml mount untouched; distroless).
+#  * • Behavior preserved: all P0/P1.3 edits untouched.
+#  *
+#  * - EDITED (P1.5 - Keycloak 26.8.2-3 - Nov 22 2026):
+#  * • Image moved from the previous 25.0.0-line image to `quay.io/keycloak/keycloak:26.8.2-3` (pre-auth Java4Shell + 33+ CVE closure).
+#  * • Replaced `KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD` with `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD` (`keycloak-admin`); retained `KC_HOSTNAME`, `KC_HOSTNAME_STRICT`, `KC_HTTP_RELATIVE_PATH`, `KC_PROXY_HEADERS`, `KC_HTTP_ENABLED`, `JAVA_OPTS_APPEND`, `memory: 512M`.
+#  * • Behavior preserved: `command: [ "start", "--import-realm" ]` + realm-import mount untouched; frontend OIDC endpoints (`keycloak-js ^25.0.0`) remain compatible.
+#  *
+#  * - EDITED (P1.6 - Grafana Non-Root + Observability Pinning - Nov 22 2026):
+#  * • `loki` → `grafana/loki:3.5.7`; `promtail` → `grafana/promtail:3.5.7`; `tempo` → `grafana/tempo:2.10.3`; `prometheus` → `prom/prometheus:v3.7.3`.
+#  * • `grafana` → `grafana/grafana:12.2.1` AND `user: "472:472"` (non-root); loopback-only `127.0.0.1:3001:3000` preserved.
+#  * • Behavior preserved: P0/P1.3 edits untouched; `promtail-config.yml` / `tempo.yaml` / `loki-config.yml` compatibility reviewed.
+#  *
+#  * - EDITED (P1.7 - MariaDB 11.4 LTS + --ssl=0 + Env-Auth Healthcheck - Nov 22 2026):
+#  * • `treishvaam-db` image → `mariadb:11.4`; `--ssl=0` appended to entrypoint (`--server-id=1` preserved).
+#  * • `keycloak-db` image → `mariadb:11.4`; added `command: ["mariadbd", "--ssl=0"]`.
+#  * • Both DB healthchecks updated to `MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mariadb-admin ping -h localhost -u root || exit 1` (no password on CLI).
+#  * • Behavior preserved: `--log-bin`, `--binlog-format=ROW`, `--gtid-domain-id=1`, `--log-slave-updates=ON`, memory limits untouched.
 #  */
 networks:
   treish_net:
     driver: bridge
+  canary_net:
+    driver: bridge
+    internal: true
 
 volumes:
   app_logs:
@@ -255,7 +282,7 @@ volumes:
 
 services:
   treishvaam-db:
-    image: mariadb:10.6
+    image: mariadb:11.4
     container_name: treishvaam-db
     restart: always
     networks:
@@ -278,7 +305,7 @@ services:
         # log_slave_updates keeps the VM chain-ready when roles reverse at
         # cutover. Additive only — restart of treishvaam-db applies it
         # (planned micro-window, RUNBOOK Stage 10).
-        exec docker-entrypoint.sh mariadbd --log-bin=mariadb-bin --server-id=1 --binlog-format=ROW --gtid-domain-id=1 --log-slave-updates=ON
+        exec docker-entrypoint.sh mariadbd --log-bin=mariadb-bin --server-id=1 --binlog-format=ROW --gtid-domain-id=1 --log-slave-updates=ON --ssl=0
     volumes:
       - ./data/mariadb:/var/lib/mysql
       - ./config/mariadb/encryption.cnf:/etc/mysql/conf.d/encryption.cnf:ro
@@ -287,13 +314,14 @@ services:
         limits:
           memory: 512M
     healthcheck:
-      test: [ "CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1" ]
+      test: [ "CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mariadb-admin ping -h localhost -u root || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 10
 
   keycloak-db:
-    image: mariadb:10.6
+    image: mariadb:11.4
+    command: ["mariadbd", "--ssl=0"]
     container_name: treishvaam-keycloak-db
     restart: always
     networks:
@@ -310,13 +338,13 @@ services:
         limits:
           memory: 256M
     healthcheck:
-      test: [ "CMD-SHELL", "mysqladmin ping -h localhost -u root --password=$$MYSQL_ROOT_PASSWORD || exit 1" ]
+      test: [ "CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mariadb-admin ping -h localhost -u root || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 10
 
   keycloak:
-    image: quay.io/keycloak/keycloak:25.0.0
+    image: quay.io/keycloak/keycloak:26.8.2-3
     container_name: treishvaam-keycloak
     restart: always
     networks:
@@ -329,8 +357,8 @@ services:
       KC_HTTP_RELATIVE_PATH: /auth
       KC_HOSTNAME: backend.treishvaamgroup.com
       KC_HOSTNAME_STRICT: "false"
-      KEYCLOAK_ADMIN: keycloak-admin
-      KEYCLOAK_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD}"
+      KC_BOOTSTRAP_ADMIN_USERNAME: keycloak-admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD}"
       KC_PROXY_HEADERS: xforwarded
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
@@ -350,7 +378,7 @@ services:
         condition: service_healthy
 
   treishvaam-redis:
-    image: redis:7-alpine
+    image: redis:7.4.12-alpine
     container_name: treishvaam-redis
     restart: always
     networks:
@@ -394,17 +422,17 @@ services:
         limits:
           memory: 256M
     healthcheck:
-      test: [ "CMD-SHELL", "redis-cli -a $$REDISCLI_AUTH ping | grep PONG" ]
+      test: [ "CMD-SHELL", "redis-cli ping | grep PONG" ]
       interval: 5s
       timeout: 3s
       retries: 5
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.12-alpine
     container_name: aegis-canary-redis
     restart: always
     networks:
-      - treish_net
+      - canary_net
     command:
       - redis-server
       - --rename-command
@@ -462,6 +490,7 @@ services:
     restart: always
     networks:
       - treish_net
+      - canary_net
     environment:
       CANARY_DOMAINS: "canary.treishvaamgroup.com"
       CANARY_PUBLIC_DOMAIN: "canary.treishvaamgroup.com"
@@ -508,7 +537,7 @@ services:
       retries: 3
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.25
     container_name: treishvaam-elastic
     restart: always
     networks:
@@ -548,7 +577,7 @@ services:
           memory: 128M
 
   envoy-sidecar:
-    image: envoyproxy/envoy:v1.29-latest
+    image: envoyproxy/envoy:v1.38.9
     container_name: treishvaam-envoy
     restart: always
     networks:
@@ -580,7 +609,7 @@ services:
           memory: 256M
 
   wazuh-manager:
-    image: wazuh/wazuh-manager:4.14.5
+    image: wazuh/wazuh-manager:4.14.10
     container_name: treishvaam-wazuh-manager
     hostname: wazuh.manager
     restart: always
@@ -597,7 +626,7 @@ services:
       retries: 5
 
   wazuh-agent:
-    image: wazuh/wazuh-agent:4.14.5
+    image: wazuh/wazuh-agent:4.14.10
     container_name: wazuh-agent
     restart: always
     networks:
@@ -786,7 +815,7 @@ services:
       retries: 3
 
   loki:
-    image: grafana/loki:2.9.2
+    image: grafana/loki:3.5.7
     container_name: treishvaam-loki
     restart: always
     networks:
@@ -805,7 +834,7 @@ services:
       retries: 5
 
   promtail:
-    image: grafana/promtail:2.9.2
+    image: grafana/promtail:3.5.7
     container_name: treishvaam-promtail
     restart: always
     networks:
@@ -821,7 +850,7 @@ services:
           memory: 128M
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.7.3
     container_name: treishvaam-prometheus
     restart: always
     networks:
@@ -839,14 +868,14 @@ services:
       retries: 5
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:12.2.1
     container_name: treishvaam-grafana
     restart: always
     networks:
       - treish_net
     ports:
       - "127.0.0.1:3001:3000"
-    user: "0"
+    user: "472:472"
     environment:
       - "GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}"
       - "GF_USERS_ALLOW_SIGN_UP=false"
@@ -866,7 +895,7 @@ services:
       - tempo
 
   tempo:
-    image: grafana/tempo:latest
+    image: grafana/tempo:2.10.3
     container_name: treishvaam-tempo
     restart: always
     networks:
@@ -881,7 +910,7 @@ services:
           memory: 256M
 
   rabbitmq:
-    image: rabbitmq:3.12-management
+    image: rabbitmq:4.4.1-management
     container_name: treishvaam-rabbitmq
     restart: always
     networks:

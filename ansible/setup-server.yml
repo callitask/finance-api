@@ -79,6 +79,10 @@
 #  - EDITED (P0 - Phase 0 Security Hardening, Nov 22 2026):
 #     • Added Task 2.7 writing `/etc/modprobe.d/treishvaam-hardening.conf` (mode 0644) with `install <mod> /bin/false` + `blacklist <mod>` for `sctp`, `dccp`, `rds`, `tipc` (Linux SCTP/DCCP container-escape surface; CVE-2026-114938 adjacency).
 #     • No live VM mutation in this pass (SSH apply deferred post-approval; see execution report for the one-time operator command).
+#
+#  - EDITED (P1.6 - Non-Root Grafana Data Directory - Nov 22 2026):
+#     • Added Task 5.2 creating `{{ project_dir }}/data/grafana` (`owner: 472`, `group: 472`, `mode: '0750'`) so the non-root Grafana container (P1.6: `user: "472:472"`) binds the data volume safely.
+#     • Behavior preserved: Task 5.1 unchanged; playbook still only prepares the host for Engine A.
 # ==============================================================================
 
 - name: Treishvaam Zero-State Ignition (ZSI)
@@ -217,6 +221,14 @@
         - "{{ project_dir }}/data/keycloak-db"
         - "{{ project_dir }}/config"
         - "/backup"
+
+    - name: 5.2 Ensure Non-Root Grafana Data Directory (UID/GID 472)
+      file:
+        path: "{{ project_dir }}/data/grafana"
+        state: directory
+        owner: 472
+        group: 472
+        mode: '0750'
 
     - name: 6. Inject Permanent Infisical Credentials (Secure Vault Mapping)
       copy:

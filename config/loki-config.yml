@@ -11,6 +11,12 @@
 #  * - EDITED (Enterprise Ingestion Limits):
 #  * • Added `limits_config` block with `ingestion_rate_mb: 50` and `ingestion_burst_size_mb: 100`.
 #  * • Reason: Loki's default limits (4MB/s) were rejecting logs with `429 Too Many Requests` during rapid infrastructure reboots when Promtail attempted to upload the historical backlog all at once.
+#  *
+#  * - EDITED (P1.6 - Loki 3.x TSDB v13 + 14-Day Retention Compactor - Nov 22 2026):
+#  * • Migrated `schema_config` from the legacy 2.9 shipper backend to Loki 3.x TSDB `store: tsdb` + `schema: v13`.
+#  * • Added `compactor` block: `retention_enabled: true`, `delete_request_store: filesystem`, `working_directory: /loki/compactor`, `compaction_interval: 10m`.
+#  * • Added `limits_config.retention_period: 336h` (14-day retention, per P1.6).
+#  * • Behavior preserved: `auth_enabled: false`, `server.http_listen_port: 3100`, filesystem storage (`chunks_directory`/`rules_directory`), `ring.kvstore.store: inmemory`, `ruler.alertmanager_url`, `ingestion_rate_mb: 50`, `ingestion_burst_size_mb: 100`.
 #  */
 
 auth_enabled: false
@@ -28,16 +34,21 @@ common:
       store: inmemory
 schema_config:
   configs:
-    - from: 2020-10-24
-      store: boltdb-shipper
+    - from: 2024-01-01
+      store: tsdb
       object_store: filesystem
-      schema: v11
+      schema: v13
       index:
         prefix: index_
         period: 24h
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  delete_request_store: filesystem
 ruler:
   alertmanager_url: http://localhost:9093
-
 limits_config:
   ingestion_rate_mb: 50
   ingestion_burst_size_mb: 100
+  retention_period: 336h
