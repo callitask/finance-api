@@ -1,17 +1,20 @@
 package com.treishvaam.financeapi.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treishvaam.financeapi.model.BlogPost;
+import com.treishvaam.financeapi.security.HtmlSanitizationService;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.nodes.Entities;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -34,15 +37,43 @@ import org.springframework.web.client.RestTemplate;
  * rel="alternate">` tags pointing to the semantic JSON-LD Ontology and LLM Markdown Feeds into the
  * `<head>` of all materialized HTML content. • Why: To ensure AI Crawlers (Google-Extended, OpenAI)
  * landing on materialized HTML instantly trace the entity graph and structured RAG endpoints.
+ *
+ * <p>- EDITED (P2.2 - Stored XSS Closure, VULN-12): • Escaped `post.getTitle()` via
+ * `Entities.escape` in `#server-content` and meta tags; sanitized `post.getContent()` via
+ * `htmlSanitizationService.sanitizeHtml(...)` before injecting into `#server-content` (both
+ * branches). • Replaced manual string concatenation in `buildJsonLd()` with a `Map<String, Object>`
+ * serialized via `objectMapper.writeValueAsString(jsonLdMap)` wrapped in
+ * `htmlSanitizationService.escapeForScriptTag(...)`. • Wrapped `convertPostToJson(post)` output in
+ * `htmlSanitizationService.escapeForScriptTag(...)` before injecting `window.__PRELOADED_STATE__`.
+ * • Replaced `private final RestTemplate restTemplate = new RestTemplate();` with a timeout-bounded
+ * RestTemplate (5s connect/read via `SimpleClientHttpRequestFactory`). • Updated cover image URL
+ * prefix `/api/v1/uploads/` (was `/api/uploads/`). • Injected `HtmlSanitizationService` via
+ * constructor. • Behavior preserved: GEO semantic links, JSON-LD content, and materialization flow
+ * intact.
  */
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class HtmlMaterializerService {
 
     private final FileStorageService fileStorageService;
     private final ObjectMapper objectMapper;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final HtmlSanitizationService htmlSanitizationService;
+    private final RestTemplate restTemplate;
+
+    public HtmlMaterializerService(
+            FileStorageService fileStorageService,
+            ObjectMapper objectMapper,
+            HtmlSanitizationService htmlSanitizationService) {
+        this.fileStorageService = fileStorageService;
+        this.objectMapper = objectMapper;
+        this.htmlSanitizationService = htmlSanitizationService;
+        RestTemplate timeoutRestTemplate = new RestTemplate();
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(5000);
+        requestFactory.setReadTimeout(5000);
+        timeoutRestTemplate.setRequestFactory(requestFactory);
+        this.restTemplate = timeoutRestTemplate;
+    }
 
     @Value("${app.frontend.internal-url:http://treishvaam-nginx}")
     private String frontendInternalUrl;
@@ -77,7 +108,7 @@ public class HtmlMaterializerService {
             Document doc = Jsoup.parse(htmlShell);
 
             // 3. Inject Metadata
-            doc.title(post.getTitle() + " | Treishvaam Finance");
+            doc.title(Entities.escape(post.getTitle()) + " | Treishvaam Finance");
             doc.select("meta[name=description]").remove();
             doc.head()
                     .appendElement("meta")
@@ -94,10 +125,13 @@ public class HtmlMaterializerService {
             updateMeta(doc, "name", "twitter:description", post.getMetaDescription());
 
             if (post.getCoverImageUrl() != null) {
-                String imgUrl =
-                        post.getCoverImageUrl().startsWith("http")
-                                ? post.getCoverImageUrl()
-                                : publicUrl + "/api/uploads/" + post.getCoverImageUrl();
+                String imgUrl;
+                if (post.getCoverImageUrl().startsWith("/")
+                        || post.getCoverImageUrl().startsWith("http")) {
+                    imgUrl = post.getCoverImageUrl();
+                } else {
+                    imgUrl = publicUrl + "/api/v1/uploads/" + post.getCoverImageUrl();
+                }
                 updateMeta(doc, "property", "og:image", imgUrl);
                 updateMeta(doc, "name", "twitter:image", imgUrl);
             }
@@ -122,21 +156,28 @@ public class HtmlMaterializerService {
             Element serverContentDiv = doc.getElementById("server-content");
             if (serverContentDiv != null) {
                 serverContentDiv.removeAttr("style");
+                String safeTitle = Entities.escape(post.getTitle());
+                String safeContent =
+                        htmlSanitizationService.sanitizeHtml(
+                                post.getContent() != null ? post.getContent() : "");
                 String fullHtmlContent =
                         String.format(
                                 "<article class='materialized-content'><h1>%s</h1><div class='prose'>%s</div></article>",
-                                post.getTitle(),
-                                post.getContent() != null ? post.getContent() : "");
+                                safeTitle, safeContent);
                 serverContentDiv.html(fullHtmlContent);
             } else {
                 doc.body()
                         .append(
                                 String.format(
-                                        "<div id='server-content'>%s</div>", post.getContent()));
+                                        "<div id='server-content'>%s</div>",
+                                        htmlSanitizationService.sanitizeHtml(
+                                                post.getContent() != null
+                                                        ? post.getContent()
+                                                        : "")));
             }
 
             // 6. Pre-load State (Robust Serialization Fix)
-            String jsonState = convertPostToJson(post);
+            String jsonState = htmlSanitizationService.escapeForScriptTag(convertPostToJson(post));
             String stateScript = String.format("window.__PRELOADED_STATE__ = %s;", jsonState);
             doc.head().appendElement("script").html(stateScript);
 
@@ -161,11 +202,27 @@ public class HtmlMaterializerService {
     }
 
     private String buildJsonLd(BlogPost post) {
-        String isoDate = post.getCreatedAt() != null ? post.getCreatedAt().toString() : "";
-        String updatedDate = post.getUpdatedAt() != null ? post.getUpdatedAt().toString() : isoDate;
-        return String.format(
-                "{\"@context\": \"https://schema.org\",\"@type\": \"NewsArticle\",\"headline\": \"%s\",\"datePublished\": \"%s\",\"dateModified\": \"%s\",\"author\": {\"@type\": \"Organization\", \"name\": \"Treishvaam Finance\"}}",
-                escapeJson(post.getTitle()), isoDate, updatedDate);
+        try {
+            String isoDate = post.getCreatedAt() != null ? post.getCreatedAt().toString() : "";
+            String updatedDate =
+                    post.getUpdatedAt() != null ? post.getUpdatedAt().toString() : isoDate;
+            Map<String, Object> jsonLdMap = new HashMap<>();
+            jsonLdMap.put("@context", "https://schema.org");
+            jsonLdMap.put("@type", "NewsArticle");
+            jsonLdMap.put("headline", post.getTitle());
+            jsonLdMap.put("datePublished", isoDate);
+            jsonLdMap.put("dateModified", updatedDate);
+            Map<String, Object> author = new HashMap<>();
+            author.put("@type", "Organization");
+            author.put("name", "Treishvaam Finance");
+            jsonLdMap.put("author", author);
+            String jsonLd = objectMapper.writeValueAsString(jsonLdMap);
+            return htmlSanitizationService.escapeForScriptTag(jsonLd);
+        } catch (JsonProcessingException e) {
+            log.error("Failed to serialize JSON-LD for post: {}", post.getUserFriendlySlug());
+            return htmlSanitizationService.escapeForScriptTag(
+                    "{\"@context\": \"https://schema.org\",\"@type\": \"NewsArticle\"}");
+        }
     }
 
     private String escapeJson(String s) {

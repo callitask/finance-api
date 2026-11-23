@@ -27,6 +27,12 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
  * MethodArgumentTypeMismatchException, MissingServletRequestParameterException (400 Bad Request),
  * NoResourceFoundException (404 Not Found), and rethrow for AccessDeniedException /
  * AuthenticationException so Spring Security's ExceptionTranslationFilter returns native 401/403.
+ *
+ * <p>- EDITED (P2.3 - Exception Detail Leakage Closure, CWE-209/VULN-16): •
+ * `handleGenericException()`: replaced `error.put("message", ex.getMessage())` with the generic
+ * message "An unexpected internal error occurred. Reference the X-Request-ID header for
+ * diagnostics." • `logger.error("Unhandled exception: ", ex)` retained (full stack trace still
+ * logged server-side).
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -102,7 +108,9 @@ public class GlobalExceptionHandler {
         logger.error("Unhandled exception: ", ex);
         Map<String, String> error = new HashMap<>();
         error.put("error", "Internal Server Error");
-        error.put("message", ex.getMessage());
+        error.put(
+                "message",
+                "An unexpected internal error occurred. Reference the X-Request-ID header for diagnostics.");
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
     }
 }

@@ -8,9 +8,10 @@ import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.repository.CorporateEntityNodeRepository;
 import com.treishvaam.financeapi.security.ContentIntegrityService;
 import java.util.List;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 /**
@@ -52,6 +53,15 @@ import org.springframework.stereotype.Service;
  * delegates to `contentIntegrityService.computeSignature()` (Base64-decoded key semantics — fixes
  * the UTF-8 vs Base64 key-encoding mismatch, VULN-05). • `verifyNode()` now fails CLOSED (`return
  * false`) on signature-verification exceptions instead of `return true`.
+ *
+ * <p>- EDITED (P2.4 - Content Tamper Verification in GEO Feed + Heap DoS Fix - VULN-13a): •
+ * `buildAiFeed()`: replaced `blogPostRepository.findAll().stream()...` with the paginated
+ * `blogPostRepository.findAllByStatus(PostStatus.PUBLISHED, PageRequest.of(0, 10,
+ * Sort.by(Sort.Direction.DESC, "createdAt"))).getContent()` (bounds heap growth from unbounded
+ * `findAll()` scans). • Added per-post HMAC verification (`contentIntegrityService
+ * .verifySignature(post.getContentSignature(), post.getTitle(), post.getSlug(), post.getContent(),
+ * post.getAuthor(), post.getTenantId())`) before appending to `/ai-feed.md`; tampered posts
+ * excluded with `AEGIS TAMPER ALERT: Excluding tampered post from GEO feed`.
  */
 @Service
 public class GeoOptimizationService {
@@ -175,16 +185,32 @@ public class GeoOptimizationService {
 
         try {
             List<BlogPost> recentPosts =
-                    blogPostRepository.findAll().stream()
-                            .filter(post -> post.getStatus() == PostStatus.PUBLISHED)
-                            .sorted((p1, p2) -> p2.getCreatedAt().compareTo(p1.getCreatedAt()))
-                            .limit(10)
-                            .collect(Collectors.toList());
+                    blogPostRepository
+                            .findAllByStatus(
+                                    PostStatus.PUBLISHED,
+                                    PageRequest.of(
+                                            0, 10, Sort.by(Sort.Direction.DESC, "createdAt")))
+                            .getContent();
 
             if (recentPosts.isEmpty()) {
                 sb.append("*No recent public updates available at this time.*\n");
             } else {
                 for (BlogPost post : recentPosts) {
+                    boolean postIntact =
+                            contentIntegrityService.verifySignature(
+                                    post.getContentSignature(),
+                                    post.getTitle(),
+                                    post.getSlug(),
+                                    post.getContent(),
+                                    post.getAuthor(),
+                                    post.getTenantId());
+                    if (!postIntact) {
+                        logger.error(
+                                "AEGIS TAMPER ALERT: Excluding tampered post from GEO feed (id={}, slug='{}')",
+                                post.getId(),
+                                post.getSlug());
+                        continue;
+                    }
                     sb.append(String.format("### %s\n", post.getTitle()));
                     sb.append(
                             String.format("- **Published**: %s\n", post.getCreatedAt().toString()));

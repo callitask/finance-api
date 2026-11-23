@@ -1,11 +1,27 @@
 package com.treishvaam.financeapi.controller;
 
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Admin controller for managing the CorporateEntity graph (GEO entity context and
+ * admin-managed entity payloads).
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED (P2.4 - Entity Upsert Validation, VULN-13a):
+ * • Injected `ObjectMapper` via constructor. • `upsert()`: validates `entityKey` matches
+ * `^[a-z0-9_]{2,80}$` (400 on mismatch). • Validates `jsonLdPayload` via
+ * `objectMapper.readTree(payload)` requiring `parsed.isObject() && parsed.hasNonNull("@type") &&
+ * parsed.hasNonNull("@id")` (400 on missing/malformed — payload required on create).
+ */
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treishvaam.financeapi.model.CorporateEntityNode;
 import com.treishvaam.financeapi.security.ContentIntegrityService;
 import com.treishvaam.financeapi.service.GeoOptimizationService;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,14 +42,17 @@ public class CorporateEntityAdminController {
     private final com.treishvaam.financeapi.repository.CorporateEntityNodeRepository repository;
     private final ContentIntegrityService contentIntegrityService;
     private final GeoOptimizationService geoOptimizationService;
+    private final ObjectMapper objectMapper;
 
     public CorporateEntityAdminController(
             com.treishvaam.financeapi.repository.CorporateEntityNodeRepository repository,
             ContentIntegrityService contentIntegrityService,
-            GeoOptimizationService geoOptimizationService) {
+            GeoOptimizationService geoOptimizationService,
+            ObjectMapper objectMapper) {
         this.repository = repository;
         this.contentIntegrityService = contentIntegrityService;
         this.geoOptimizationService = geoOptimizationService;
+        this.objectMapper = objectMapper;
     }
 
     @GetMapping
@@ -44,7 +63,27 @@ public class CorporateEntityAdminController {
     @PutMapping("/{entityKey}")
     public ResponseEntity<CorporateEntityNode> upsert(
             @PathVariable String entityKey, @RequestBody CorporateEntityNode incoming) {
+        if (entityKey == null || !entityKey.matches("^[a-z0-9_]{2,80}$")) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        }
+        String payload = incoming.getJsonLdPayload();
         CorporateEntityNode existing = repository.findByEntityKey(entityKey).orElse(null);
+        if (existing == null && payload == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+        }
+        if (payload != null) {
+            try {
+                JsonNode parsed = objectMapper.readTree(payload);
+                if (!parsed.isObject()
+                        || !parsed.hasNonNull("@type")
+                        || !parsed.hasNonNull("@id")) {
+                    return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+                }
+            } catch (JsonProcessingException e) {
+                logger.warn("Invalid jsonLdPayload for entity '{}': malformed JSON", entityKey);
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            }
+        }
         if (existing == null) {
             incoming.setEntityKey(entityKey);
             if (incoming.getDisplayOrder() == null) {

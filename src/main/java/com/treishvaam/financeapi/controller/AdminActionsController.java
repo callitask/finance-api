@@ -35,6 +35,10 @@
  *
  * <p>- STRATEGIC PIVOTS & FAILED ATTEMPTS (CRITICAL FOR FUTURE AI): • Strategy Attempted: N/A •
  * Failure Mode: N/A • Date/Phase: 2026-08-05 • Future AI Warning: N/A
+ *
+ * <p>- EDITED (P2.3 - Exception Detail Leakage Closure, CWE-209/VULN-16): • `regenerateSitemap()`:
+ * replaced `"Sitemap cache clear failed: " + e.getMessage()` with `"Sitemap cache clear failed.
+ * Check server logs."` (500 status retained; error still logged server-side via `logger.error`).
  */
 package com.treishvaam.financeapi.controller;
 
@@ -75,7 +79,7 @@ public class AdminActionsController {
         } catch (Exception e) {
             logger.error("Admin-triggered sitemap cache clear failed", e);
             return ResponseEntity.status(500)
-                    .body(Map.of("message", "Sitemap cache clear failed: " + e.getMessage()));
+                    .body(Map.of("message", "Sitemap cache clear failed. Check server logs."));
         }
     }
 

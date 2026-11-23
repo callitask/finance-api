@@ -33,6 +33,11 @@ package com.treishvaam.financeapi.controller;
  * authenticated `ROLE_EDITOR`/`ROLE_PUBLISHER`/`ROLE_ADMIN` callers may load drafts
  * (BlogEditorPage.js authenticated draft load preserved). • Added `callerHasEditorRole()` helper +
  * `PostStatus` import.
+ *
+ * <p>- EDITED (P2.3 - Exception Detail Leakage Closure, CWE-209/VULN-16): • `sharePost()`: replaced
+ * `"Failed to share post: " + e.getMessage()` with `"Failed to share post to LinkedIn."` and added
+ * server-side SLF4J logging of the error. • Behavior preserved: 500 status on failure; error still
+ * logged.
  */
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,6 +56,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -71,6 +78,8 @@ import reactor.core.publisher.Mono;
 @RestController
 @RequestMapping("/api/v1/posts")
 public class BlogPostController {
+
+    private static final Logger logger = LoggerFactory.getLogger(BlogPostController.class);
 
     @Autowired private BlogPostService blogPostService;
 
@@ -374,9 +383,11 @@ public class BlogPostController {
                 .sharePost(post, shareRequest.getMessage(), shareRequest.getTags())
                 .map(response -> ResponseEntity.ok("Successfully shared post to LinkedIn."))
                 .onErrorResume(
-                        e ->
-                                Mono.just(
-                                        ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                                                .body("Failed to share post: " + e.getMessage())));
+                        e -> {
+                            logger.error("Failed to share post to LinkedIn.", e);
+                            return Mono.just(
+                                    ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                                            .body("Failed to share post to LinkedIn."));
+                        });
     }
 }

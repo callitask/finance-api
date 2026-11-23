@@ -19,6 +19,8 @@
 #   • Prefer Git automation (`echo " " >> VER.txt` + signed commit + push to develop, per Rule 14).
 #   • Immediate local rolling restart (explicit selection): register `trap 'cp /opt/treishvaam/.env.template /opt/treishvaam/.env 2>/dev/null || true' EXIT`, perform stateless Infisical Flash (same `infisical login` + `infisical export` + Secret Integrity Gate pattern as auto_deploy.sh), run `docker compose stop backend && docker compose rm -f backend && docker compose up -d --force-recreate --no-deps --scale backend=2 backend`, immediately wipe `.env` back to `.env.template`.
 #   • New INFISICAL-FIRST + Rule 22 Flash & Wipe non-negotiables added; retained ROTATE confirmation gate + .env backup; `set -euo pipefail` retained.
+#   • Fail-closed guards (Step 0): `cp "$ENV_TEMPLATE" "$ENV_FILE"` before `infisical login`; `exit 1` when `RAW_TOKEN` empty after login; `exit 1` in the Infisical export failure `else` branch (never restart with a blank `.env`).
+#   • Secret Integrity Gate: added `LOCAL_EDGE_SECRET` (`AEGIS_EDGE_SECRET`) check alongside `LOCAL_REDIS_PASS`/`LOCAL_DB_PASS` — matches `auto_deploy.sh`.
 # =========================================================================
 set -euo pipefail
 
@@ -99,7 +101,16 @@ export INFISICAL_CLIENT_SECRET=$(grep -E '^INFISICAL_CLIENT_SECRET=' "$ENV_TEMPL
 export INFISICAL_DISABLE_UPDATE_CHECK=true
 
 set +x
+# Fail-closed guard (Step 0): reset transient .env to the template BEFORE infisical login.
+cp "$ENV_TEMPLATE" "$ENV_FILE"
+
 RAW_TOKEN=$(infisical login --method=universal-auth --client-id="$INFISICAL_CLIENT_ID" --client-secret="$INFISICAL_CLIENT_SECRET" --domain="https://app.infisical.com" --silent 2>/dev/null | grep -oE 'eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+' | head -n 1 || true)
+
+# Fail-closed guard (Step 0): abort local restart if Infisical auth/token extraction failed.
+if [ -z "$RAW_TOKEN" ]; then
+    echo "CRITICAL ERROR: Infisical login failed — aborting local restart."
+    exit 1
+fi
 export INFISICAL_TOKEN="$RAW_TOKEN"
 
 TEMP_SECRETS=$(mktemp)
@@ -112,7 +123,8 @@ if [ $EXPORT_EXIT_CODE -eq 0 ] && grep -q "=" "$TEMP_SECRETS"; then
     rm -f "$TEMP_SECRETS"
     LOCAL_REDIS_PASS=$(grep -E '^REDIS_PASSWORD=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
     LOCAL_DB_PASS=$(grep -E '^PROD_DB_PASSWORD=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
-    if [ -z "$LOCAL_REDIS_PASS" ] || [ -z "$LOCAL_DB_PASS" ]; then
+    LOCAL_EDGE_SECRET=$(grep -E '^AEGIS_EDGE_SECRET=' "$ENV_FILE" | cut -d '=' -f2- | tr -d " \"'\r")
+    if [ -z "$LOCAL_REDIS_PASS" ] || [ -z "$LOCAL_DB_PASS" ] || [ -z "$LOCAL_EDGE_SECRET" ]; then
         echo "CRITICAL ERROR: Secret Integrity Gate failed — blank secrets detected."
         exit 1
     fi
@@ -120,6 +132,7 @@ if [ $EXPORT_EXIT_CODE -eq 0 ] && grep -q "=" "$TEMP_SECRETS"; then
 else
     echo "⚠️  Infisical export failed — Flash & Wipe (EXIT trap) still applies."
     rm -f "$TEMP_SECRETS" 2>/dev/null || true
+    exit 1
 fi
 
 # 7. Rolling restart of backend (local, explicit operator selection)

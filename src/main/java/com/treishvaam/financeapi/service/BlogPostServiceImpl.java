@@ -65,20 +65,35 @@ package com.treishvaam.financeapi.service;
  * <p>- DO-NOT-DELETE RULE (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the
  * institutional memory for future AI sessions. It must never be deleted, truncated, rewritten, or
  * regenerated. Future AI must append only.
+ *
+ * <p>- EDITED (P2.2 - Stored XSS Sanitization, VULN-12): • Injected `HtmlSanitizationService`;
+ * called `htmlSanitizationService.sanitizeHtml(post.getContent())` in `createDraft()`,
+ * `updateDraft()`, and `persistPost()` immediately after `sanitizePostMedia(...)` and before
+ * `contentSignature` computation (HMAC matches the sanitized content).
+ *
+ * <p>- EDITED (P2.4 - Content Tamper Verification + Audit Trail, VULN-13a): • Injected
+ * `AuditLogRepository` + `@Value("${app.security.block-tampered-posts:false}") blockTamperedPosts`.
+ * • `findByUrlArticleId()` / `findPostForUrl()`: act on `boolean intact` — log `AEGIS TAMPER ALERT:
+ * BlogPost id={} slug='{}' failed HMAC verification!`, record `AuditLog("CONTENT_TAMPER_DETECTED",
+ * "SYSTEM", "BlogPost ID: " + p.getId(), "HMAC mismatch for slug=" + p.getSlug(), "SYSTEM",
+ * "FAILURE")` (fail-safe try/catch), and return `Optional.empty()` when `blockTamperedPosts=true`.
  */
 import com.treishvaam.finance.messaging.MessagePublisher;
 import com.treishvaam.financeapi.config.CachingConfig;
 import com.treishvaam.financeapi.config.tenant.TenantContext;
 import com.treishvaam.financeapi.dto.BlogPostDto;
 import com.treishvaam.financeapi.dto.PostThumbnailDto;
+import com.treishvaam.financeapi.model.AuditLog;
 import com.treishvaam.financeapi.model.BlogPost;
 import com.treishvaam.financeapi.model.Category;
 import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.model.PostThumbnail;
+import com.treishvaam.financeapi.repository.AuditLogRepository;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.repository.CategoryRepository;
 import com.treishvaam.financeapi.repository.UserRepository;
 import com.treishvaam.financeapi.security.ContentIntegrityService;
+import com.treishvaam.financeapi.security.HtmlSanitizationService;
 import com.treishvaam.financeapi.service.ImageService.ImageMetadataDto;
 import com.treishvaam.financeapi.util.SecurityUtils;
 import jakarta.persistence.EntityManager;
@@ -98,6 +113,7 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -125,6 +141,11 @@ public class BlogPostServiceImpl implements BlogPostService {
     @Autowired private HtmlMaterializerService htmlMaterializerService;
     @Autowired private ContentIntegrityService contentIntegrityService;
     @Autowired private VideoService videoService;
+    @Autowired private HtmlSanitizationService htmlSanitizationService;
+    @Autowired private AuditLogRepository auditLogRepository;
+
+    @Value("${app.security.block-tampered-posts:false}")
+    private boolean blockTamperedPosts;
 
     @PersistenceContext private EntityManager entityManager;
 
@@ -201,18 +222,24 @@ public class BlogPostServiceImpl implements BlogPostService {
                 && !callerHasEditorRole()) {
             return Optional.empty();
         }
-        postOpt.ifPresent(
-                p -> {
-                    sanitizePostMedia(p);
-                    boolean intact =
-                            contentIntegrityService.verifySignature(
-                                    p.getContentSignature(),
-                                    p.getTitle(),
-                                    p.getSlug(),
-                                    p.getContent(),
-                                    p.getAuthor(),
-                                    p.getTenantId());
-                });
+        if (postOpt.isPresent()) {
+            BlogPost p = postOpt.get();
+            sanitizePostMedia(p);
+            boolean intact =
+                    contentIntegrityService.verifySignature(
+                            p.getContentSignature(),
+                            p.getTitle(),
+                            p.getSlug(),
+                            p.getContent(),
+                            p.getAuthor(),
+                            p.getTenantId());
+            if (!intact) {
+                handleTamperedPost(p);
+                if (blockTamperedPosts) {
+                    return Optional.empty();
+                }
+            }
+        }
         return postOpt;
     }
 
@@ -251,6 +278,9 @@ public class BlogPostServiceImpl implements BlogPostService {
         newPost.setLayoutStyle("DEFAULT");
         newPost.setUserFriendlySlug(generateUserFriendlySlug(newPost.getTitle()));
         sanitizePostMedia(newPost);
+        if (newPost.getContent() != null) {
+            newPost.setContent(htmlSanitizationService.sanitizeHtml(newPost.getContent()));
+        }
         return blogPostRepository.save(newPost);
     }
 
@@ -277,6 +307,10 @@ public class BlogPostServiceImpl implements BlogPostService {
             existingPost.setSlug(generateUniqueId());
         existingPost.setUserFriendlySlug(generateUserFriendlySlug(existingPost.getTitle()));
         sanitizePostMedia(existingPost);
+        if (existingPost.getContent() != null) {
+            existingPost.setContent(
+                    htmlSanitizationService.sanitizeHtml(existingPost.getContent()));
+        }
         // P0.6: Recompute contentSignature when saving a PUBLISHED post (2s auto-save preserved).
         if (existingPost.getStatus() == PostStatus.PUBLISHED) {
             existingPost.setContentSignature(
@@ -373,6 +407,9 @@ public class BlogPostServiceImpl implements BlogPostService {
             condition = "#result.urlArticleId != null")
     public BlogPost persistPost(BlogPost blogPost, List<PostThumbnail> processedThumbnails) {
         sanitizePostMedia(blogPost);
+        if (blogPost.getContent() != null) {
+            blogPost.setContent(htmlSanitizationService.sanitizeHtml(blogPost.getContent()));
+        }
         blogPost.getThumbnails().clear();
         blogPost.getThumbnails().addAll(processedThumbnails);
 
@@ -611,22 +648,49 @@ public class BlogPostServiceImpl implements BlogPostService {
             if (postOpt.get().getStatus() != PostStatus.PUBLISHED && !callerHasEditorRole()) {
                 return Optional.empty();
             }
-            postOpt.ifPresent(
-                    p -> {
-                        sanitizePostMedia(p);
-                        boolean intact =
-                                contentIntegrityService.verifySignature(
-                                        p.getContentSignature(),
-                                        p.getTitle(),
-                                        p.getSlug(),
-                                        p.getContent(),
-                                        p.getAuthor(),
-                                        p.getTenantId());
-                    });
+            if (postOpt.isPresent()) {
+                BlogPost p = postOpt.get();
+                sanitizePostMedia(p);
+                boolean intact =
+                        contentIntegrityService.verifySignature(
+                                p.getContentSignature(),
+                                p.getTitle(),
+                                p.getSlug(),
+                                p.getContent(),
+                                p.getAuthor(),
+                                p.getTenantId());
+                if (!intact) {
+                    handleTamperedPost(p);
+                    if (blockTamperedPosts) {
+                        return Optional.empty();
+                    }
+                }
+            }
 
             return postOpt;
         }
         return Optional.empty();
+    }
+
+    /** P2.4: Log + record a tamper audit row; never throws (fail-safe). */
+    private void handleTamperedPost(BlogPost p) {
+        logger.error(
+                "AEGIS TAMPER ALERT: BlogPost id={} slug='{}' failed HMAC verification!",
+                p.getId(),
+                p.getSlug());
+        try {
+            auditLogRepository.save(
+                    new AuditLog(
+                            "CONTENT_TAMPER_DETECTED",
+                            "SYSTEM",
+                            "BlogPost ID: " + p.getId(),
+                            "HMAC mismatch for slug=" + p.getSlug(),
+                            "SYSTEM",
+                            "FAILURE"));
+        } catch (Exception ex) {
+            logger.error(
+                    "AEGIS TAMPER: failed to persist tamper audit row for slug='{}'", p.getSlug());
+        }
     }
 
     @Override

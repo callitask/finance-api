@@ -20,13 +20,12 @@
  * <p>Future AI Guidance: - Keep this manual token structure until Nimbus/Auth0 officially support
  * FIPS 204 ML-DSA.
  *
- * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Manual JWT
- * construction for ML-DSA. ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Base64Url encoding for header, payload,
- * and signature. ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Phase 1/2 Orchestration Batch. - EDITED
- * (BouncyCastle 1.87 FIPS 204 Migration, P1.1): BC 1.87 removed the Dilithium JCA algorithm name
- * (no longer registered in BC 1.87); migrated to FIPS 204 MLDSAParameterSpec.ml_dsa_87. New wiring
- * verified live: Signature.getInstance("ML-DSA", BouncyCastleProvider.PROVIDER_NAME) + initSign +
- * sign + initVerify + verify round trip.
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Manual JWT construction for
+ * ML-DSA. ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ Base64Url encoding for header, payload, and signature. ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢
+ * Phase 1/2 Orchestration Batch. - EDITED (BouncyCastle 1.87 FIPS 204 Migration, P1.1): BC 1.87
+ * removed the Dilithium JCA algorithm name (no longer registered in BC 1.87); migrated to FIPS 204
+ * MLDSAParameterSpec.ml_dsa_87. New wiring verified live: Signature.getInstance("ML-DSA",
+ * BouncyCastleProvider.PROVIDER_NAME) + initSign + sign + initVerify + verify round trip.
  */
 package com.treishvaam.financeapi.security.aegis.crypto;
 

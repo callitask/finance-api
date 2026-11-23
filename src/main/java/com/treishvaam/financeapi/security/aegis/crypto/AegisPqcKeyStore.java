@@ -22,8 +22,8 @@
  * private key from Vault instead of generating it in memory on boot.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: Ã¢â‚¬Â¢ BouncyCastle PQC provider
- * registration. Ã¢â‚¬Â¢ ML-DSA key generation mapped to NIST Level 5. Ã¢â‚¬Â¢ Phase
- * 1/2 Orchestration Batch. - EDITED (BouncyCastle 1.87 FIPS 204 Migration, P1.1): BC 1.87 removed
+ * registration. Ã¢â‚¬Â¢ ML-DSA key generation mapped to NIST Level 5. Ã¢â‚¬Â¢ Phase 1/2
+ * Orchestration Batch. - EDITED (BouncyCastle 1.87 FIPS 204 Migration, P1.1): BC 1.87 removed
  * org.bouncycastle.pqc.jcajce.spec.DilithiumParameterSpec; migrated key generation to FIPS 204
  * MLDSAParameterSpec.ml_dsa_87. New wiring verified live: KeyPairGenerator.getInstance("ML-DSA",
  * BouncyCastleProvider.PROVIDER_NAME) + initialize(MLDSAParameterSpec.ml_dsa_87, rand) + generate +
