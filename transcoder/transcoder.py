@@ -11,11 +11,17 @@
 #  *   Uncommented FFmpeg subprocess execution and directed stdout/stderr to DEVNULL.
 #  *   Reason: Prevents Python memory bloat and protects the 384MB Docker RAM limit while processing video.
 #  *
+#  * - EDITED (Batch 2B - P2.5, VULN-17): Strictly validated `video_id` against `^[0-9]{1,18}$` before
+#  *   constructing `input_file` (`/app/uploads/raw/{video_id}.mp4`) and `output_dir`
+#  *   (`/app/uploads/hls/{video_id}`) — closes the path-traversal vector via RabbitMQ payloads
+#  *   (e.g. `../../etc/passwd` or absolute paths). Log references updated to `video_id_str`.
+#  *
 #  * - DO-NOT-DELETE RULE:
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
 #  */
 import os
+import re
 import time
 import json
 import subprocess
@@ -34,14 +40,13 @@ ENABLE_4K = os.getenv('ENABLE_4K_TRANSCODING', 'false').lower() == 'true'
 def process_video(ch, method, properties, body):
     try:
         data = json.loads(body.decode('utf-8'))
-        video_id = data.get('videoId')
-        input_file = f"/app/uploads/raw/{video_id}.mp4"
-        output_dir = f"/app/uploads/hls/{video_id}"
-        
-        if not video_id:
-            raise ValueError("Payload missing videoId")
+        video_id_str = str(data.get('videoId', '')).strip()
+        if not re.fullmatch(r'[0-9]{1,18}', video_id_str):
+            raise ValueError(f"Invalid videoId format rejected: {video_id_str!r}")
+        input_file = f"/app/uploads/raw/{video_id_str}.mp4"
+        output_dir = f"/app/uploads/hls/{video_id_str}"
 
-        logger.info(f"Waking up from idle. Processing job for videoId: {video_id}")
+        logger.info(f"Waking up from idle. Processing job for videoId: {video_id_str}")
         
         os.makedirs(output_dir, exist_ok=True)
 
@@ -77,7 +82,7 @@ def process_video(ch, method, properties, body):
         if result.returncode != 0:
             raise RuntimeError(f"FFmpeg failed with exit code: {result.returncode}")
         
-        logger.info(f"Processing complete for {video_id}. Dropping RAM and returning to idle sleep.")
+        logger.info(f"Processing complete for {video_id_str}. Dropping RAM and returning to idle sleep.")
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
     except Exception as e:

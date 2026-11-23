@@ -17,6 +17,11 @@
  * scheme validation for normalizedLink in saveArticleSafe; changed downloadAndOptimizeImage return
  * to leading-slash "/api/v1/uploads/" path.
  *
+ * <p>- EDITED (Batch 2B - P2.9, VULN-30): • Added {@code getArchivedHighlights(Pageable)} → {@code
+ * repository.findByIsArchivedTrueOrderByPublishedAtDesc(pageable)}; fixes {@code GET
+ * /api/v1/market/news/archived} previously returning active highlights (it called the active
+ * finder).
+ *
  * <p>- DO-NOT-DELETE RULE (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the
  * institutional memory for future AI sessions. It must never be deleted, truncated, rewritten, or
  * regenerated. Future AI must append only.
@@ -117,6 +122,10 @@ public class NewsHighlightService {
 
     public Page<NewsHighlight> getHighlights(Pageable pageable) {
         return repository.findByIsArchivedFalseOrderByPublishedAtDesc(pageable);
+    }
+
+    public Page<NewsHighlight> getArchivedHighlights(Pageable pageable) {
+        return repository.findByIsArchivedTrueOrderByPublishedAtDesc(pageable);
     }
 
     // --- Image Healer (Runs every 15 mins) ---

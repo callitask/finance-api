@@ -26,6 +26,15 @@
  * Visitor. • Why it was added: Provides the runtime evaluation engine for the formal grammar. •
  * Date: 2026-05-22
  *
+ * <p>- EDITED (Batch 2B - P2.7, VULN-29): • Replaced mutable singleton field {@code private
+ * EvaluationContext currentContext;} with {@code private final ThreadLocal<EvaluationContext>
+ * currentContext = new ThreadLocal<>();}. • {@code evaluateCondition(...)} now does {@code
+ * currentContext.set(evaluationContext); try { return visit(ctx); } finally {
+ * currentContext.remove(); }}. • {@code visitBehavioralExpr}, {@code visitCryptoExpr} and {@code
+ * visitNetworkExpr} now read {@code EvaluationContext ctxVal = currentContext.get(); if (ctxVal ==
+ * null) return false;}. • Behavior preserved: evaluation results identical for single-threaded
+ * flow; eliminates concurrency race on shared bean state.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -43,12 +52,18 @@ import org.springframework.stereotype.Component;
 public class AegisExpressionLanguage extends aegisBaseVisitor<Boolean> {
 
     // Context object injected per evaluation containing the current request parameters
-    private EvaluationContext currentContext;
+    // (VULN-29: ThreadLocal so concurrent virtual threads on the same singleton bean do not
+    // race on a mutable field — cleared in finally{} to prevent leaks across evaluations)
+    private final ThreadLocal<EvaluationContext> currentContext = new ThreadLocal<>();
 
     public boolean evaluateCondition(
             aegisParser.ConditionContext ctx, EvaluationContext evaluationContext) {
-        this.currentContext = evaluationContext;
-        return visit(ctx);
+        currentContext.set(evaluationContext);
+        try {
+            return visit(ctx);
+        } finally {
+            currentContext.remove();
+        }
     }
 
     @Override
@@ -81,18 +96,22 @@ public class AegisExpressionLanguage extends aegisBaseVisitor<Boolean> {
     @Override
     public Boolean visitBehavioralExpr(aegisParser.BehavioralExprContext ctx) {
         // Scaffold evaluation - hooks into L5-BIE real-time metrics
+        EvaluationContext ctxVal = currentContext.get();
+        if (ctxVal == null) return false;
         String metric = ctx.getChild(1).getText(); // e.g. BOT_SCORE
         String comparator = ctx.comparator().getText();
         double value = Double.parseDouble(ctx.NUMBER().getText());
 
-        double contextValue = currentContext.getBehavioralMetric(metric);
+        double contextValue = ctxVal.getBehavioralMetric(metric);
         return applyComparator(contextValue, comparator, value);
     }
 
     @Override
     public Boolean visitCryptoExpr(aegisParser.CryptoExprContext ctx) {
+        EvaluationContext ctxVal = currentContext.get();
+        if (ctxVal == null) return false;
         String flag = ctx.getChild(1).getText();
-        boolean hasFlag = currentContext.hasCryptoFlag(flag);
+        boolean hasFlag = ctxVal.hasCryptoFlag(flag);
 
         if (ctx.comparator() != null) {
             double value = Double.parseDouble(ctx.NUMBER().getText());
@@ -104,8 +123,10 @@ public class AegisExpressionLanguage extends aegisBaseVisitor<Boolean> {
 
     @Override
     public Boolean visitNetworkExpr(aegisParser.NetworkExprContext ctx) {
+        EvaluationContext ctxVal = currentContext.get();
+        if (ctxVal == null) return false;
         String property = ctx.getChild(1).getText();
-        String contextValue = currentContext.getNetworkProperty(property);
+        String contextValue = ctxVal.getNetworkProperty(property);
 
         if (ctx.comparator() != null) {
             String comparator = ctx.comparator().getText();

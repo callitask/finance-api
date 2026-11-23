@@ -28,6 +28,11 @@ package com.treishvaam.financeapi.security;
  * protocol enforcement on video/source/iframe src. • Post-processing removes non-YouTube-embed
  * iframes and strips javascript:/vbscript:/data:text/html href/src. • `escapeForScriptTag()` for
  * safe JSON injection into `window.__PRELOADED_STATE__` and JSON-LD.
+ *
+ * <p>- EDITED (Batch 2B, Step 0): • Added Tiptap v3 strikethrough `s` and divider `hr` to the
+ * safelist so Tiptap `<s>`/`<hr>` stored content is preserved and materialized. • Behavior
+ * preserved: prior safelist tags/attributes/protocol rules unchanged; YouTube-only iframe
+ * enforcement and dangerous-scheme stripping still applied.
  */
 import java.util.Locale;
 import org.jsoup.Jsoup;
@@ -53,7 +58,16 @@ public class HtmlSanitizationService {
         // img/video/iframe src — breaking /api/v1/uploads/... URLs.
         safelist.preserveRelativeLinks(true);
         safelist.addTags(
-                "video", "source", "figure", "figcaption", "mark", "span", "div", "iframe");
+                "video",
+                "source",
+                "figure",
+                "figcaption",
+                "mark",
+                "span",
+                "div",
+                "iframe",
+                "s",
+                "hr");
         safelist.addAttributes(":all", "class", "id");
         safelist.addAttributes("a", "target", "rel");
         safelist.addAttributes("img", "alt", "title", "width", "height", "loading");

@@ -18,6 +18,9 @@
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Created UserPreferencesRepository. •
  * Date/Phase: Phase 1 (Feature Packaging)
+ *
+ * <p>- EDITED (Batch 2B - P2.6, VULN-19): • Added legacy-lookup finder {@code findByUserSub} for
+ * the zero-crash tenant migration.
  */
 package com.treishvaam.financeapi.userpreferences.repository;
 
@@ -29,4 +32,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface UserPreferencesRepository extends JpaRepository<UserPreferences, Long> {
     Optional<UserPreferences> findByUserSubAndTenantId(String userSub, String tenantId);
+
+    /** Legacy lookup (pre-tenant-migration rows). Used by the zero-crash migration path. */
+    Optional<UserPreferences> findByUserSub(String userSub);
 }

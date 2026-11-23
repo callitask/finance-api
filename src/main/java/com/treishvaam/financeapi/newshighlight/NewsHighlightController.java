@@ -13,6 +13,11 @@
  * - 2026-10-27): Added @PreAuthorize("hasAuthority('ROLE_ADMIN')") to fetch and deduplicate
  * endpoints. Why: Prevents unauthenticated abuse of paid news API quota and outbound scraping.
  *
+ * <p>- EDITED (Batch 2B - P2.9, VULN-30): • {@code GET /archived} now returns truly archived items
+ * via {@code newsHighlightService.getArchivedHighlights(pageable)} (was returning active items via
+ * the active finder). • Dual-mapped to {@code /archived} and {@code /archive} for rollout
+ * compatibility (frontend apiConfig.js keeps calling {@code /archived}).
+ *
  * <p>- DO-NOT-DELETE RULE (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the
  * institutional memory for future AI sessions. It must never be deleted, truncated, rewritten, or
  * regenerated. Future AI must append only.
@@ -50,12 +55,12 @@ public class NewsHighlightController {
         return ResponseEntity.ok(newsPage.getContent());
     }
 
-    @GetMapping("/archived")
+    @GetMapping({"/archived", "/archive"})
     public ResponseEntity<Page<NewsHighlight>> getArchivedNews(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         Pageable pageable = PageRequest.of(page, size);
-        return ResponseEntity.ok(newsHighlightService.getHighlights(pageable));
+        return ResponseEntity.ok(newsHighlightService.getArchivedHighlights(pageable));
     }
 
     @PostMapping("/fetch")

@@ -50,6 +50,12 @@ import org.springframework.web.client.RestTemplate;
  * prefix `/api/v1/uploads/` (was `/api/uploads/`). • Injected `HtmlSanitizationService` via
  * constructor. • Behavior preserved: GEO semantic links, JSON-LD content, and materialization flow
  * intact.
+ *
+ * <p>- EDITED (Batch 2B, Step 0): • `doc.title()` now tolerates a null post title (`post.getTitle()
+ * != null ? post.getTitle() : ""`); Jsoup `doc.title()` already escapes the text. • Cover-image
+ * `og:image`/`twitter:image` resolution: absolute `http...` → used as-is; leading `/` → `publicUrl
+ * + path`; otherwise → `publicUrl + "/api/v1/uploads/" + path`. • Behavior preserved: title
+ * escaping inside `#server-content`, JSON-LD, and `window.__PRELOADED_STATE__` unchanged.
  */
 @Service
 @Slf4j
@@ -108,7 +114,7 @@ public class HtmlMaterializerService {
             Document doc = Jsoup.parse(htmlShell);
 
             // 3. Inject Metadata
-            doc.title(Entities.escape(post.getTitle()) + " | Treishvaam Finance");
+            doc.title((post.getTitle() != null ? post.getTitle() : "") + " | Treishvaam Finance");
             doc.select("meta[name=description]").remove();
             doc.head()
                     .appendElement("meta")
@@ -126,9 +132,10 @@ public class HtmlMaterializerService {
 
             if (post.getCoverImageUrl() != null) {
                 String imgUrl;
-                if (post.getCoverImageUrl().startsWith("/")
-                        || post.getCoverImageUrl().startsWith("http")) {
+                if (post.getCoverImageUrl().startsWith("http")) {
                     imgUrl = post.getCoverImageUrl();
+                } else if (post.getCoverImageUrl().startsWith("/")) {
+                    imgUrl = publicUrl + post.getCoverImageUrl();
                 } else {
                     imgUrl = publicUrl + "/api/v1/uploads/" + post.getCoverImageUrl();
                 }

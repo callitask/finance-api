@@ -1,3 +1,22 @@
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Spring Data JPA repository for NewsHighlight (news_highlights table).
+ *
+ * <p>Scope: - Query methods for active (is_archived=false) and archived (is_archived=true) news
+ * items, plus existence checks by link/title.
+ *
+ * <p>Critical Dependencies: - Backend: JPA/Hibernate deriving from {@code NewsHighlight.java}
+ * property names ({@code isArchived} via getter {@code isArchived()}, {@code publishedAt} via
+ * column {@code published_at}).
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Created NewsHighlightRepository with
+ * active + archived paginated finders. • EDITED (Batch 2B - P2.9, VULN-30): • Added {@code
+ * findByIsArchivedTrueOrderByPublishedAtDesc(Pageable pageable)} (mirrors the active finder {@code
+ * findByIsArchivedFalseOrderByPublishedAtDesc}). • Referenced NewsHighlight field names verified
+ * live: boolean field {@code isArchived} + getter {@code isArchived()}, date field {@code
+ * publishedAt} + column {@code published_at} — Spring Data derives both finders cleanly.
+ */
 package com.treishvaam.financeapi.newshighlight;
 
 import java.util.List;
@@ -15,6 +34,9 @@ public interface NewsHighlightRepository extends JpaRepository<NewsHighlight, Lo
 
     // Fetch ALL active news for internal maintenance (List version, no pagination)
     List<NewsHighlight> findByIsArchivedFalseOrderByPublishedAtDesc();
+
+    // Fetch archived news for the Archived News UI (Paginated) — VULN-30
+    Page<NewsHighlight> findByIsArchivedTrueOrderByPublishedAtDesc(Pageable pageable);
 
     boolean existsByLink(String link);
 

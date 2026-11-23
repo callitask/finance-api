@@ -44,6 +44,14 @@
  * <p>- EDITED (Phase 11): Added dual-resolution 20Y history, self-healing Yahoo fallback, Redis
  * cache guards (@CacheEvict), and @Cacheable unless conditions.
  *
+ * <p>- EDITED (Batch 2B - P2.7, VULN-20): • Removed the unsafe cast on the auth principal (threw
+ * ClassCastException on Keycloak Jwt principals). • {@code isPasswordValid()} now handles BOTH
+ * {@code Jwt} (claim {@code preferred_username}, fallback claim {@code email}) AND {@code
+ * UserDetails}, using null-safe lookup + {@code .map(u -> u.getPassword() != null &&
+ * passwordEncoder.matches(rawPassword, u.getPassword())).orElse(false)}. • Behavior preserved:
+ * admin flush endpoints (/admin/flush-movers, /admin/flush-indices) still validate the password and
+ * flush data.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -81,6 +89,7 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -496,11 +505,27 @@ public class MarketDataService {
     }
 
     private boolean isPasswordValid(String rawPassword) {
-        UserDetails userDetails =
-                (UserDetails) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        return passwordEncoder.matches(
-                rawPassword,
-                userRepository.findByUsername(userDetails.getUsername()).get().getPassword());
+        String username = null;
+        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        if (principal instanceof Jwt jwt) {
+            // Keycloak: use preferred_username, fall back to email claim (VULN-20 fix)
+            username = jwt.getClaimAsString("preferred_username");
+            if (username == null) {
+                username = jwt.getClaimAsString("email");
+            }
+        } else if (principal instanceof UserDetails details) {
+            username = details.getUsername();
+        }
+        if (username == null) {
+            return false;
+        }
+        return userRepository
+                .findByUsername(username)
+                .map(
+                        u ->
+                                u.getPassword() != null
+                                        && passwordEncoder.matches(rawPassword, u.getPassword()))
+                .orElse(false);
     }
 
     public List<MarketData> getTopGainers() {

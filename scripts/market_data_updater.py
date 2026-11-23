@@ -1,9 +1,29 @@
+# /**
+#  * AI-CONTEXT:
+#  * Purpose: One-shot Python updater — bulk-fetches historical price/quote data via yfinance and
+#  *   persists into MariaDB (mysql+mysqlconnector).
+#  * Scope: get_db_engine() builds the SQLAlchemy engine from DB_URL/DB_USER/DB_PASSWORD env vars.
+#  * Security Constraints: Credentials read exclusively from environment variables (Zero-Trust,
+#  *   SEC-04); connection string built with SQLAlchemy URL.create() so rotated Infisical passwords
+#  *   containing @, :, /, #, ? are percent-encoded safely.
+#  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
+#  * - EDITED (Batch 2B - P2.7, VULN-29): Replaced raw f-string password interpolation
+#  *   (clean_url.replace('//', f'//{user}:{password}@')) with the structured URL builder
+#  *   URL.create(drivername='mysql+mysqlconnector', username=user, password=password,
+#  *   host=parsed.hostname or 'treishvaam-db', port=parsed.port or 3306,
+#  *   database=(parsed.path or '/finance_db').lstrip('/')).
+#  * - DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section acts as the institutional memory
+#  *   for future AI sessions. It must never be deleted, truncated, rewritten, or regenerated.
+#  *   Future AI must append only.
+#  */
 import sys
 import os
 import logging
 import yfinance as yf
 import pandas as pd
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
+from urllib.parse import urlparse
 from datetime import datetime, timedelta, date
 import math
 from decimal import Decimal, getcontext, ROUND_HALF_UP
@@ -52,9 +72,18 @@ def get_db_engine():
         if "?" in clean_url:
             clean_url = clean_url.split("?")[0]
 
-        # Securely construct connection string
-        connection_str = f"{clean_url.replace('//', f'//{user}:{password}@')}"
-        return create_engine(connection_str)
+        # VULN-29 Fix: Structured URL builder — URL.create percent-encodes username/password
+        # for `@`, `:`, `/`, `#`, `?` instead of raw string interpolation.
+        parsed = urlparse(clean_url)
+        db_url_obj = URL.create(
+            drivername="mysql+mysqlconnector",
+            username=user,
+            password=password,
+            host=parsed.hostname or "treishvaam-db",
+            port=parsed.port or 3306,
+            database=(parsed.path or "/finance_db").lstrip("/")
+        )
+        return create_engine(db_url_obj)
     except Exception as e:
         logging.error(f"Fatal: Could not parse DB URL. Error: {e}")
         sys.exit(1)
