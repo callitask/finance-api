@@ -20,6 +20,14 @@
  * IMMUTABLE CHANGE HISTORY (DO NOT DELETE):
  * - ADDED (AEGIS Phase 4 ZKA):
  * • Initial creation of the gnark authentication circuit.
+ * - EDITED (Batch 3A - P3.1, VULN-04d):
+ *   • Added public output `ChallengeBinding frontend.Variable `gnark:",public"`` to AuthCircuit.
+ *   • Replaced the dummy Constraint 2 (the old code computed the MiMC hash of (Secret, Challenge)
+ *     but discarded the result) with `api.AssertIsEqual(circuit.ChallengeBinding, mimc.Sum())` —
+ *     every Groth16 proof is now cryptographically bound to the server-issued challenge
+ *     (replay-proof).
+ *   • Behavior preserved: Constraint 1 (PublicKey == MiMC(Secret)) unchanged; wire contract
+ *     (aegis_zkp.proto) untouched.
  */
 
 package circuit
@@ -36,6 +44,9 @@ type AuthCircuit struct {
 	// Public inputs (known to server)
 	Challenge frontend.Variable `gnark:",public"`
 	PublicKey frontend.Variable `gnark:",public"` // The stored hash of the admin's secret
+	// ChallengeBinding (VULN-04d) — set by the prover to MiMC(Secret, Challenge).
+	// Proves the proof is bound to the server-issued challenge (non-replayable).
+	ChallengeBinding frontend.Variable `gnark:",public"`
 
 	// Private inputs (known ONLY to the admin/prover)
 	Secret frontend.Variable `gnark:",secret"`
@@ -55,11 +66,11 @@ func (circuit *AuthCircuit) Define(api frontend.API) error {
 	api.AssertIsEqual(circuit.PublicKey, actualPublicKey)
 
 	// Constraint 2: The proof must tightly bind to the Challenge
-	// We enforce a dummy constraint that incorporates the challenge so the proof
+	// We assert the ChallengeBinding equals MiMC(Secret, Challenge) so the proof
 	// is specific to the current session challenge, stopping replay attacks.
 	mimc.Reset()
 	mimc.Write(circuit.Secret, circuit.Challenge)
-	_ = mimc.Sum() // The prover must compute this, binding the proof to the challenge
+	api.AssertIsEqual(circuit.ChallengeBinding, mimc.Sum())
 
 	return nil
 }

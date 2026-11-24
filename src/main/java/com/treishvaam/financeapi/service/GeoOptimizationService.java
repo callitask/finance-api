@@ -7,9 +7,17 @@ import com.treishvaam.financeapi.model.PostStatus;
 import com.treishvaam.financeapi.repository.BlogPostRepository;
 import com.treishvaam.financeapi.repository.CorporateEntityNodeRepository;
 import com.treishvaam.financeapi.security.ContentIntegrityService;
+import com.treishvaam.financeapi.security.GeoPromptSanitizer;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.Executors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -62,6 +70,29 @@ import org.springframework.stereotype.Service;
  * .verifySignature(post.getContentSignature(), post.getTitle(), post.getSlug(), post.getContent(),
  * post.getAuthor(), post.getTenantId())`) before appending to `/ai-feed.md`; tampered posts
  * excluded with `AEGIS TAMPER ALERT: Excluding tampered post from GEO feed`.
+ *
+ * <p>- EDITED (Batch 3B - P3.4, VULN-13b): • Injected `GeoPromptSanitizer` via constructor; added
+ * `@Value("${AEGIS_OPS_SECRET:}")` field `aegisOpsSecret` and
+ * `@Value("${app.finance.domain:https://treishvaamfinance.com}")` field `financeDomain`. •
+ * `buildAiFeed()`: passed every `BlogPost` editorial field (`title`, `author`, `metaDescription`,
+ * `keywords`) through `geoPromptSanitizer.sanitizeEditorialField(...)` before appending to
+ * `/ai-feed.md` (title≤200, author≤80, metaDescription≤400, keywords≤250). • Validated
+ * `post.getSlug()` via `geoPromptSanitizer.isValidSlug(...)` before interpolating into
+ * `/blog/{slug}` and the `<link rel="Dataset">` href — invalid slugs fall back to `"post-" +
+ * post.getId()`. • Implemented real `evictGeoCache()`: when `aegisOpsSecret` is configured,
+ * asynchronously triggers an authenticated Worker cache purge (`POST
+ * {financeDomain}/sys/purge-cache` with `X-Aegis-Ops-Token: {AEGIS_OPS_SECRET}`, Virtual Threads)
+ * so admin entity updates propagate to Edge KV immediately. Token never logged; fail-safe
+ * `try/catch` (status/message only). • Behavior preserved: `buildLlmsTxt`, `buildSemanticOntology`,
+ * `signPayload`, `verifyNode` logic untouched.
+ *
+ * <p>- EDITED (Step 0 - Phase 3B Surgical Polish): • Added a single reusable `private final
+ * HttpClient httpClient` field initialized once in the constructor via
+ * `HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).executor(
+ * Executors.newVirtualThreadPerTaskExecutor()).build()` (matches `CloudflareEdgeSyncService.java`).
+ * • `evictGeoCache()` now uses `this.httpClient.send(req, HttpResponse.BodyHandlers.ofString())` —
+ * previously `HttpClient.newHttpClient()` was called per invocation, leaking an unclosed Java 21
+ * `SelectorManager` thread per entity update (512M container).
  */
 @Service
 public class GeoOptimizationService {
@@ -70,16 +101,33 @@ public class GeoOptimizationService {
     private final BlogPostRepository blogPostRepository;
     private final CorporateEntityNodeRepository corporateEntityNodeRepository;
     private final ContentIntegrityService contentIntegrityService;
+    private final GeoPromptSanitizer geoPromptSanitizer;
     private final ObjectMapper objectMapper;
+    private final HttpClient httpClient;
+
+    @Value("${AEGIS_OPS_SECRET:}")
+    private String aegisOpsSecret;
+
+    @Value("${app.finance.domain:https://treishvaamfinance.com}")
+    private String financeDomain;
 
     public GeoOptimizationService(
             BlogPostRepository blogPostRepository,
             CorporateEntityNodeRepository corporateEntityNodeRepository,
-            ContentIntegrityService contentIntegrityService) {
+            ContentIntegrityService contentIntegrityService,
+            GeoPromptSanitizer geoPromptSanitizer) {
         this.blogPostRepository = blogPostRepository;
         this.corporateEntityNodeRepository = corporateEntityNodeRepository;
         this.contentIntegrityService = contentIntegrityService;
+        this.geoPromptSanitizer = geoPromptSanitizer;
         this.objectMapper = new ObjectMapper();
+        // Step 0: ONE reusable HttpClient (matches CloudflareEdgeSyncService) — avoids leaking
+        // an unclosed Java 21 SelectorManager thread per entity update.
+        this.httpClient =
+                HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofSeconds(5))
+                        .executor(Executors.newVirtualThreadPerTaskExecutor())
+                        .build();
     }
 
     private String signPayload(String payload) {
@@ -211,31 +259,47 @@ public class GeoOptimizationService {
                                 post.getSlug());
                         continue;
                     }
-                    sb.append(String.format("### %s\n", post.getTitle()));
+
+                    // P3.4 (VULN-13b): Sanitize editorial fields before GEO emission
+                    String sanitizedTitle =
+                            geoPromptSanitizer.sanitizeEditorialField(post.getTitle(), 200);
+                    String sanitizedAuthor =
+                            post.getAuthor() != null
+                                    ? geoPromptSanitizer.sanitizeEditorialField(
+                                            post.getAuthor(), 80)
+                                    : "Treishvaam Editorial Desk";
+                    String sanitizedSummary =
+                            post.getMetaDescription() != null
+                                    ? geoPromptSanitizer.sanitizeEditorialField(
+                                            post.getMetaDescription(), 400)
+                                    : "In-depth financial analysis.";
+
+                    // P3.4 (VULN-13b): Validate slug before interpolating into /blog/{slug}
+                    // and the <link rel="Dataset"> href (fallback to "post-<id>")
+                    String canonicalSlug =
+                            geoPromptSanitizer.isValidSlug(post.getSlug())
+                                    ? post.getSlug()
+                                    : ("post-" + post.getId());
+
+                    sb.append(String.format("### %s\n", sanitizedTitle));
                     sb.append(
                             String.format("- **Published**: %s\n", post.getCreatedAt().toString()));
-                    sb.append(
-                            String.format(
-                                    "- **Author**: %s\n",
-                                    post.getAuthor() != null
-                                            ? post.getAuthor()
-                                            : "Treishvaam Editorial Desk"));
-                    sb.append(
-                            String.format(
-                                    "- **Summary**: %s\n",
-                                    post.getMetaDescription() != null
-                                            ? post.getMetaDescription()
-                                            : "In-depth financial analysis."));
+                    sb.append(String.format("- **Author**: %s\n", sanitizedAuthor));
+                    sb.append(String.format("- **Summary**: %s\n", sanitizedSummary));
 
                     if (post.getKeywords() != null && !post.getKeywords().isEmpty()) {
-                        sb.append(String.format("- **Entities & Tags**: %s\n", post.getKeywords()));
+                        sb.append(
+                                String.format(
+                                        "- **Entities & Tags**: %s\n",
+                                        geoPromptSanitizer.sanitizeEditorialField(
+                                                post.getKeywords(), 250)));
                     }
 
-                    sb.append(String.format("- **Canonical Path**: /blog/%s\n", post.getSlug()));
+                    sb.append(String.format("- **Canonical Path**: /blog/%s\n", canonicalSlug));
                     sb.append(
                             String.format(
                                     "- **Data Reference**: <link rel=\"Dataset\" href=\"https://treishvaamfinance.com/blog/%s\" />\n\n",
-                                    post.getSlug()));
+                                    canonicalSlug));
                 }
             }
         } catch (Exception e) {
@@ -260,5 +324,44 @@ public class GeoOptimizationService {
 
     public void evictGeoCache() {
         logger.info("AEGIS GEO: Cache eviction requested after entity update.");
+        if (aegisOpsSecret == null || aegisOpsSecret.isBlank()) {
+            logger.debug(
+                    "AEGIS GEO: AEGIS_OPS_SECRET not configured — Worker purge skipped (P3.4).");
+            return;
+        }
+        String purgeUrl = financeDomain + "/sys/purge-cache";
+        String secret = aegisOpsSecret;
+        // Async Virtual Thread — never blocks admin requests (Java 21 Virtual Threads)
+        Thread.ofVirtual()
+                .start(
+                        () -> {
+                            try {
+                                HttpRequest req =
+                                        HttpRequest.newBuilder()
+                                                .uri(new URI(purgeUrl))
+                                                .POST(HttpRequest.BodyPublishers.noBody())
+                                                .header("X-Aegis-Ops-Token", secret)
+                                                .timeout(Duration.ofSeconds(5))
+                                                .build();
+                                HttpResponse<String> res =
+                                        this.httpClient.send(
+                                                req, HttpResponse.BodyHandlers.ofString());
+                                int status = res.statusCode();
+                                if (status == 200) {
+                                    logger.info(
+                                            "AEGIS GEO: Worker purge-cache accepted (HTTP {}).",
+                                            status);
+                                } else {
+                                    logger.warn(
+                                            "AEGIS GEO: Worker purge-cache returned HTTP {}.",
+                                            status);
+                                }
+                            } catch (Exception e) {
+                                // Fail-safe: never log the token — log only status/message.
+                                logger.warn(
+                                        "AEGIS GEO: Worker purge-cache failed (fail-safe): {}",
+                                        e.getMessage());
+                            }
+                        });
     }
 }

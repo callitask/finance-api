@@ -41,6 +41,24 @@
  * `AudiencePage.js` `healHistoricalAnalytics()`). • Disabled root auto-registration in
  * `FilterConfig.java`; removed `@Order(...)` (order now owned by `SecurityConfig.java`).
  *
+ * <p>- EDITED (Batch 3A - P3.1, VULN-04d): • Injected `RedisTemplate<String, String>` via
+ * constructor; added `@Value("${AEGIS_ADMIN_ZKP_PUBLIC_KEY:}")` field `configuredAdminPublicKey`. •
+ * Standard-path gate now resolves the admin public key (`configuredAdminPublicKey` if non-blank,
+ * else `X-AEGIS-Public-Key` header) — 403 (fail closed) when null/blank. • Added atomic single-use
+ * challenge replay prevention: `redisTemplate.opsForValue() .setIfAbsent("aegis:zkp:used:" +
+ * challengeId, "1", Duration.ofMinutes(5))` — 403 on replay or Redis errors (fail closed). • Now
+ * calls `zkpServiceClient.verifyProof(adminId, publicKey, challengeId, zkpProof)` — the public key
+ * is set on the wire (previously the 4-field contract was broken end-to-end). • Reworked
+ * `extractAdminIdFallback()`: real identity from `SecurityContextHolder` / JWT `sub` claim
+ * (length-bounded, correlation-only) — no hardcoded placeholder fallback ID. • Behavior preserved:
+ * heal-path constant-time `INTERNAL_API_SECRET_KEY` check (Incident 45) untouched; ZKP fail-closed
+ * philosophy; header contract unchanged.
+ *
+ * <p>- FIX (Batch 3B, Step 0 — audit findings): • Line 270: `token.split("\\\\.")` (4 source
+ * backslashes — splits on literal `\\` + any char) → `token.split("\\.")` (2 source backslashes —
+ * splits on literal `.` so JWT `header.payload.signature` segments parse, restoring the
+ * `parts.length < 2` guard). •
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -53,8 +71,13 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Duration;
+import java.util.Base64;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -63,12 +86,18 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class AegisZkpAdminFilter extends OncePerRequestFilter {
 
     private final AegisZkpServiceClient zkpServiceClient;
+    private final RedisTemplate<String, String> redisTemplate;
 
     @Value("${app.security.internal-secret:}")
     private String internalSecret;
 
-    public AegisZkpAdminFilter(AegisZkpServiceClient zkpServiceClient) {
+    @Value("${AEGIS_ADMIN_ZKP_PUBLIC_KEY:}")
+    private String configuredAdminPublicKey;
+
+    public AegisZkpAdminFilter(
+            AegisZkpServiceClient zkpServiceClient, RedisTemplate<String, String> redisTemplate) {
         this.zkpServiceClient = zkpServiceClient;
+        this.redisTemplate = redisTemplate;
     }
 
     @Override
@@ -134,7 +163,7 @@ public class AegisZkpAdminFilter extends OncePerRequestFilter {
         String zkpProof = request.getHeader("X-AEGIS-ZKP-Proof");
         String challengeId = request.getHeader("X-AEGIS-Challenge-ID");
 
-        // Retrieve tenant/admin ID from context or initial JWT (simplified for edge extraction)
+        // Retrieve real admin identity from context or initial JWT (VULN-04d)
         String adminId = extractAdminIdFallback(request);
 
         // 3. Validation Gate
@@ -150,7 +179,46 @@ public class AegisZkpAdminFilter extends OncePerRequestFilter {
             return;
         }
 
-        boolean isVerified = zkpServiceClient.verifyProof(adminId, challengeId, zkpProof);
+        // 3a. Resolve admin public key (VULN-04d): configured key wins; else client-supplied
+        //     header. Fail closed with 403 when neither is present/non-blank.
+        String publicKey =
+                (configuredAdminPublicKey != null && !configuredAdminPublicKey.isBlank())
+                        ? configuredAdminPublicKey
+                        : request.getHeader("X-AEGIS-Public-Key");
+        if (publicKey == null || publicKey.isBlank()) {
+            log.warn("AEGIS L3-ZKA: No admin public key configured/provided — 403 (fail closed).");
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.getWriter()
+                    .write("{\"error\":\"No admin public key configured or provided.\"}");
+            return;
+        }
+
+        // 3b. Single-use challenge replay prevention (VULN-04d): atomic setIfAbsent;
+        //     fail closed with 403 on replay or Redis errors.
+        try {
+            Boolean firstUse =
+                    redisTemplate
+                            .opsForValue()
+                            .setIfAbsent(
+                                    "aegis:zkp:used:" + challengeId, "1", Duration.ofMinutes(5));
+            if (!Boolean.TRUE.equals(firstUse)) {
+                log.warn("AEGIS L3-ZKA: Challenge replay or not unique — 403.");
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                response.setContentType("application/json");
+                response.getWriter().write("{\"error\":\"Challenge replay or not unique.\"}");
+                return;
+            }
+        } catch (Exception e) {
+            log.warn("AEGIS L3-ZKA: Redis replay check failed — 403 (fail closed).", e);
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\":\"Challenge replay check failed.\"}");
+            return;
+        }
+
+        boolean isVerified =
+                zkpServiceClient.verifyProof(adminId, publicKey, challengeId, zkpProof);
 
         if (!isVerified) {
             log.warn("AEGIS L3-ZKA: ZKP Verification FAILED for Challenge: {}", challengeId);
@@ -171,12 +239,63 @@ public class AegisZkpAdminFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    /** Fallback to extract a rough Admin Identifier for the ZKP circuit verification. */
+    /**
+     * Extract a real admin identifier for ZKP circuit verification: SecurityContextHolder first
+     * (post-JWT), then a length-bounded JWT {@code sub} claim extraction — correlation/logging
+     * ONLY, never used for authorization.
+     */
     private String extractAdminIdFallback(HttpServletRequest request) {
+        try {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null && auth.getName() != null && !auth.getName().isBlank()) {
+                return auth.getName();
+            }
+        } catch (Exception e) {
+            log.debug("SecurityContextHolder unavailable: {}", e.getMessage());
+        }
+
         String authHeader = request.getHeader("Authorization");
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            return "subject_id_extracted_from_jwt";
+            String sub = extractSubClaimFromJwt(authHeader.substring("Bearer ".length()));
+            if (sub != null) {
+                return sub;
+            }
         }
         return "anonymous";
+    }
+
+    /**
+     * Length-bounded, non-fatal JWT payload extraction of the {@code sub} claim (VULN-04d —
+     * correlation only). Never throws; returns null on any parse failure or oversized token.
+     */
+    private String extractSubClaimFromJwt(String token) {
+        if (token == null || token.length() > 100_000) {
+            return null;
+        }
+        String[] parts = token.split("\\.");
+        if (parts.length < 2 || parts[1].isBlank()) {
+            return null;
+        }
+        String payload;
+        try {
+            payload = new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        int idx = payload.indexOf("\"sub\"");
+        if (idx < 0) {
+            return null;
+        }
+        int colon = payload.indexOf(':', idx);
+        if (colon < 0) {
+            return null;
+        }
+        int q1 = payload.indexOf('"', colon + 1);
+        int q2 = q1 >= 0 ? payload.indexOf('"', q1 + 1) : -1;
+        if (q1 < 0 || q2 < 0) {
+            return null;
+        }
+        String sub = payload.substring(q1 + 1, q2);
+        return sub.isBlank() ? null : sub;
     }
 }

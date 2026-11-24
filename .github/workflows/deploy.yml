@@ -153,6 +153,18 @@
 #   - DO-NOT-DELETE RULE (ABSOLUTE):
 #   This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #   It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
+#
+#   - EDITED (Phase 4A - P4.1, CI/CD Security Gate - 2026-11-24):
+#   • `dependency-security-scan`: removed the swallowing `|| echo "⚠️ Non-critical vulnerabilities
+#     found, logging output..."` suffix from the OWASP Dependency-Check command — any CVSS >= 8.0
+#     finding now genuinely fails the weekly/manual scan. Job stays isolated on `schedule` +
+#     `workflow_dispatch`.
+#   • `build-and-deploy`: added fast, zero-Docker security unit-test step immediately BEFORE
+#     `Build with Maven`: `./mvnw test -Dtest="*SecurityUnitTest,*SanitizerTest" -B` with
+#     `MAVEN_OPTS="-Xmx1024m"` (no `-T 1C`).
+#   • Preserved untouched: `sudo systemd-run --no-block --uid=vboxuser --gid=vboxuser` (Rule 24.2),
+#     `Build with Maven` (`./mvnw clean package -DskipTests -B`, `MAVEN_OPTS="-Xmx1024m"`), and the
+#     Gitleaks/GPG/Diagnostics steps.
 # ==============================================================================
 
 name: Treishvaam Enterprise Deploy
@@ -198,7 +210,7 @@ jobs:
           -DfailBuildOnCVSS=8 \
           -DsuppressionFiles=dependency-check-suppressions.xml \
           -DnvdApiKey="$NVD_API_KEY" \
-          -DossindexAnalyzerEnabled=false || echo "⚠️ Non-critical vulnerabilities found, logging output..."
+          -DossindexAnalyzerEnabled=false
 
   build-and-deploy:
     runs-on: self-hosted
@@ -255,6 +267,12 @@ jobs:
       run: |
         echo "🚀 DEPLOYING BRANCH: ${{ github.ref_name }}"
         echo "Server will now be updated with code from ${{ github.ref_name }}..."
+
+    - name: Run Fast Security Unit Tests (Zero-Docker)
+      run: |
+        chmod +x mvnw
+        export MAVEN_OPTS="-Xmx1024m"
+        ./mvnw test -Dtest="*SecurityUnitTest,*SanitizerTest" -B
 
     - name: Build with Maven
       run: |

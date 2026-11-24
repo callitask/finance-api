@@ -32,8 +32,20 @@
  * order now owned exclusively by `SecurityConfig.java` + `FilterConfig.java` (auto-registration
  * disabled).
  *
+ * <p>- EDITED (Batch 3B - P3.2, VULN-22b): • Injected `RedisTemplate<String, String>` via
+ * constructor. • On honeypot/malicious-payload interception, records deception score:
+ * `redisTemplate.opsForValue().set("aegis:deception:score:" + realIp, "100", Duration.ofHours(1))`
+ * inside fail-safe `try/catch` — DeceptionValidator queries it downstream (fail-open). • Behavior
+ * preserved: interception patterns, RabbitMQ event publishing, and delegation to
+ * AegisDeceptionEngine unchanged.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
+ *
+ * <p>- EDITED (Step 0 - Phase 3B Surgical Polish): • After `String realIp =
+ * request.getHeader("X-Real-IP");`, added `if (realIp == null || realIp.isBlank()) { realIp =
+ * request.getRemoteAddr(); }` before writing the deception score (`aegis:deception:score:`) and
+ * publishing to RabbitMQ — prevents a null/blank Redis key on direct-IP (non-Cloudflare) traffic.
  */
 package com.treishvaam.financeapi.security.aegis;
 
@@ -42,9 +54,11 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -64,11 +78,15 @@ public class AegisDeceptionFilter extends OncePerRequestFilter {
 
     private final AegisDeceptionEngine deceptionEngine;
     private final RabbitMQAttackPublisher attackPublisher;
+    private final RedisTemplate<String, String> redisTemplate;
 
     public AegisDeceptionFilter(
-            AegisDeceptionEngine deceptionEngine, RabbitMQAttackPublisher attackPublisher) {
+            AegisDeceptionEngine deceptionEngine,
+            RabbitMQAttackPublisher attackPublisher,
+            RedisTemplate<String, String> redisTemplate) {
         this.deceptionEngine = deceptionEngine;
         this.attackPublisher = attackPublisher;
+        this.redisTemplate = redisTemplate;
     }
 
     @Override
@@ -86,7 +104,21 @@ public class AegisDeceptionFilter extends OncePerRequestFilter {
 
             // Extract edge telemetry injected by OpenResty Lua (Phase 1)
             String realIp = request.getHeader("X-Real-IP");
+            // Step 0: null/blank fallback to the remote address so the deception score key and
+            // RabbitMQ telemetry never carry a null/blank IP (direct-IP traffic).
+            if (realIp == null || realIp.isBlank()) {
+                realIp = request.getRemoteAddr();
+            }
             String ja3 = request.getHeader("X-JA3-Fingerprint");
+
+            // Record deception score for DeceptionValidator (P3.2, VULN-22b — fail-safe)
+            try {
+                redisTemplate
+                        .opsForValue()
+                        .set("aegis:deception:score:" + realIp, "100", Duration.ofHours(1));
+            } catch (Exception e) {
+                logger.warn("AEGIS L4-ADA: Failed to record deception score in Redis", e);
+            }
 
             // Broadcast the attack to the central event bus
             attackPublisher.publishAttackEvent(realIp, ja3, path, "Deception Filter Intercept");

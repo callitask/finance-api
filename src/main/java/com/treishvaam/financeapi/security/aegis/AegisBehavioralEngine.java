@@ -27,6 +27,22 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  * Integration): • Injected `isVerifiedAiCrawler` logic to perform reverse DNS / PTR checks. •
  * Bypasses risk scoring for legitimate AI agents (Googlebot, GPTBot) to ensure maximum Generative
  * Engine Optimization visibility without false-positive tarpitting.
+ *
+ * <p>- EDITED (Batch 3B - P3.2, VULN-22b): • Wired `ShannonEntropyCalculator` into
+ * `calculateRiskScore(...)`: inspects the current request's `getQueryString()` (via
+ * `RequestContextHolder`); if non-null, length > 64, and NOT an OAuth callback param
+ * (`code=`/`state=`/`session_state=`), computes `double h =
+ * ShannonEntropyCalculator.calculate(queryString)` and adds `+20` to the risk score when `h > 5.2`
+ * (cap at 100 preserved). • Behavior preserved: JA3 + biometric-hash scoring unchanged; all other
+ * logic identical.
+ *
+ * <p>- EDITED (Step 0 - Phase 3B Surgical Polish): • Added 4-arg overload `calculateRiskScore(
+ * String realIp, String ja3Fingerprint, String biometricHash, String queryString)`; the 3-arg
+ * overload now delegates to it passing `null`. Inside the 4-arg method, when `queryString == null`,
+ * the previous `RequestContextHolder` fallback applies. Caller `BehavioralValidator` passes
+ * `request.getQueryString()` directly — `RequestContextHolder` is non-inheritable, so it returned
+ * null inside the per-task virtual thread spawned by `AegisBcsm` and the entropy check silently
+ * skipped (virtual-thread blindspot fix).
  */
 @Service
 public class AegisBehavioralEngine {
@@ -38,9 +54,19 @@ public class AegisBehavioralEngine {
 
     /**
      * Calculates the behavioral risk score (0-100). 0 = Verified Human/Bot, 100 = Confirmed
-     * Malicious.
+     * Malicious. Delegates to the 4-arg overload passing {@code null} (previous behavior).
      */
     public int calculateRiskScore(String realIp, String ja3Fingerprint, String biometricHash) {
+        return calculateRiskScore(realIp, ja3Fingerprint, biometricHash, null);
+    }
+
+    /**
+     * 4-arg overload (Step 0 — virtual-thread blindspot fix): accepts the current request's query
+     * string explicitly. When {@code queryString == null}, falls back to {@code
+     * RequestContextHolder} as before.
+     */
+    public int calculateRiskScore(
+            String realIp, String ja3Fingerprint, String biometricHash, String queryString) {
 
         if (isVerifiedAiCrawler(realIp)) {
             logger.debug(
@@ -62,6 +88,32 @@ public class AegisBehavioralEngine {
         // 2. Biometric Validation (GDPR Compliant Hash from Frontend)
         if (biometricHash == null || biometricHash.trim().isEmpty()) {
             riskScore += 30; // No mouse/scroll vectors provided by frontend
+        }
+
+        // 3. Shannon Entropy of query string (P3.2, VULN-22b) — obfuscated exploit/DGA payload
+        // detection. Step 0: prefer the explicitly-passed `queryString`; the RequestContextHolder
+        // fallback only applies when it is null.
+        String effectiveQueryString = queryString;
+        if (effectiveQueryString == null) {
+            try {
+                ServletRequestAttributes attrs =
+                        (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+                if (attrs != null && attrs.getRequest() != null) {
+                    effectiveQueryString = attrs.getRequest().getQueryString();
+                }
+            } catch (Exception e) {
+                logger.debug("AEGIS L5-BIE: No request context for entropy check", e);
+            }
+        }
+        if (effectiveQueryString != null && effectiveQueryString.length() > 64) {
+            double entropy = ShannonEntropyCalculator.calculate(effectiveQueryString);
+            boolean isOauthCallbackParam =
+                    effectiveQueryString.contains("code=")
+                            || effectiveQueryString.contains("state=")
+                            || effectiveQueryString.contains("session_state=");
+            if (entropy > 5.2 && !isOauthCallbackParam) {
+                riskScore += 20; // High entropy on long queries = DGA/obfuscation
+            }
         }
 
         // Cap at 100

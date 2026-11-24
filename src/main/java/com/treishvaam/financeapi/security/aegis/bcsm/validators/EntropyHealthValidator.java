@@ -6,33 +6,43 @@
  *
  * <p>Scope: - System-level check, independent of the client request.
  *
- * <p>Critical Dependencies: - Backend: AegisBcsm
+ * <p>Security Constraints: - If entropy drops, security operations are unsafe. - Fail-open to
+ * `ALLOW` on first boot (no refresh yet — boot refresh may be pending).
  *
- * <p>Security Constraints: - If entropy drops, security operations are unsafe.
+ * <p>Change Intent: - Wired real entropy-health via AegisEntropyManager (P3.2, VULN-22b): `0 /
+ * ALLOW` when healthy, `50 / WARN` when degraded.
  *
- * <p>Non-Negotiables: - Executes instantly.
- *
- * <p>Change Intent: - Fix-forward remediation: Type strictness alignment.
+ * <p>Critical Dependencies: - Backend: AegisBcsm, AegisEntropyManager.
  *
  * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - ADDED: • Initial creation of
  * EntropyHealthValidator. - EDITED (Remediation): • Aligned method signature to
  * `evaluate(HttpServletRequest, String)`. • Converted raw strings to `SecurityDecision` enums. •
- * Phase 2 Implementation.
+ * Phase 2 Implementation. - EDITED (Batch 3B - P3.2, VULN-22b): • Injected `AegisEntropyManager`
+ * via constructor; return `0 / ALLOW` when `entropyManager.isHealthy()`, `50 / WARN` when degraded.
  */
 package com.treishvaam.financeapi.security.aegis.bcsm.validators;
 
 import com.treishvaam.financeapi.security.aegis.bcsm.AegisValidator;
 import com.treishvaam.financeapi.security.aegis.bcsm.SecurityDecision;
 import com.treishvaam.financeapi.security.aegis.bcsm.ValidatorResult;
+import com.treishvaam.financeapi.security.aegis.crypto.AegisEntropyManager;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
 
 @Component
 public class EntropyHealthValidator implements AegisValidator {
 
+    private final AegisEntropyManager entropyManager;
+
+    public EntropyHealthValidator(AegisEntropyManager entropyManager) {
+        this.entropyManager = entropyManager;
+    }
+
     @Override
     public ValidatorResult evaluate(HttpServletRequest request, String sessionId) {
-        // Represents entropy pool health. Assumed healthy for standard evaluation.
-        return new ValidatorResult(0, SecurityDecision.ALLOW, "ENTROPY_NODE");
+        boolean healthy = entropyManager.isHealthy();
+        int score = healthy ? 0 : 50;
+        SecurityDecision rec = healthy ? SecurityDecision.ALLOW : SecurityDecision.WARN;
+        return new ValidatorResult(score, rec, "ENTROPY_NODE");
     }
 }

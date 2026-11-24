@@ -14,7 +14,7 @@
 
 SLUG=$1
 BACKEND_URL="https://backend.treishvaamgroup.com"
-FRONTEND_URL="https://treishfin.treishvaamgroup.com"
+FRONTEND_URL="https://treishvaamfinance.com"
 
 # Colors
 GREEN='\033[0;32m'

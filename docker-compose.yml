@@ -241,6 +241,10 @@
 #  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions.
 #  * It must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
 #  * If a future AI suggests a strategy listed under FAILED ATTEMPTS, it is a protocol error.
+#  *
+#  * - EDITED (Phase 4A - P4.1, CI/CD & Ops Scripts): • Added `- "AEGIS_OPS_SECRET=${AEGIS_OPS_SECRET}"`
+#  * directly below `AEGIS_EDGE_SECRET` in `backend.environment` so `GeoOptimizationService.evictGeoCache()`
+#  * receives the ops token at runtime. VirtualBox heap/server-id deltas (`-Xmx256m -Xms256m`) untouched.
 #  * - EDITED (P1.3 - Nginx Snippet Mount):
 #  * • Added read-only mount `./nginx/snippets:/etc/nginx/snippets:ro` to the `nginx` service volumes (required for the new security-headers snippet used by every proxied location block).
 #  *
@@ -714,6 +718,7 @@ services:
       - "AUDIT_IP_ENCRYPTION_KEY=${AUDIT_IP_ENCRYPTION_KEY}"
       - "AEGIS_DB_SIGNING_KEY=${AEGIS_DB_SIGNING_KEY}"
       - "AEGIS_EDGE_SECRET=${AEGIS_EDGE_SECRET}"
+      - "AEGIS_OPS_SECRET=${AEGIS_OPS_SECRET}"
       - "JAVA_TOOL_OPTIONS=-Xmx256m -Xms256m -XX:+UnlockDiagnosticVMOptions -XX:-UseBASE64Intrinsics"
     volumes:
       - ./backend-app.war:/app/app.war

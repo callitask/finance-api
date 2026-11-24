@@ -11,12 +11,18 @@ package com.treishvaam.financeapi.controller;
  * `^[a-z0-9_]{2,80}$` (400 on mismatch). • Validates `jsonLdPayload` via
  * `objectMapper.readTree(payload)` requiring `parsed.isObject() && parsed.hasNonNull("@type") &&
  * parsed.hasNonNull("@id")` (400 on missing/malformed — payload required on create).
+ *
+ * <p>- EDITED (Batch 3B - P3.4, VULN-13b): • Injected `GeoPromptSanitizer` via constructor. • On
+ * both create (`upsert()`) and update paths, `llmsTxtBlock` and `aiFeedChunk` are sanitized via
+ * `geoPromptSanitizer.sanitizeEntityBlock(...)` before persisting and HMAC-signing (OWASP
+ * LLM01:2026).
  */
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treishvaam.financeapi.model.CorporateEntityNode;
 import com.treishvaam.financeapi.security.ContentIntegrityService;
+import com.treishvaam.financeapi.security.GeoPromptSanitizer;
 import com.treishvaam.financeapi.service.GeoOptimizationService;
 import java.util.List;
 import org.slf4j.Logger;
@@ -43,16 +49,19 @@ public class CorporateEntityAdminController {
     private final ContentIntegrityService contentIntegrityService;
     private final GeoOptimizationService geoOptimizationService;
     private final ObjectMapper objectMapper;
+    private final GeoPromptSanitizer geoPromptSanitizer;
 
     public CorporateEntityAdminController(
             com.treishvaam.financeapi.repository.CorporateEntityNodeRepository repository,
             ContentIntegrityService contentIntegrityService,
             GeoOptimizationService geoOptimizationService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            GeoPromptSanitizer geoPromptSanitizer) {
         this.repository = repository;
         this.contentIntegrityService = contentIntegrityService;
         this.geoOptimizationService = geoOptimizationService;
         this.objectMapper = objectMapper;
+        this.geoPromptSanitizer = geoPromptSanitizer;
     }
 
     @GetMapping
@@ -95,6 +104,11 @@ public class CorporateEntityAdminController {
             if (incoming.getTenantId() == null) {
                 incoming.setTenantId("global");
             }
+            // P3.4 (VULN-13b): Sanitize entity blocks before persisting + HMAC-signing
+            incoming.setLlmsTxtBlock(
+                    geoPromptSanitizer.sanitizeEntityBlock(incoming.getLlmsTxtBlock()));
+            incoming.setAiFeedChunk(
+                    geoPromptSanitizer.sanitizeEntityBlock(incoming.getAiFeedChunk()));
             String signature =
                     contentIntegrityService.computeSignature(incoming.getJsonLdPayload());
             incoming.setContentSignature(signature);
@@ -133,11 +147,11 @@ public class CorporateEntityAdminController {
                         : existing.getJsonLdPayload());
         existing.setLlmsTxtBlock(
                 incoming.getLlmsTxtBlock() != null
-                        ? incoming.getLlmsTxtBlock()
+                        ? geoPromptSanitizer.sanitizeEntityBlock(incoming.getLlmsTxtBlock())
                         : existing.getLlmsTxtBlock());
         existing.setAiFeedChunk(
                 incoming.getAiFeedChunk() != null
-                        ? incoming.getAiFeedChunk()
+                        ? geoPromptSanitizer.sanitizeEntityBlock(incoming.getAiFeedChunk())
                         : existing.getAiFeedChunk());
         existing.setDisplayOrder(
                 incoming.getDisplayOrder() != null

@@ -43,6 +43,12 @@
  * <p>- DO-NOT-DELETE RULE (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the
  * institutional memory for future AI sessions. It must never be deleted, truncated, rewritten, or
  * regenerated. Future AI must append only.
+ *
+ * <p>- EDITED (Step 0 - Phase 3B Surgical Polish, audit finding #4): • Documented the volatile
+ * `lastRefreshEpochMs` field (epoch ms of every pool refresh, updated in `refreshEntropyPool()`
+ * after `currentPool.set(newPool)`) and the `isHealthy()` health gate (true when
+ * `lastRefreshEpochMs > 0` and `System.currentTimeMillis() - lastRefreshEpochMs < 120_000L`).
+ * Behavior unchanged.
  */
 package com.treishvaam.financeapi.security.aegis.crypto;
 
@@ -67,6 +73,8 @@ public class AegisEntropyManager {
     private final AtomicReference<byte[]> currentPool =
             new AtomicReference<>(new byte[POOL_SIZE_BYTES]);
     private final SecureRandom jvmRandom = new SecureRandom();
+    private volatile long lastRefreshEpochMs =
+            0L; // Updated on every pool refresh (boot + interval)
 
     // Use Virtual Threads for non-blocking scheduled tasks
     private final ScheduledExecutorService virtualScheduler =
@@ -124,11 +132,21 @@ public class AegisEntropyManager {
             }
 
             currentPool.set(newPool);
+            lastRefreshEpochMs = System.currentTimeMillis();
             log.debug("AEGIS L0-HEA: Entropy pool refreshed successfully (4096-bits).");
 
         } catch (Exception e) {
             log.error("AEGIS L0-HEA: Failed to refresh entropy pool!", e);
         }
+    }
+
+    /**
+     * Entropy health gate (P3.2, VULN-22b): true when the pool has refreshed recently (within 120
+     * seconds of the last refresh).
+     */
+    public boolean isHealthy() {
+        return lastRefreshEpochMs > 0
+                && (System.currentTimeMillis() - lastRefreshEpochMs) < 120_000L;
     }
 
     public SecureRandom getSecureRandom() {

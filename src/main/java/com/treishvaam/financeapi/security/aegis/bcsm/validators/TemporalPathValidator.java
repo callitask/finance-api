@@ -18,6 +18,10 @@
  * TemporalPathValidator. - EDITED (Remediation): • Aligned method signature to
  * `evaluate(HttpServletRequest, String)`. • Converted raw strings to `SecurityDecision` enums. •
  * Phase 2 Implementation.
+ *
+ * <p>- EDITED (Batch 3B - P3.2, VULN-22b): • Strict `Boolean.TRUE.equals(request.getAttribute(
+ * "AEGIS_TEMPORAL_VALID"))` check (was `!= null` — false `+60` penalties on every non-root API call
+ * because the attribute was never stamped).
  */
 package com.treishvaam.financeapi.security.aegis.bcsm.validators;
 
@@ -32,7 +36,8 @@ public class TemporalPathValidator implements AegisValidator {
 
     @Override
     public ValidatorResult evaluate(HttpServletRequest request, String sessionId) {
-        boolean isTemporalValid = request.getAttribute("AEGIS_TEMPORAL_VALID") != null;
+        // P3.2 (VULN-22b): Accept only strict Boolean.TRUE (stamped by AegisMainFilter pre-BCSM)
+        boolean isTemporalValid = Boolean.TRUE.equals(request.getAttribute("AEGIS_TEMPORAL_VALID"));
         boolean isPublicStatic =
                 request.getRequestURI().startsWith("/sitemaps")
                         || request.getRequestURI().equals("/");

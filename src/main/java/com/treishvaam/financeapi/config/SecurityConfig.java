@@ -116,6 +116,11 @@
  * matcher → `hasAnyAuthority("ROLE_EDITOR", "ROLE_PUBLISHER", "ROLE_ADMIN")` (P0.6 — no anonymous
  * duplicates).
  *
+ * <p>- EDITED (Batch 3A - P3.3, OP-05): • Added "/api/v1/aegis/tarpit/trap" to Section 0
+ * permitAll() — closes the dead Edge TARPIT route (Worker rewrites poisoned TARPIT traffic to it;
+ * previously such requests died at the Edge with 404s). • Still gated by AegisEdgeValidationFilter,
+ * preserving the Zero-Trust TARPIT perimeter.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -228,6 +233,12 @@ public class SecurityConfig {
                                 auth
                                         // 0. Pre-flight checks (CORS) - CRITICAL
                                         .requestMatchers(HttpMethod.OPTIONS, "/**")
+                                        .permitAll()
+
+                                        // 0.5 AEGIS Edge TARPIT route — public (any method).
+                                        // Still gated by AegisEdgeValidationFilter so only
+                                        // Worker-rewritten TARPIT traffic enters (OP-05).
+                                        .requestMatchers("/api/v1/aegis/tarpit/trap")
                                         .permitAll()
 
                                         // 1. System, Health & Monitoring (Public)

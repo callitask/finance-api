@@ -26,6 +26,16 @@
  * utilizing BouncyCastle SHA3. • Why it was added: Provides active resistance to GPU-cluster brute
  * force and credential stuffing. • Date: 2026-05-22
  *
+ * <p>- EDITED (Batch 3A - P3.3, VULN-22a): • Injected `RedisTemplate<String, String>` via
+ * constructor for replay prevention. • Hardened `validateProof(...)`: (a) parse
+ * `challenge.split(":")` — require exactly 4 parts, `"v1"` version; (b) freshness —
+ * `Long.parseLong(parts[2])` with `Math.abs(Instant.now().toEpochMilli() - issuedMs) > 120_000L`
+ * (2-minute TTL); (c) blank nonce rejection; (d) after confirming SHA3-256 `hexHash.startsWith(
+ * requiredPrefix)`, atomic single-use replay prevention via
+ * `redisTemplate.opsForValue().setIfAbsent("aegis:pow:used:" + parts[3], "1",
+ * Duration.ofMinutes(3))`, returning `Boolean.TRUE.equals(firstUse)`; (e) any parse/Redis exception
+ * → `false`.
+ *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
  */
@@ -35,11 +45,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.jcajce.provider.digest.SHA3;
 import org.bouncycastle.util.encoders.Hex;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -47,7 +59,13 @@ import org.springframework.stereotype.Component;
 public class PowChallengeIssuer {
 
     private final SecureRandom secureRandom = new SecureRandom();
+    private final RedisTemplate<String, String> redisTemplate;
     private static final int LEADING_ZEROS_REQUIRED = 24; // 2^24 hashes required
+    private static final long CHALLENGE_TTL_MS = 120_000L; // 2-minute freshness window (VULN-22a)
+
+    public PowChallengeIssuer(RedisTemplate<String, String> redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
 
     /**
      * Issues a PoW challenge to the client. Returns HTTP 202 Accepted to prevent early client-side
@@ -83,6 +101,33 @@ public class PowChallengeIssuer {
         }
 
         try {
+            // (a) Parse: require v1:difficulty:timestamp:nonce structure (VULN-22a)
+            String[] parts = challenge.split(":");
+            if (parts.length != 4 || !"v1".equals(parts[0])) {
+                log.warn("AEGIS L7-CMCS: Malformed PoW challenge structure rejected");
+                return false;
+            }
+            if (Integer.parseInt(parts[1]) != LEADING_ZEROS_REQUIRED) {
+                log.warn("AEGIS L7-CMCS: PoW difficulty mismatch rejected");
+                return false;
+            }
+            // (b) Timestamp freshness: 2-minute TTL
+            long issuedMs;
+            try {
+                issuedMs = Long.parseLong(parts[2]);
+            } catch (NumberFormatException nfe) {
+                log.warn("AEGIS L7-CMCS: Unparseable PoW challenge timestamp rejected");
+                return false;
+            }
+            if (Math.abs(Instant.now().toEpochMilli() - issuedMs) > CHALLENGE_TTL_MS) {
+                log.warn("AEGIS L7-CMCS: Stale PoW challenge rejected (2-min TTL)");
+                return false;
+            }
+            if (parts[3].isBlank()) {
+                log.warn("AEGIS L7-CMCS: Blank PoW challenge nonce rejected");
+                return false;
+            }
+
             String input = challenge + proof;
             SHA3.Digest256 digest = new SHA3.Digest256();
             byte[] hash = digest.digest(input.getBytes());
@@ -92,7 +137,16 @@ public class PowChallengeIssuer {
             int requiredHexZeros = LEADING_ZEROS_REQUIRED / 4;
             String requiredPrefix = "0".repeat(requiredHexZeros);
 
-            return hexHash.startsWith(requiredPrefix);
+            if (!hexHash.startsWith(requiredPrefix)) {
+                return false;
+            }
+
+            // (c) Atomic single-use replay prevention (fail closed on Redis errors)
+            Boolean firstUse =
+                    redisTemplate
+                            .opsForValue()
+                            .setIfAbsent("aegis:pow:used:" + parts[3], "1", Duration.ofMinutes(3));
+            return Boolean.TRUE.equals(firstUse);
         } catch (Exception e) {
             log.warn("AEGIS L7-CMCS: Malformed PoW validation attempt", e);
             return false;

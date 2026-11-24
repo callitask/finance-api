@@ -54,6 +54,13 @@
  * : "stateless";` — stops unauthenticated Tomcat `HttpSession` + `JSESSIONID` creation on the
  * stateless path (VULN-11). • Removed `@Order(Ordered.HIGHEST_PRECEDENCE + 1)` — filter order now
  * owned exclusively by `SecurityConfig.java`.
+ *
+ * <p>- EDITED (Batch 3B - P3.2, VULN-22b): • Stamps `request.setAttribute("AEGIS_TEMPORAL_VALID",
+ * Boolean.TRUE)` in `AegisMainFilter.doFilterInternal()` immediately after
+ * `resolveCanonicalPath(rawUri)` returns a non-`"DECEPTION"` path, BEFORE `bcsm.evaluate(request,
+ * sessionId)` — so L2-PPO scores `0 / ALLOW` on authenticated routes (previously every non-root API
+ * call was penalized +60 because the attribute was never stamped). • Behavior preserved: ALL Phase
+ * 5 chain logic, filter order, MTD unwrapping, and deception routing untouched.
  */
 package com.treishvaam.financeapi.security.aegis;
 
@@ -113,6 +120,9 @@ public class AegisMainFilter extends OncePerRequestFilter {
             // P0.4 - Session-Table OOM DoS Fix: never create a session on the stateless path.
             jakarta.servlet.http.HttpSession existingSession = request.getSession(false);
             String sessionId = (existingSession != null) ? existingSession.getId() : "stateless";
+            // P3.2 (VULN-22b): Stamp temporal validity BEFORE bcsm.evaluate so L2-PPO gives
+            // 0/ALLOW.
+            request.setAttribute("AEGIS_TEMPORAL_VALID", Boolean.TRUE);
             SecurityDecision decision = bcsm.evaluate(request, sessionId);
 
             switch (decision) {
