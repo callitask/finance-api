@@ -65,7 +65,7 @@ else
 fi
 
 echo "Restoring database..."
-gunzip < "/tmp/restore.sql.gz" | MYSQL_PWD="$DB_PASS" mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME"
+gunzip < "/tmp/restore.sql.gz" | MYSQL_PWD="$DB_PASS" mysql --skip-ssl -h "$DB_HOST" -u "$DB_USER" "$DB_NAME"
 
 if [ $? -eq 0 ]; then
     echo "RESTORE COMPLETE. System data recovered."

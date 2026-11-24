@@ -64,7 +64,7 @@ while true; do
     echo "[Job Started] Creating backup: $FILE_NAME"
 
     # Dump and compress (PITR Flag Restored)
-    MYSQL_PWD="$DB_PASS" mysqldump -h "$DB_HOST" -u "$DB_USER" --single-transaction --quick --master-data=2 "$DB_NAME" | gzip > "/tmp/$FILE_NAME"
+    MYSQL_PWD="$DB_PASS" mysqldump --skip-ssl -h "$DB_HOST" -u "$DB_USER" --single-transaction --quick --master-data=2 "$DB_NAME" | gzip > "/tmp/$FILE_NAME"
 
     if [ -f "/tmp/$FILE_NAME" ]; then
         FILE_SIZE=$(du -h "/tmp/$FILE_NAME" | cut -f1)
