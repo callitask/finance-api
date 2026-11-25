@@ -123,6 +123,11 @@
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY section must never be deleted, truncated,
  * rewritten, or regenerated. Future AI must append only.
+ *
+ * <p>- EDITED (Batch A - CORS Parity Fix): • Added `"X-AEGIS-ZKP",` to the `globalCorsFilter()`
+ * `setAllowedHeaders(Arrays.asList(...))` list immediately before `"X-AEGIS-ZKP-Proof",` —
+ * nginx/conf.d/default.conf allows `X-AEGIS-ZKP` and `src/apiConfig.js` `healHistoricalAnalytics()`
+ * sends `X-AEGIS-ZKP`, but the Spring global CORS filter previously omitted the header.
  */
 package com.treishvaam.financeapi.config;
 
@@ -415,6 +420,7 @@ public class SecurityConfig {
                         "Access-Control-Request-Method",
                         "Access-Control-Request-Headers",
                         "X-CSRF-Token",
+                        "X-AEGIS-ZKP",
                         "X-AEGIS-ZKP-Proof",
                         "X-AEGIS-Challenge-ID",
                         "X-Aegis-Biometric-Hash",

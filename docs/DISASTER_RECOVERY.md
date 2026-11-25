@@ -1,6 +1,6 @@
 # DISASTER_RECOVERY — Treishvaam BCDR Plan (`finance-api`)
 
-> **Location:** `finance-api/docs/DISASTER_RECOVERY.md` · **Version:** 1.1 (2026-08-23 re-verification: restore.sh-no-decrypt warning re-confirmed against source; Keycloak Web Origins wording made literal)
+> **Location:** `finance-api/docs/DISASTER_RECOVERY.md` · **Version:** 2.0 (2026-11-25 — Batch C: decrypt warning removed, --skip-ssl + MariaDB 11.4, Keycloak 26.8.2-3)
 > **Companion:** `RUNBOOKS.md` (routine ops) · `BE-03-DEPLOYMENT.md` (pipeline detail). All commands verified against the repository scripts.
 
 ---
@@ -31,17 +31,19 @@ Deployment truth sources during any incident: **Telegram bot + `/opt/treishvaam/
    # expect: "Kernel mount recovery complete. System sanitized."
    ```
 3. Verify the host: `ip a` (bridge recreated on next `up`), `systemctl status docker containerd`, `docker network ls` (recreate `treish_net` implicitly at step 4).
-4. Re-ignite in dependency order (never `down`; tiered `--no-deps` — full tier list in `BE-03-DEPLOYMENT.md §4`). Minimum viable stack:
+4. Pre-emptive cleanups (Batch A — S6 safety): `docker rm -f wazuh-agent treishvaam-wazuh-manager` (fresh PID layer; never `-s`/`-v` on prod).
+5. Re-ignite in dependency order (never `down`; tiered `--no-deps` — full tier list in `BE-03-DEPLOYMENT.md §4`). Minimum viable stack:
    ```bash
    cd /opt/treishvaam
    docker compose up -d --no-deps treishvaam-db keycloak-db treishvaam-redis redis minio
-   docker compose up -d --no-deps elasticsearch rabbitmq wazuh-manager
+   docker compose up -d --no-deps elasticsearch rabbitmq wazuh-manager keycloak
    docker compose up -d --no-deps aegis-zkp-service aegis-canary-server tunnel
    docker compose up -d --no-deps --scale backend=1 backend
    docker compose up -d --force-recreate --no-deps nginx
    curl -s localhost/actuator/health   # then scale back:
    docker compose up -d --scale backend=2 backend
    ```
+   (Tier 3C cold-start note: `loki` joins during a normal deploy; `wazuh-agent` returns on fresh Tier 2 start — the pre-emptive `rm` in step 4 clears stale PID files first.)
 5. Verify edge path: Cloudflare tunnel reconnects automatically (`docker logs tunnel`) → `curl -s -o /dev/null -w "%{http_code}" https://treishvaamfinance.com/llms.txt` (expect `200`).
 6. **Runner heartbeat** was severed by the bridge flap: `sudo -n systemctl restart actions.runner.*`.
 7. Post-incident: append the event to the Knowledge Tracker; verify no container lost its volume (`docker volume ls` vs baseline).
@@ -55,8 +57,8 @@ Deployment truth sources during any incident: **Telegram bot + `/opt/treishvaam/
 
 **Assets:** nightly encrypted dumps in MinIO `s3://treishvaam-backups` (`backup_YYYY-MM-DD_HH-MM-SS.sql.gz.enc`, **7-day retention**, AES-256-CBC-PBKDF2 via `BACKUP_ENCRYPTION_KEY`) · ROW binlogs in the DB volume (`mysql-bin.*`, encrypted, 7-day expiry, 256 MB rotation) · dump headers carry `--master-data=2` coordinates.
 
-> [!WARNING]
-> **`backup/restore.sh` does not decrypt.** It was written before backup-side encryption (Phase 4) and pipes the downloaded `.enc` straight into `gunzip` — it will fail on current backups. Use the manual pipeline below (and treat a `restore.sh` update as a P2 code fix).
+> [!NOTE]
+> **`backup/restore.sh` now auto-decrypts** — it pipes `.enc` backups through `openssl enc -d -aes-256-cbc -salt -pbkdf2 -pass env:BACKUP_ENCRYPTION_KEY` (decrypt skipped only when the key is absent AND the file isn't `.enc`). **MariaDB 11.4 note:** all `mariadb`/`mysql` CLI calls below use `MYSQL_PWD="$MYSQL_ROOT_PASSWORD"` + `--skip-ssl` (Batch A).
 
 ```mermaid
 flowchart LR
@@ -89,16 +91,16 @@ flowchart LR
    ```
 4. **Restore the base** (overwrites `finance_db` — confirm you are on the right target):
    ```bash
-   docker exec -i treishvaam-db sh -c 'exec mariadb -u root -p"$MARIADB_ROOT_PASSWORD"' < <(gunzip -c /opt/treishvaam/restore.sql.gz)
-   # or: gunzip < restore.sql.gz | docker exec -i treishvaam-db mariadb -u root -p"…" finance_db
+   docker exec -i treishvaam-db sh -c 'exec mariadb -u root --skip-ssl -p"$MYSQL_ROOT_PASSWORD"' < <(gunzip -c /opt/treishvaam/restore.sql.gz)
+   # or: gunzip < restore.sql.gz | docker exec -i treishvaam-db MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mariadb -u root --skip-ssl finance_db
    ```
 5. **Replay binlogs to the desired moment** — *inside* the DB container (binlogs are TDE-encrypted; the keyfile exists only there):
    ```bash
    # from the recorded position, through every subsequent log (optionally --stop-datetime):
    docker exec treishvaam-db sh -c \
-     'mysqlbinlog --start-position=123456 /var/lib/mysql/mysql-bin.000042 | mariadb -u root -p"$MARIADB_ROOT_PASSWORD" finance_db'
+     'mysqlbinlog --start-position=123456 /var/lib/mysql/mysql-bin.000042 | mariadb -u root --skip-ssl -p"$MYSQL_ROOT_PASSWORD" finance_db'
    docker exec treishvaam-db sh -c \
-     'mysqlbinlog /var/lib/mysql/mysql-bin.000043 | mariadb -u root -p"$MARIADB_ROOT_PASSWORD" finance_db'
+     'mysqlbinlog /var/lib/mysql/mysql-bin.000043 | mariadb -u root --skip-ssl -p"$MYSQL_ROOT_PASSWORD" finance_db'
    # add --stop-position=NNN or --stop-datetime="2026-08-22 14:30:00" to land precisely before the incident
    ```
 6. **Verify & clean:** row counts on key tables (`blog_posts`, `analytics_events`) · app smoke test · `find / -name "restore*" -delete` hygiene + Flash & Wipe the `.env`.
@@ -107,7 +109,7 @@ flowchart LR
 
 ---
 
-## 3. Sev-2 — Identity Provider Recovery (Keycloak 25)
+## 3. Sev-2 — Identity Provider Recovery (Keycloak 26.8.2-3)
 
 **Sources of truth:** `config/keycloak/realm-export.json` (repo) + dedicated `keycloak-db` MariaDB. The compose service runs `start --import-realm` with the realm file mounted into the import directory — a fresh database gets the realm automatically (import **skips existing** realms by default).
 
@@ -167,7 +169,7 @@ Verify both stores now match (re-run the diagnosis), then exercise one admin rou
 **Pages (the Next.js app):**
 1. Dashboard → Workers & Pages → `treishvaam-finance-frontend` → **Deployments** → previous known-good build → **Instant rollback** (aliases flip immediately; no rebuild).
 2. ⚠ **Env-var caveat:** `NEXT_PUBLIC_*` values are baked at build time — rolling back also rolls back the *variables* that build carried. If the incident was caused by a variable change (not code), fix the variable and push an empty commit to force a fresh build instead of rolling back.
-3. Purge caches: zone **Cache Purge** + Worker KV if the bad build polluted keys (`/sys/purge-cache`, see RUNBOOKS §3) — and remember the PWA service-worker caveat (users may need a hard refresh / SW update cycle).
+3. Purge caches: zone **Cache Purge** + Worker KV if the bad build polluted keys (`curl -H "X-Aegis-Ops-Token: ${AEGIS_OPS_SECRET}" https://treishvaamfinance.com/sys/purge-cache`, see RUNBOOKS §3) — and remember the PWA service-worker caveat (users may need a hard refresh / SW update cycle).
 
 **Worker (`treishfin-seo-worker`)** — separate deployable from Pages:
 ```bash

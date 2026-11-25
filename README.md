@@ -2,7 +2,7 @@
 
 **Enterprise backend for the Treishvaam Group financial-media platform.**
 
-Java 21 · Spring Boot 3.4 · AEGIS zero-trust security · MariaDB 10.6 · Redis 7 · RabbitMQ 3.12 · Elasticsearch 8.17 · MinIO · Keycloak 25 · Cloudflare Edge
+Java 21 · Spring Boot 3.5.16 · AEGIS zero-trust security · MariaDB 11.4 · Redis 7.4.12 · RabbitMQ 4.4.1 · Elasticsearch 8.19.25 · MinIO · Keycloak 26.8.2-3 · Cloudflare Edge
 
 ---
 
@@ -29,14 +29,14 @@ Java 21 · Spring Boot 3.4 · AEGIS zero-trust security · MariaDB 10.6 · Redis
 
 | Layer | Control |
 |---|---|
-| L1 | Post-quantum hybrid tokens — Dilithium5 / ML-DSA-87 (BouncyCastle, sole PQC provider) |
-| L2 | Zero-Knowledge-Proof gating for `/api/v1/admin/**` (Go gRPC verifier) |
+| L1 | Post-quantum hybrid tokens — ML-DSA-87 (BouncyCastle 1.87, FIPS 204) |
+| L2 | Real BN254 Groth16 ZKP gating for `/api/v1/admin/**` + `/analytics/heal` (Go gRPC verifier) |
 | L3 | Active deception — honeypots, poison payloads, connection tarpits |
 | L4 | Cloudflare Edge HMAC-SHA-512 request signing (±300 s window, 403 on failure) |
 | L5 | Entropy & behavioral scoring (JA3 / biometric risk model) |
 | L6 | Keycloak OIDC JWT + role-based access control |
 | L7 | Distributed rate limiting (Bucket4j + Redis) |
-| L8 | Input sanitization, SQL signing, content-integrity HMACs |
+| L8 | Input sanitization, SQL signing, content-integrity HMACs, GeoPromptSanitizer (OWASP LLM01:2026), Jsoup XSS sanitization, deterministic HLS AES-128 keys |
 | L9 | Moving Target Defense — admin paths rotate to `/api/v1/node/{hex}` every 24 h |
 
 Satellites: **Go ZKP verifier** (gRPC, loopback-only) · **Python video transcoder** (ffmpeg → 1080p HLS) · **Python market updater** (yfinance → MariaDB).
@@ -51,10 +51,10 @@ flowchart LR
         DNS["DNS + DDoS"] --> WRK["treishfin-seo-worker<br/>(HMAC signer · MTD translator · GEO router)"]
     end
     WRK --> TUN["cloudflared Tunnel"] --> NGX["OpenResty :80<br/>(JA3 Lua)"]
-    NGX --> BE["finance-api ×2<br/>(Spring Boot 3.4, :8080)"]
-    NGX --> KC["Keycloak 25<br/>(OIDC)"]
+    NGX --> BE["finance-api ×2<br/>(Spring Boot 3.5.16, :8080)"]
+    NGX --> KC["Keycloak 26.8.2-3<br/>(OIDC)"]
     BE --> ZKP["Go ZKP :9090<br/>(loopback)"]
-    BE --> DB[("MariaDB 10.6<br/>TDE + PITR")] & RD[("Redis 7")] & MQ[["RabbitMQ 3.12"]] & ES[("Elasticsearch")] & S3[("MinIO")]
+    BE --> DB[("MariaDB 11.4<br/>TDE + PITR")] & RD[("Redis 7.4.12")] & MQ[["RabbitMQ 4.4.1"]] & ES[("Elasticsearch 8.19.25")] & S3[("MinIO")]
     MQ --> TR["Transcoder (HLS)"]
     BE -.-> OBS["Prometheus · Loki · Tempo · Grafana"]
 ```
@@ -67,14 +67,14 @@ Full topology (24 services), request lifecycle, filter chain, and the services d
 
 | Domain | Technology |
 |---|---|
-| Language / Runtime | Java 21 (Temurin), Spring Boot 3.4.0, WAR packaging |
-| Security | Spring Security OAuth2 Resource Server · BouncyCastle 1.78.1 (PQC) · Bucket4j 8.10.1 · ANTLR4 (AEL policy DSL) |
-| Identity | Keycloak 25.0.0 (realm `treishvaam`, PKCE S256 public client) |
-| Database | MariaDB 10.6 (×2: app + Keycloak), TDE at rest, ROW binlog PITR, Liquibase V1→V50 |
-| Cache / Messaging / Search / Storage | Redis 7 · RabbitMQ 3.12 · Elasticsearch 8.17 · MinIO (presign 7 d) |
+| Language / Runtime | Java 21.0.13.1 (Temurin), Spring Boot 3.5.16, Spring Cloud 2025.0.3, WAR packaging |
+| Security | Spring Security OAuth2 Resource Server · BouncyCastle 1.87 (FIPS 204 `ML-DSA` / `ml_dsa_87`, sole PQC provider) · Bucket4j 8.10.1 · ANTLR4 (AEL policy DSL) |
+| Identity | Keycloak 26.8.2-3 (realm `treishvaam`, PKCE S256 public client) |
+| Database | MariaDB 11.4 (×2: app + Keycloak), TDE at rest, ROW binlog PITR, Liquibase V1→V51 (24 tables) |
+| Cache / Messaging / Search / Storage | Redis 7.4.12-alpine (×2: app + canary isolate) · RabbitMQ 4.4.1 · Elasticsearch 8.19.25 · MinIO (presign 7 d) |
 | Satellites | Go ZKP gRPC service · Python transcoder (ffmpeg) · Python yfinance updater |
 | Ingress | Cloudflare (Worker + Tunnel) → OpenResty nginx (Lua JA3) |
-| Observability | Prometheus · Loki + Promtail · Tempo (Zipkin/OTLP) · Grafana |
+| Observability | Prometheus v3.7.3 · Loki/Promtail 3.5.7 · Tempo 2.10.3 (Zipkin/OTLP) · Grafana 12.2.1 |
 | CI/CD | GitHub Actions (self-hosted runner, GPG gate) + `auto_deploy.sh` (systemd-detached, tiered ignition) |
 
 ---
@@ -134,9 +134,12 @@ Inventory, scopes, and rotation policy: **[SECRETS.md](SECRETS.md)**.
 
 ## Testing
 
-Integration tests boot the **real** stack via Testcontainers — MariaDB 10.6, Redis, Elasticsearch, RabbitMQ 3.12, MinIO — and run the full Liquibase master changelog:
+Integration tests boot the **real** stack via Testcontainers — MariaDB 11.4, Redis, Elasticsearch, RabbitMQ 4.4.1, MinIO — and run the full Liquibase master changelog:
 
 ```bash
+# CI zero-Docker fast security unit tests (32 tests)
+./mvnw test -Dtest="*SecurityUnitTest,*SanitizerTest" -B
+
 ./mvnw verify
 ```
 
@@ -148,7 +151,7 @@ Integration tests boot the **real** stack via Testcontainers — MariaDB 10.6, R
 ## Deployment
 
 1. **Engine A — GitHub Actions**: GPG-signature gate → gitleaks → `mvn package` → stage artifacts → `sudo systemd-run --no-block` handoff. CI trigger note: path filters drop empty commits — use `echo " " >> VER.txt` + commit.
-2. **Engine B — `auto_deploy.sh`** (systemd-detached): Infisical injection (integrity-gated) → builds → `docker compose rm -f` → **tiered `up -d --no-deps`** (data → heavy → security → observability → app+transcoder → edge) → health gate (35 × 15 s) → scale ×2 → Flash & Wipe → Telegram → runner restart.
+2. **Engine B — `auto_deploy.sh`** (systemd-detached): Infisical injection (integrity-gated) → builds → `docker compose rm -f` → **tiered `up -d --no-deps`** (data → heavy → security → observability → app+transcoder → edge) → health gate (35 × 15 s) → scale ×2 → Flash & Wipe → Telegram → runner restart. OWASP `dependency-security-scan` now **fails hard on CVSS ≥ 8**.
 
 Full procedure, the 13 golden anti-regression rules, and the incident runbook: [docs/BE-03-DEPLOYMENT.md](docs/BE-03-DEPLOYMENT.md).
 

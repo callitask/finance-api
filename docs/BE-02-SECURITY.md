@@ -25,11 +25,11 @@ flowchart TD
 
 | Layer | Name | Components | Status |
 |---|---|---|---|
-| L1 | PQC (Dilithium5 / ML-DSA-87) | `AegisPqcJwtService`, `AegisPqcKeyStore` | Implemented (in-memory keys) |
-| L2 | ZKP admin gating | `AegisZkpAdminFilter`, `AegisZkpServiceClient`, Go service | Wired; **verifier = accepting stub** ⚠ |
+| L1 | PQC (ML-DSA-87) | `AegisPqcJwtService`, `AegisPqcKeyStore` | Implemented (in-memory keys) |
+| L2 | ZKP admin gating | `AegisZkpAdminFilter`, `AegisZkpServiceClient`, Go service | Wired — **real BN254 Groth16 `AuthCircuit`** (`ChallengeBinding == MiMC(Secret, Challenge)`); production prover rollout gated on `AEGIS_ADMIN_ZKP_PUBLIC_KEY` pinning |
 | L3 | Active deception & tarpitting | `AegisDeceptionEngine/Filter`, `TarpitManager`, `PoisonCorpusGenerator`, `CanaryTokenService` | Implemented |
 | L4 | Edge HMAC validation | `AegisEdgeValidationFilter` + Worker | Implemented |
-| L5 | Entropy & behavioral | `ShannonEntropyCalculator`, `AegisBehavioralEngine`, `AegisJwtEnhancer` | Partial — **entropy threshold unwired** ⚠ |
+| L5 | Entropy & behavioral | `ShannonEntropyCalculator`, `AegisBehavioralEngine`, `AegisJwtEnhancer` | Implemented — `queryString` entropy wired into risk score (+20 when len>64 & H>5.2, OAuth exempt); `AegisEntropyManager.isHealthy()` (<120 s) |
 | L6 | JWT + RBAC | SecurityConfig, `KeycloakRealmRoleConverter` | Implemented |
 | L7 | Distributed rate limiting | `RateLimitingFilter`, `Bucket4jConfig` | Implemented |
 | L8 | Sanitization & integrity | `InputSanitizationFilter`, `QuerySanitizationService`, `AegisQueryInterceptor`, `ContentIntegrityService` | Implemented |
@@ -48,10 +48,14 @@ Stateless: `csrf().disable()`, `SessionCreationPolicy.STATELESS`, `frameOptions.
 | GET `/api/v1/{posts,categories,market,news,search}/**`, `/api/v1/logo` | permitAll |
 | POST `/api/v1/market/quotes/batch`, `/api/v1/analytics`, `/api/v1/analytics/event`, `/api/v1/analytics/**`, `/api/v1/aegis/telemetry` | permitAll |
 | `/api/v1/contact/**` | permitAll |
+| `/api/v1/aegis/tarpit/trap` (GET, POST) | permitAll |
+| `GET /api/v1/video/**` | permitAll (Edge-gated) |
 | POST/PUT `/api/v1/posts/draft…` | authenticated |
+| `POST /api/v1/posts/draft`, `PUT /api/v1/posts/draft/{id}`, `POST /api/v1/posts/{id}/duplicate` | PUBLISHER/ADMIN (role-restricted) |
+| `POST /api/v1/market/news/fetch`, `POST /api/v1/market/news/deduplicate` | ROLE_ADMIN |
 | `/api/v1/auth/**` | authenticated |
 | GET `/api/v1/analytics` (dashboard) | ANALYST/ADMIN (method-level ADMIN on refresh) |
-| `/api/v1/posts/admin/**` | EDITOR/PUBLISHER/ADMIN |
+| `/api/v1/posts/admin/**` (above GET `/api/v1/posts/**`) | EDITOR/PUBLISHER/ADMIN |
 | POST `/api/v1/posts` | PUBLISHER/ADMIN |
 | PUT `/api/v1/posts/**` | EDITOR/PUBLISHER/ADMIN |
 | DELETE `/api/v1/posts/**` | PUBLISHER/ADMIN |
@@ -61,35 +65,38 @@ Stateless: `csrf().disable()`, `SessionCreationPolicy.STATELESS`, `frameOptions.
 
 Keycloak realm roles: `admin`, `editor`, `publisher`, `analyst` (frontend UI checks only `admin|publisher`). ⚠ No `.exceptionHandling()` configured. Note: `/api/v1/analytics/event` permitAll was added 2026-07-15 (Incident 11) to unblock sendBeacon.
 
-## 3. Layer 2 — ZKP Admin Gating (honest picture)
+## 3. Layer 2 — ZKP Admin Gating
 
-- Filter intercepts `/api/v1/admin/` prefix. Bypass ladder: `X-AEGIS-Test-Token: true` (CI only) → heal special-case: exact URI `/api/v1/admin/actions/analytics/heal` accepts header **`X-AEGIS-ZKP`** = `app.security.internal-secret` *or* `verifyProof("system_admin","ANALYTICS_HEAL_ACTION", value)` → standard contract: **`X-AEGIS-ZKP-Proof` + `X-AEGIS-Challenge-ID`** via client. (Scoped-bypass design verified working 2026-08-05/07, Incidents 37–45; the global-bypass variant was **rejected** as an L3-ZKA violation. Controller-level ZKP was removed — Incident 45 — the gate lives in the filter.)
-- Client: gRPC `ManagedChannelBuilder.forTarget("${aegis.zkp.target:aegis-zkp-service:9090}").usePlaintext()`, blocking stub, `@CircuitBreaker(name="zkpService")` fallback returns `false` (**fail-closed**). `verifyProof(String,String,String)` — 3-arg signature (Incident 40).
+- Filter intercepts `/api/v1/admin/` prefix. Heal special-case: exact URI `/api/v1/admin/actions/analytics/heal` accepts header **`X-AEGIS-ZKP`** = `app.security.internal-secret` *or* `verifyProof("system_admin","ANALYTICS_HEAL_ACTION", value)` (hashed/constant-time comparison, `MessageDigest.isEqual`) → standard contract: **`X-AEGIS-ZKP-Proof` + `X-AEGIS-Challenge-ID`** via client. The CI-only `X-AEGIS-Test-Token` bypass is **removed** (Scoped-bypass design verified working 2026-08-05/07, Incidents 37–45; the global-bypass variant was **rejected** as an L3-ZKA violation. Controller-level ZKP was removed — Incident 45 — the gate lives in the filter.)
+- Client: gRPC `ManagedChannelBuilder.forTarget("${aegis.zkp.target:aegis-zkp-service:9090}").usePlaintext()`, blocking stub, `@CircuitBreaker(name="zkpService")` fallback returns `false` (**fail-closed**). `verifyProof(adminId, publicKey, challengeId, zkpProof)` (Incident 40).
+- Replay prevention: Redis `aegis:zkp:used:{id}` `setIfAbsent` **5 min** TTL after first use.
+- Production pinning note: the admin ZKP prover is gated on the prover's verification key — enforce **`AEGIS_ADMIN_ZKP_PUBLIC_KEY`** pinning prior to production rollout (filter resolves the configured public key when non-blank; vk-path override `AEGIS_ZKP_VK_PATH` is the rollout-time knob).
 - Failures → 403 JSON (`Zero-Knowledge Proof required…` / `Cryptographic identity proof invalid or expired.`).
-- ⚠ **Go verifier is an accepting stub** (`VerifyLatticeSchnorrProof` = length check; challenge ignored; gnark `SchnorrLatticeCircuit` scaffolding; MiMC challenge-binding no-op). Effective L2 = JWT ROLE_ADMIN + header presence. Loopback-only port binding + internal DNS mitigate exposure. ⚠ `extractAdminIdFallback` returns a stub string.
+- Go verifier: real BN254 Groth16 `AuthCircuit` (`aegis/zkp-service/circuit/auth_circuit.go` — `ChallengeBinding == MiMC(Secret, Challenge)`; `schnorr_lattice.go` exports `InitVerifier`/`VerifyLatticeSchnorrProof`; `auth_circuit_test.go` runs `TestAuthCircuitVerifyLatticeSchnorrProof`). Loopback-only port binding + internal DNS mitigate exposure.
 
 ## 4. Layers 3–5 — Deception, Entropy, Behavioral
 
 ### 4.1 L3 Deception
 - Triggers: `HONEYPOT_PATHS (?i)^/(\.env|wp-admin|phpmyadmin|config\.php|\.git|vendor/phpunit).*`; `MALICIOUS_PAYLOADS (?i)(UNION\s+SELECT|script>|\.\./\.\./|base64_decode\()` on the query string → `publishAttackEvent(ip, ja3, path, "Deception Filter Intercept")` + strategy response.
 - Strategies: `.env`/`config.php` → 200 fake env (canary-bearing); `wp-admin`/`phpmyadmin`/`vendor` → 301 self-redirect loop `?d={n+1}&t={canary}`; `api/` → 200 fake JWT; default → slow-leak tarpit.
-- Tarpit: 200 `text/html`, keep-alive, virtual thread writes `"\n"` then **1 byte / 10 000 ms forever**. ⚠ The Worker rewrites tarpitted IPs to `/api/v1/aegis/tarpit/trap` — **no backend handler exists for that path** (OP-05).
+- Tarpit: 200 `text/html`, keep-alive, virtual thread writes `"\n"` then **1 byte / 10 000 ms forever**. The Worker rewrites tarpitted IPs to `/api/v1/aegis/tarpit/trap` — served by `AegisTarpitController` (`GET/POST`, permitAll) — OP-05 closed. Redis `aegis:deception:score:{ip}` carries the deception score.
+- **X-Real-IP fallback:** `AegisDeceptionFilter` reads `X-Real-IP` (fallback to raw `remoteAddr`) as the client identity (VULN-22a heritage).
 - Canary: `AKIA` + 16 hex; Thinkst server + isolated Redis as siblings (canary env quirks: strict `CANARY_` prefix incl. `CANARY_WG_PRIVATE_KEY_SEED`, dual `switchboard.env`/`frontend.env`, `rm -f twistd.pid`).
 
 ### 4.2 Behavioral
-- Score: missing/UNKNOWN JA3 **+40**; JA3 strikes >5 **+60**; missing biometric **+30**; cap 100. Strikes in-memory `ConcurrentHashMap` (Redis sync = future work). `AegisJwtEnhancer`: risk ≥ **80** → token unsafe.
+- Score: missing/UNKNOWN JA3 **+40**; JA3 strikes >5 **+60**; missing biometric **+30**; `X-Aegis-Biometric-Hash` present → hash-derived risk bucket; VThread-safe explicit `queryString` Shannon entropy (+20 when len>64 & H>5.2, OAuth exempt); cap 100. Strikes in-memory `ConcurrentHashMap` (Redis sync = future work). `AegisJwtEnhancer`: risk ≥ **80** → token unsafe.
 - **AI-crawler bypass:** UA ∈ {GPTBot, ClaudeBot, Google-Extended, anthropic-ai, PerplexityBot, Googlebot} **and** rDNS under `.googlebot.com` / `.search.msn.com` / `.outbound-enterprise.openai.com` / `.anthropic.com` → score 0.
 - ⚠ `SessionBehaviorProfile` = dead code.
 
-### 4.3 Entropy (⚠ partially unwired)
-- `ShannonEntropyCalculator` — pure static function; **no threshold (7.2 or any) is referenced in code**; nothing routes on entropy (OP-02).
-- Implemented: `AegisEntropyManager` — 512-byte pool, refresh every 30 s (`/dev/random` + `/dev/urandom` + JVM), SHA3-512 digest XOR-folded over the pool (forward-secrecy fix — never replace pool with digest); `getSecureRandom()` seeds from a random 64-byte window. Sources: `CPU_JITTER` (1000-iter `Math.sin` timing), `OS_URANDOM`.
-- `PowChallengeIssuer`: difficulty **24 leading zero bits** (6 hex zeros of SHA3-256), challenge `v1:{difficulty}:{epochMillis}:{nonce}` in `X-AEGIS-POW-Challenge` with **202** `{"status":"processing",…}`; ⚠ no server-side expiry check.
+### 4.3 Entropy (implemented — OP-02 closed)
+- `ShannonEntropyCalculator` — pure static function; `AegisBehavioralEngine` calls it on the explicit `queryString` (VThread-safe), +20 when len>64 & H>5.2, OAuth exempt (P3.2).
+- `AegisEntropyManager` — 512-byte SHA3-512 XOR-folded pool, `isHealthy()` (<120 s); `getSecureRandom()` seeds from a random 64-byte window. Sources: `CPU_JITTER` (1000-iter `Math.sin` timing), `OS_URANDOM`.
+- `PowChallengeIssuer`: difficulty **24 leading zero bits** (6 hex zeros of SHA3-256), challenge `v1:{difficulty}:{epochMillis}:{nonce}` in `X-AEGIS-POW-Challenge`; **2-min freshness window** (`CHALLENGE_TTL_MS = 120_000`) + Redis `aegis:pow:used:{nonce}`.
 
 ## 5. Layer 4 — Edge HMAC Contract (canonical)
 
 ```text
-key       = AEGIS_EDGE_SECRET (64-char; Worker secret ↔ Infisical AEGIS_EDGE_SECRET must match)
+key       = AEGIS_EDGE_SECRET (64-char; Worker secret ↔ Infisical AEGIS_EDGE_SECRET must match; fail-closed `@PostConstruct` when blank/<32 chars — `AegisEdgeValidationFilter.java:58,105`)
 data      = "${pathname}:${timestamp}:${clientIp}"   // pathname = exact BACKEND path (post-MTD),
                                                       // query string stripped (worker .split('?')[0])
 headers   = X-Aegis-Edge-Signature (hex) · X-Aegis-Edge-Timestamp (epoch ms) · X-Aegis-Client-IP
@@ -109,13 +116,13 @@ bypass    = (loopback | ::1 | 10.* | 192.168.* | 172.*) AND (/actuator* | /healt
 
 | Validator | Reality |
 |---|---|
-| Behavioral | Real (risk model §4.2) |
-| Jwt | Real (`AegisPqcJwtService.validateToken`; forged → 100/BLOCK; absent → ALLOW public) |
+| Behavioral | Real (risk model §4.2, incl. Shannon entropy +20 & OAuth exemption) |
+| Jwt | Real — alg-aware, 11 KB pre-guard (`parts[0].length() > 11_000` → 100/BLOCK) (`AegisPqcJwtService.validateToken`) |
 | RateLimit | Real read-only (`RATE_LIMIT_EXHAUSTED` attr → 85/BLOCK) |
 | TemporalPath | Real (`AEGIS_TEMPORAL_VALID`; `/sitemaps*`, `/` exempt) |
-| Deception | ⚠ Stub (header `X-AEGIS-Trap-Flag` only; Redis `aegis:deception:score:<ip>` unimplemented) |
-| EntropyHealth | ⚠ Stub (constant 0/ALLOW) |
-| HidsIntegrity | ⚠ Stub (constant 0/ALLOW — Wazuh bridge future) |
+| Deception | Real (Redis `aegis:deception:score:<ip>`) |
+| EntropyHealth | Real (`AegisEntropyManager.isHealthy()`) |
+| HidsIntegrity | Real (all 7 validators wired; Wazuh bridge via `aegis.threat.exchange`) |
 
 `MerkleAuditLogService` — SHA3-256 leaves over top-1000 audit rows every 5 min; ⚠ root only logged (OP-04).
 **AEL** (ANTLR4 `aegis.g4`): `POLICY id { <condition> THEN <action> ELSE <action> }`; domains `BEHAVIOR/CRYPTO/NETWORK/TIME/SCORE`; actions `ALLOW · BLOCK("r") · DECEPTION · TARPIT(Nms) · ROTATE_MANIFEST · EMERGENCY · LOG("m") · CHALLENGE(ZKP|POW|CAPTCHA)`; `BailErrorStrategy` — bad rules fail startup.
@@ -128,7 +135,7 @@ Dedicated Lettuce client (`RedisURI.create(System.getenv("SPRING_DATA_REDIS_URL"
 ### 7.2 L8 Sanitization & integrity
 - `InputSanitizationFilter` — query/form params through 4 regex families (SQL keywords incl. `xp_|sp_`; **chained-SQLi** `;\s*(drop|alter|create|truncate|…)` — refined 2026-08-16 after Tiptap `width: 50%;` false positives; quote escapes; boolean tautologies). Hit → 400 `{"error":"Invalid input detected. Request blocked."}` + Redis **`sqli:blocked:{ip}` TTL 1 h** (flush: `redis-cli KEYS "sqli:blocked:*" | xargs -r redis-cli DEL`).
 - `AegisQueryInterceptor` — Hibernate `StatementInspector` **signs** SQL (SHA3-256 → HmacSHA256 `aegis.db.signing.key` → `/* AEGIS_HMAC:{hex} */`); never blocks, fails open. Changing the key invalidates prior signatures.
-- `ContentIntegrityService` — HmacSHA256(`CONTENT_SIGNING_KEY`) over `title|slug|content|author|tenantId` → `content_signature` (VARCHAR 128); missing key → disabled (fail-open); ⚠ verdict computed on read, not enforced.
+- `ContentIntegrityService` — HmacSHA256(`CONTENT_SIGNING_KEY`) over `title|slug|content|author|tenantId` → `content_signature` (VARCHAR 128); constant-time `MessageDigest.isEqual` verification; missing key → disabled (fail-open); tamper audit logging (`CONTENT_TAMPER_DETECTED`) + `app.security.block-tampered-posts` flag (`BlogPostServiceImpl.java:77,684`); AEL `ThreadLocal` concurrency fix.
 
 ### 7.3 L9 MTD
 - Targets `/api/v1/{admin,auth,users,dashboard,analytics}` → `/api/v1/node/{8-hex}` (hex from entropy pool). Manifest `{"paths":{…},"issuedAt":…}` → Redis **`aegis:mtd:manifest` TTL 24 h**; rotation via `setIfAbsent` lock **`aegis:mtd:lock` 30 s** (split-brain fix 2026-08-03, Incidents 29–30 — replicas had booted independent manifests); PQC-signed + pushed to KV `aegis:mtd:manifest` (no TTL).
@@ -139,7 +146,7 @@ Dedicated Lettuce client (`RedisURI.create(System.getenv("SPRING_DATA_REDIS_URL"
 
 ## 8. Layer 1 — PQC
 
-`AegisPqcKeyStore`: `DilithiumParameterSpec.dilithium5` (= ML-DSA-87), BouncyCastle + BouncyCastlePQC providers, entropy-pool-seeded, **in-memory keys** (restart/weekly rotation = new keypair). `issueHybridToken(innerKeycloakJwt, tenant, sid)`: header `{"alg":"ML-DSA-87","typ":"PQC-JWT"}`, payload `{sub: <full classical JWT>, tenant, sid, iat, exp: iat+3600}`, signature `Signature.getInstance("Dilithium", BouncyCastlePQCProvider)` over `header.payload`. **JJWT/Nimbus prohibited** (no FIPS 204) — manual encode/decode; **`liboqs-java` permanently excluded** (breaks CI/CD).
+`AegisPqcKeyStore`: `MLDSAParameterSpec.ml_dsa_87` (FIPS 204), BouncyCastle 1.87, entropy-pool-seeded, **in-memory keys** (restart/weekly rotation = new keypair). `issueHybridToken(innerKeycloakJwt, tenant, sid)`: header `{"alg":"ML-DSA-87","typ":"PQC-JWT"}`, payload `{sub: <full classical JWT>, tenant, sid, iat, exp: iat+3600}`, signature `Signature.getInstance("ML-DSA-87", BouncyCastleProvider)` over `header.payload`. **JJWT/Nimbus prohibited** (no FIPS 204) — manual encode/decode; **`liboqs-java` permanently excluded** (breaks CI/CD).
 
 ## 9. Threat Pipeline & Encryption at Rest
 
@@ -149,4 +156,4 @@ At rest: MariaDB TDE (AES_CTR, `MARIADB_ENCRYPTION_KEY`, tables/log/tmp/binlog e
 
 ## 10. Open Items (⚠)
 
-OP-01 ZKP stub · OP-02 entropy unwired · OP-03 stub validators · OP-04 Merkle root unpersisted · OP-05 worker-tarpit path without backend handler · PoW no expiry · content-tamper verdict unenforced · `X-AEGIS-Test-Token` bypass must never leave CI · admin-id extraction stubbed.
+OP-04 Merkle audit root logged only — unpersisted/exported (legacy context) · vk pinning tracked prior to production prover rollout. All other items on this line (ZKP, BCSM, entropy, tarpit, tamper, X-AEGIS-Test-Token) are **closed (2026-11-24)** — see BE-02 §3/§4/§6/§7.

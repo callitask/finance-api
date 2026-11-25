@@ -1,6 +1,6 @@
 # CROSS-SYSTEM-CONTEXT — Backend ↔ Frontend/Edge Integration Contract
 
-> **Purpose:** single source of truth for the Frontend/Edge session. Verified against three sources (backend code export, frontend repo `treishvaam-finance-frontend` + `treishfin-seo-worker`, Knowledge Tracker VOL 1+2). **Re-verified 2026-08-23** against both codebases — timestamp unit question fully closed (both sides epoch **milliseconds**, `worker.js` `Date.now().toString()` × 8 call sites ↔ filter `Long.parseLong` vs `Instant.now().toEpochMilli()`), Keycloak Web Origins row made literal, OP-24 re-worded. Supersedes all prior versions — earlier copies claiming ±30 s drift or "0-byte discard" are wrong (code: **±300 s**, **403**).
+> **Purpose:** single source of truth for the Frontend/Edge session. Verified against three sources (backend code export, frontend repo `treishvaam-finance-frontend` + `treishfin-seo-worker`, Knowledge Tracker VOL 1+2). **Re-verified 2026-08-23** against both codebases — timestamp unit question fully closed (both sides epoch **milliseconds**, `worker.js` `Date.now().toString()` × 8 call sites ↔ filter `Long.parseLong` vs `Instant.now().toEpochMilli()`), Keycloak Web Origins row made literal, OP-24 re-worded. **Batch C (2026-11-25):** OP-05/OP-14/OP-18/OP-19 marked RESOLVED (verified live).
 
 ---
 
@@ -18,7 +18,7 @@ signature   = HEX(HMAC-SHA-512(key, data));          // native WebCrypto — no 
 - Headers: `X-Aegis-Edge-Signature` (hex) · `X-Aegis-Edge-Timestamp` (**epoch ms**, ±300 s window) · `X-Aegis-Client-IP` · `X-Tenant-ID: finance` · `X-Visitor-City/Country` (from `request.cf`).
 - Backend failure mode: **HTTP 403** `sendError` (Origin Access Denied / Malformed Timestamp / Payload Expired / Invalid Cryptographic Signature); constant-time compare; bypass only `(loopback|RFC-1918) AND (/actuator*|/health*)`.
 - `AEGIS_EDGE_SECRET` (64-char) must byte-match the backend Infisical value.
-- **Next.js server components** (e.g. `app/category/[…]/page.tsx`) replicate the 3-part signing with `clientIp='127.0.0.1'` — valid. ⚠ The app-route proxies (`app/llms.txt|ai-feed.md|ontology.json/route.ts`) sign **2-part** (`path:timestamp`) and send `X-Aegis-Timestamp` — **they will 403** against the current backend filter (OP-18, fix pending).
+- **Next.js SSR/GEO routes** — all 5 app routes (`app/llms.txt/route.ts`, `app/ai-feed.md/route.ts`, `app/ontology.json/route.ts`, `app/market/[ticker]/page.tsx`, `app/category/[categorySlug]/[postSlug]/[id]/page.tsx`) call `src/lib/aegis-edge-signer.ts` `buildAegisSsrHeaders` with the exact 3-part contract (OP-18 resolved). Next.js server components replicate the 3-part signing with `clientIp='127.0.0.1'` — valid.
 
 ## 2. MTD Flow (who translates what)
 
@@ -31,8 +31,9 @@ Worker ──node path + sigs──▶ Backend: AegisTemporalPathManager unwraps
 - Protected prefixes (translated): `/api/v1/{admin,auth,users,dashboard,analytics}` → `/api/v1/node/{8-hex}`; manifest Redis `aegis:mtd:manifest` **TTL 24 h** (lock `aegis:mtd:lock` 30 s), mirrored to KV (no TTL; rotates daily 03:00 + Sun 04:00 + emergency).
 - Worker public-exempts from translation: `/api/v1/analytics/event`, `/api/v1/aegis/telemetry`, anything containing `/posts/`, `/market/`, `/categories`.
 - Direct canonical hits to protected prefixes (origin bypass) → sentinel `DECEPTION` → poisoned response.
-- KV-flagged IPs → `403 {"error":"Access Denied","_aegis_integrity":"blocked-by-edge-consensus"}`; TARPIT-flagged → rewritten to `/api/v1/aegis/tarpit/trap` (⚠ no backend handler exists — OP-05).
+- KV-flagged IPs → `403 {"error":"Access Denied","_aegis_integrity":"blocked-by-edge-consensus"}`; TARPIT-flagged → rewritten to `/api/v1/aegis/tarpit/trap` (`AegisTarpitController`, OP-05 closed).
 - **The browser/frontend never calls `/api/v1/node/*` and must never cache translated paths.**
+- `/sys/force-update` & `/sys/purge-cache` are gated by constant-time `X-Aegis-Ops-Token` (`AEGIS_OPS_SECRET`, Backend `GeoOptimizationService` writes, Worker verifies) — operator-only routes; `403 {"error":"Forbidden"}` otherwise.
 
 ## 3. Worker Roles & KV Schema (`treishfin-seo-worker`)
 
@@ -48,7 +49,7 @@ Route `treishvaamfinance.com/*` · cron `0 * * * *` (`scheduled()`; manual `GET 
 | `api:finance:post:{id}` | 86 400 s | `/api/v1/posts/url/{id}` → injected as `window.__PRELOADED_STATE__` |
 | `api:finance:market:{ticker}` | 3 600 s | `/market/widget` → preloaded widget data |
 
-Three-tier serving: CDN cache → KV → backend fallback (async KV write, never blocking). AI bots on any HTML page are served `/ai-feed.md` (+`X-GEO-Bot-Detected: true`), excluding static assets, `/api/`, `/llms.txt`, `/ontology.json`. `aiBotsOnly` matrix: `GPTBot · ChatGPT-User · OAI-SearchBot · ClaudeBot · anthropic-ai · MetaExternalAgent · Amazonbot · Applebot · Applebot-Extended · PerplexityBot · DeepSeek · Bytespider · Qwen · Mistral · YouBot · Cohere-training · Diffbot`. HTMLRewriter SEO injection is wrapped in `if (!isRscRequest)`; SPA fallback carries `X-SPA-Fallback: Active`; all `/api` responses get `X-Robots-Tag: noindex, noarchive`. Video key proxy: `/video-key/{videoId}` → backend `/api/v1/video/internal/key/{videoId}` (Referer allowlist, octet-stream, `max-age=300`). Sitemap cron fetches use UA `Treishvaam-Worker-Crawler/1.0` in batches of 10.
+Three-tier serving: CDN cache → KV → backend fallback (async KV write, never blocking). AI bots on any HTML page are served `/ai-feed.md` (+`X-GEO-Bot-Detected: true`), excluding static assets, `/api/`, `/llms.txt`, `/ontology.json`. `aiBotsOnly` matrix: `GPTBot · ChatGPT-User · OAI-SearchBot · ClaudeBot · anthropic-ai · MetaExternalAgent · Amazonbot · Applebot · Applebot-Extended · PerplexityBot · DeepSeek · Bytespider · Qwen · Mistral · YouBot · Cohere-training · Diffbot`. HTMLRewriter SEO injection is wrapped in `if (!isRscRequest)`; SPA fallback carries `X-SPA-Fallback: Active`; all `/api` responses get `X-Robots-Tag: noindex, noarchive`. Video key proxy: `/video-key/{videoId}` → backend `/api/v1/video/internal/key/{videoId}` (Referer allowlist, octet-stream, `max-age=300`). Sitemap cron fetches use UA `Treishvaam-Worker-Crawler/1.0` in batches of 10. **Other verified worker features (Phase 13.1/13.5/13.7 + P0/P3.5):** L0 in-isolate `mtdMemoryCache` (5-min) + `ipThreatMemoryCache`; L1 `caches.default`-first for public GETs + synthetic batch GET key; KV write-through 6 h throttle; `verifiedBot === true` IP-ban bypass; strict Referer hostname + `.slice()` validation on `/video-key/` & `/market/`; `X-XSS-Protection: 0`; CSP-nonced `window.__PRELOADED_STATE__`; Non-Destructive Entity Merge Shield.
 
 ## 4. Authentication Flow (browser)
 
@@ -67,9 +68,9 @@ Three-tier serving: CDN cache → KV → backend fallback (async KV write, never
 | `X-Visitor-City` / `X-Visitor-Country` | Worker→BE | geo from `request.cf` |
 | `X-JA3-Fingerprint` | nginx→BE | `cf-client-ja3` or pseudo-hash → behavioral scoring |
 | `X-Aegis-Biometric-Hash` / `X-Aegis-Biometric-Raw` | FE→BE | L5-BIE telemetry (raw only when strict privacy off) |
+| `X-Aegis-Ops-Token` | Ops → Worker `/sys/*` (and Backend `GeoOptimizationService.evictGeoCache()` → Worker) | constant-time HMAC-SHA-256 vs `env.AEGIS_OPS_SECRET` (P0.1) |
 | `X-AEGIS-ZKP-Proof` / `X-AEGIS-Challenge-ID` | admin→BE | ZKP gate |
 | `X-AEGIS-ZKP` | heal only | internal-secret/proof alternative on `/api/v1/admin/actions/analytics/heal` |
-| `X-AEGIS-Test-Token: true` | CI only | must never be sent in production |
 | `X-AEGIS-POW-Challenge` | BE→client | PoW challenge (24 zero bits, SHA3-256) |
 | `X-Aegis-Edge-*` spoofing | — | `AegisIpResolutionFilter` pins verified IP; spoofed forwarding headers never reach controllers |
 
@@ -85,12 +86,12 @@ Three-tier serving: CDN cache → KV → backend fallback (async KV write, never
 
 | ID | Bug |
 |---|---|
-| OP-18 | App-route proxies sign 2-part + wrong header (`X-Aegis-Timestamp`) → 403 against backend |
-| OP-19 | `BlogEditorPage` previews use `/api/uploads/…` (missing `/v1`); backend serves `/api/v1/uploads/**` only |
-| OP-05 | Worker rewrites tarpit IPs to `/api/v1/aegis/tarpit/trap` — no backend handler |
-| OP-14 | `/video/internal/key` returns random keys (per-video key store unimplemented); edge proxy mitigates exposure |
+| OP-05 | **RESOLVED (2026-11-25)** — `AegisTarpitController` serves `/api/v1/aegis/tarpit/trap` (route registered, `SecurityConfig.java:241`) — Master Spec 09 §1 |
+| OP-14 | **RESOLVED (2026-11-25)** — `VideoKeyController` returns deterministic HMAC-SHA256 16-byte AES-128 keys (`VIDEO_KEY_MASTER_SECRET` / `CONTENT_SIGNING_KEY`, `^[0-9]{1,18}$`, fail-closed 503) — Master Spec 09 §1 |
+| OP-15 | **RESOLVED (2026-11-25)** — archived news returns truly archived items (`NewsHighlightController`, dual `/archived` + `/archive`), PoW TTL, tamper audit (`BlogPostServiceImpl`) — Master Spec 09 §1 |
+| OP-18 | **RESOLVED (2026-11-25)** — all 5 SSR/GEO routes now sign via `src/lib/aegis-edge-signer.ts` `buildAegisSsrHeaders` (3-part) — verified live |
+| OP-19 | **RESOLVED (2026-11-25)** — `BlogEditorPage` previews include `/v1` (`/api/v1/uploads/**`) — verified live |
 | OP-20 | Faro posts to `NEXT_PUBLIC_FARO_URL` (`/faro/collect`), not `/api/v1/monitoring/ingest` |
-| OP-15 | `/news/archived` returns active items; some FE components call `/news/archive` |
 | OP-24 | Local FE `.env` holds **localhost dev values** (`localhost:8080`) — git-ignored, must never be committed (*re-worded 2026-08-23: values verified as dev-local, not production URLs*) |
 
 ## 9. Non-Goals (confirmed absent)

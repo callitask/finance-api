@@ -1,6 +1,6 @@
 # BE-01 — ARCHITECTURE: Treishvaam `finance-api`
 
-> **Verification basis:** backend source export (Parts 1–12) · Knowledge Tracker VOL 1+2 (incidents 1–141) · frontend repo cross-check. Re-verified 2026-08-23 (one correction: market updater = **35** tickers). Supersedes legacy BE-01 + BE-04-SERVICES (absorbed).
+> **Verification basis:** backend source export (Parts 1–12) · Knowledge Tracker VOL 1+2 (incidents 1–141) · frontend repo cross-check. Re-verified 2026-08-23, plus 2026-11-25 against live `finance-api` HEAD `4e9150e` (develop): market updater = **40 tickers** (`scripts/market_data_updater.py`), real Groth16 ZKP verifier. Supersedes legacy BE-01 + BE-04-SERVICES (absorbed).
 
 ---
 
@@ -10,20 +10,20 @@ Edge-first, decoupled zero-trust. The browser **never** talks to the backend dir
 
 1. **Go ZKP verifier** (`aegis/zkp-service`) — gRPC `127.0.0.1:9090`, single-stage `golang:1.26-alpine` build (multi-stage permanently banned after Exit-Code-2 OOM panic — Incident 3), `cpus: 0.50`, 256 MB.
 2. **Python transcoder** (`transcoder/`) — Alpine + pika listener on `video.transcode.queue`, ffmpeg `nice -n 19` → single 1080p HLS rendition (`ENABLE_4K_TRANSCODING=false` default, Infisical toggle), <15 MB idle, 384 MB / 0.5 CPU.
-3. **Python market updater** (`scripts/market_data_updater.py`) — spawned in-process via `ProcessBuilder("python3", …)` on `MARKET_UPDATE` messages; yfinance (**35 tickers**: 19 indices, 5 commodities, 6 FX, 5 crypto-INR — counted in source 2026-08-23) upserting directly to MariaDB via SQLAlchemy `INSERT … ON DUPLICATE KEY UPDATE`.
+3. **Python market updater** (`scripts/market_data_updater.py`) — spawned in-process via `ProcessBuilder("python3", …)` on `MARKET_UPDATE` messages; yfinance (**40 tickers** — indices, commodities, FX, crypto-INR, structured `sqlalchemy.engine.URL.create()` builder) upserting directly to MariaDB via SQLAlchemy `INSERT … ON DUPLICATE KEY UPDATE`.
 
 ## 2. Runtime Topology (24 services, `docker-compose.yml`)
 
 | Group | Services |
 |---|---|
-| Data | `treishvaam-db` (mariadb:10.6), `keycloak-db` (mariadb:10.6), `treishvaam-redis` (redis:7-alpine, dangerous cmds renamed `""`), `redis` (canary isolate), `minio` |
-| Heavy | `elasticsearch` (8.17.0, 192 m heap), `rabbitmq` (3.12-management, mgmt UI `127.0.0.1:15672`), `wazuh-manager` (4.14.5) |
+| Data | `treishvaam-db` (mariadb:11.4), `keycloak-db` (mariadb:11.4), `treishvaam-redis` (redis:7.4.12-alpine, dangerous cmds renamed `""`), `redis` (canary isolate), `minio` |
+| Heavy | `elasticsearch` (8.19.25, 192 m heap), `rabbitmq` (4.4.1-management, mgmt UI `127.0.0.1:15672`), `wazuh-manager` (4.14.10) |
 | Security | `aegis-zkp-service` (**127.0.0.1:9090**), `aegis-canary-server` (thinkst/canarytokens + isolated redis), `wazuh-agent` (privileged, `pid: host`) |
 | Edge/agents | `tunnel` (cloudflared, token-based), `backup-service`, `permission-fixer` (one-shot chown, always alone — Golden Rule 7) |
 | Observability | `promtail`, `prometheus`, `tempo`, `grafana` (`127.0.0.1:3001`) |
 | App | `backend` (**×2 replicas**, JVM `-Xmx256m -Xms256m` via `JAVA_TOOL_OPTIONS`, host-mounted `backend-app.war`, healthcheck python3 socket :8080, **`start_period 240s`** — raised from 160 s after the V50 boot-hang, Incident 96–104), `treishvaam-transcoder` |
 | Edge listener | `nginx` (openresty:alpine, **host 80:80/443:443 but `listen 80` only** — TLS ends at Cloudflare) |
-| Experimental | `envoy-sidecar` (v1.29, `:9901` `/api/v1` router — **not in the request path**) |
+| Experimental | `envoy-sidecar` (v1.38.9, `:9901` `/api/v1` router — **not in the request path**) |
 
 Network **`treish_net` (bridge)**; volumes `app_logs`, `app_uploads`, `app_sitemaps`; devices `/dev/random`, `/dev/urandom` mounted to backend. Docker bridge is `172.18.0.0/16` — the reason `X-Real-IP`/`X-Aegis-Client-IP` extraction matters (raw `getRemoteAddr()` returns `172.18.0.x` → fingerprint collisions, Incidents 63–74).
 
@@ -34,9 +34,9 @@ flowchart LR
     end
     WRK --> TUN["cloudflared tunnel"] --> NGX["OpenResty :80<br/>JA3 Lua → X-JA3-Fingerprint"]
     NGX --> BE["backend ×2 :8080"]
-    NGX -->|"/auth/*"| KC["Keycloak 25 :8080"]
+    NGX -->|"/auth/*"| KC["Keycloak 26.8.2-3 :8080"]
     BE --> ZKP["Go ZKP :9090 loopback"]
-    BE --> DB[("MariaDB 10.6 ×2")] & RD[("Redis 7")] & MQ[["RabbitMQ"]] & ES[("ES 8.17")] & S3[("MinIO")]
+    BE --> DB[("MariaDB 11.4 ×2")] & RD[("Redis 7.4.12")] & MQ[["RabbitMQ 4.4.1"]] & ES[("ES 8.19.25")] & S3[("MinIO")]
     MQ --> TRC["transcoder → HLS"] 
     BE -.-> OBS["Prometheus · Loki · Tempo · Grafana"]
 ```
@@ -79,12 +79,12 @@ sequenceDiagram
 | Order | Filter | Registration |
 |---|---|---|
 | `HIGHEST_PRECEDENCE` | `AegisEdgeValidationFilter` | FilterRegistrationBean |
-| `HP+1` ⚠ tie | `AegisIpResolutionFilter` · `RequestIdFilter` · `AegisMainFilter` · `AegisZkpAdminFilter` | mixed |
-| `HP+2` ⚠ tie | `CorsFilter` · `InputSanitizationFilter` · `AegisResponseMutator` | mixed |
+| `HP+1` | `AegisIpResolutionFilter` · `RequestIdFilter` · `AegisMainFilter` · `AegisZkpAdminFilter` | mixed |
+| `HP+2` | `CorsFilter` · `InputSanitizationFilter` · `AegisResponseMutator` | mixed |
 | `-105` | `AegisDeceptionFilter` | `@Component` |
 | `-100` | `springSecurityFilterChain` | Spring default |
 
-**Security chain (SecurityConfig, canonical intent):** Deception → Main → InternalSecret → RateLimiting → InputSanitization → ZkpAdmin → (UsernamePassword anchor) → OAuth2 JWT → authorization. `FilterConfig` disables auto-registration only for `InternalSecretFilter` + `RateLimitingFilter`. ⚠ Sub-tie order is container-dependent (OP-08).
+**Security chain (SecurityConfig, canonical intent):** Deception → Main → InternalSecret → RateLimiting → InputSanitization → ZkpAdmin → (UsernamePassword anchor) → OAuth2 JWT → authorization. `FilterConfig` disables root auto-registration of **all 6 chain filters** (InternalSecretFilter, RateLimitingFilter, AegisDeceptionFilter, AegisMainFilter, InputSanitizationFilter, AegisZkpAdminFilter) — order is strictly owned by `SecurityConfig.java`.
 
 ## 6. Threading & Concurrency
 
@@ -94,7 +94,7 @@ sequenceDiagram
 
 ## 7. Multi-Tenancy
 
-`TenantContext` (`InheritableThreadLocal`, default `public`, whitelist `finance|agro`) · `TenantInterceptor` (`X-Tenant-ID`, MDC `tenantId`, clear in `afterCompletion`) — ⚠ no MVC registration found (OP-07); the Worker injects `X-Tenant-ID: finance` unconditionally and `DataInitializer`/`MarketDataInitializer` set it programmatically. `BlogPost` carries a Hibernate `@Filter(tenant_id)`; sitemap/GEO generation branches per tenant domain.
+`TenantContext` (`InheritableThreadLocal`, default `public`, whitelist `finance|agro`) · `TenantInterceptor` (`X-Tenant-ID`, MDC `tenantId`, clear in `afterCompletion`) — **registered** via `addInterceptors()` in `WebConfig.java` (OP-07 closed); `UserPreferencesServiceImpl` (`userpreferences/service/`) carries the atomic legacy migration. The Worker injects `X-Tenant-ID: finance` unconditionally and `DataInitializer`/`MarketDataInitializer` set it programmatically. `BlogPost` carries a Hibernate `@Filter(tenant_id)`; sitemap/GEO generation branches per tenant domain.
 
 ## 8. Services Layer (deep dive — absorbed from legacy BE-04-SERVICES, code-verified)
 
@@ -131,6 +131,14 @@ sequenceDiagram
 - `SitemapService` — 10,000-URL chunks; tenant domain base; page-0 prepends `/llms.txt`, `/ai-feed.md`, `/ontology.json` (daily, 1.0); news sitemap = last 48 h posts; regeneration lazy after `event.sitemap` eviction.
 - `GeoOptimizationService` — `llms.txt` / `ontology.json` / `ai-feed.md` (top-10 posts, `<semantic-chunk>` boundaries), HMAC-SHA256 provenance (`CONTENT_SIGNING_KEY`), `max-age=3600`.
 - `editorialDistributor.js` (frontend) — exponential temporal decay `weight = baseWeight · e^(−λt)` for homepage layout.
+
+### 8.5 Sanitization, GEO & Integrity Services
+- `HtmlSanitizationService` (`security/HtmlSanitizationService.java`) — Jsoup/DOMPurify XSS-safe post pipeline with YouTube-only iframes; used by `BlogPostServiceImpl`, `HtmlMaterializerService`.
+- `GeoPromptSanitizer` (`security/GeoPromptSanitizer.java`) — OWASP LLM01:2026 sanitization on LLM prompt surfaces.
+- **Corporate-entity GEO:** DB-driven entity graph (`CorporateEntityNode`, seeded in `V51__create_corporate_entity_graph_table.xml`); `GeoOptimizationService.evictGeoCache()` sends `X-Aegis-Ops-Token` (`AEGIS_OPS_SECRET`) to Worker `/sys/purge-cache` via `CorporateEntityAdminController`.
+- `NewsHighlightService` (`newshighlight/`) — outbound scraping with SSRF protections, 5 MB response ceiling (`5 * 1024 * 1024`), `redactApiKey` log redaction.
+- `VideoKeyController` — deterministic HMAC-SHA256 16-byte AES-128 key derivation per `videoId` (`VIDEO_KEY_MASTER_SECRET` / `CONTENT_SIGNING_KEY`, fail-closed 503).
+- `CachingConfig` (`config/CachingConfig.java`) — Redis deserialization uses `BasicPolymorphicTypeValidator.allowIfSubType`.
 
 ## 9. Configuration Profiles
 

@@ -1,6 +1,6 @@
 # BE-04 — API REFERENCE: REST Surface of `finance-api`
 
-> **Verification basis:** backend controllers + DTOs (source export) · frontend `apiConfig.js` + consumers (cross-check — the "Used by" column reflects real frontend calls). Base URL: `https://backend.treishvaamgroup.com`. All requests pass the AEGIS chain (BE-02). **Re-verified 2026-08-23** (one tier correction: `DELETE /posts/bulk`).
+> **Verification basis:** backend controllers + DTOs (source export) · frontend `apiConfig.js` + consumers (cross-check — the "Used by" column reflects real frontend calls). Base URL: `https://backend.treishvaamgroup.com`. All requests pass the AEGIS chain (BE-02). **Re-verified 2026-11-25** (Batch C: tier corrections — `GET /posts/{id}` anonymous=PUBLISHED; `POST/PUT /posts/draft[...]` → E/P/A; `DELETE /posts/bulk` effective P/A; `POST /news/fetch`/`/deduplicate` → ADMIN; `GET /uploads/**` verified; Tarpit/Entities added).
 
 ---
 
@@ -21,19 +21,19 @@ Public (HMAC-edge only) · Authed (any JWT) · Role-gated (`ROLE_ADMIN/PUBLISHER
 | Method | Path | Tier | Notes (frontend usage) |
 |---|---|---|---|
 | GET | `/posts?page&size` | Public | default size **9** (`getPaginatedPosts(page, 9)`), sort `updatedAt` desc |
-| GET | `/posts/{id}` | Public | edit-load (`version`, thumbnails, scheduledTime) |
+| GET | `/posts/{id}` | Public — anonymous callers read PUBLISHED (drafts/scheduled return 404); authenticated `ROLE_EDITOR`/`PUBLISHER`/`ADMIN` may load drafts | edit-load (`version`, thumbnails, scheduledTime) |
 | GET | `/posts/url/{urlArticleId}` | Public | article page + worker SSR preload (`cache:'no-store'`) |
 | GET | `/posts/category/{cat}/{slug}/{id}` | Public | canonical full-slug route |
 | GET | `/posts/admin/all` | E/P/A | polled 30 s on dashboard |
 | GET | `/posts/admin/drafts` | E/P/A | manage-posts view |
 | POST | `/posts/admin/backfill-slugs` | ADMIN | maintenance |
-| POST | `/posts/draft` | Authed | JSON `{title, content, customSnippet, metaDescription, keywords, version}` → 201 |
-| PUT | `/posts/draft/{id}` | Authed | same body; autosave w/ 409 handling |
+| POST | `/posts/draft` | **E/P/A** (`SecurityConfig` + `@PreAuthorize`) | JSON `{title, content, customSnippet, metaDescription, keywords, version}` → 201 |
+| PUT | `/posts/draft/{id}` | **E/P/A** | same body; autosave w/ 409 handling |
 | POST | `/posts` | P/A | **multipart**: `title* content* category* featured*` + `version, customSnippet, metaDescription, keywords, seoTitle, canonicalUrl, focusKeyword, displaySection, coverImageAltText, userFriendlySlug, tags[] (repeated), scheduledTime (ISO), coverImage, videoFile, thumbnailOrientation, thumbnailMetadata (JSON str, may repeat), newThumbnails[] (files)` → 201 |
 | PUT | `/posts/{id}` | E/P/A | same multipart + `version` → 200/404/**409** |
 | POST | `/posts/{id}/duplicate` | Authed | 201 copy-as-draft |
 | DELETE | `/posts/{id}` | P/A | 204 |
-| DELETE | `/posts/bulk` | E/P/A (*corrected 2026-08-23: the explicit `/posts/bulk` matcher grants EDITOR too, `SecurityConfig` — it precedes and does **not** inherit the stricter `DELETE /api/v1/posts/**` P/A rule*) | body = JSON id array |
+| DELETE | `/posts/bulk` | E/P/A — `SecurityConfig` permits EDITOR too; `@PreAuthorize` on `deleteMultiplePosts()` enforces **P/A** (effective tier P/A) | body = JSON id array |
 | POST | `/posts/{id}/share` | P/A | `ShareRequest{message,tags}` → LinkedIn (501 if disabled) |
 
 ## 4. Categories, Contact, Files
@@ -46,8 +46,8 @@ Public (HMAC-edge only) · Authed (any JWT) · Role-gated (`ROLE_ADMIN/PUBLISHER
 | POST | `/contact` | Public | JSON `{name, email, message, honeypot}` — honeypot filled → decoy 200; validation name≤100, email regex, message 1–5000 |
 | GET | `/contact/info` | Public | hardcoded contact card |
 | GET | `/logo` | Public | 30 d cache |
-| GET | `/uploads/{filename:.+}` | Public | MinIO stream; auto-`+.webp` retry; ⚠ some frontend previews build `/api/uploads/…` (missing `/v1`) — OP-19 |
-| POST | `/files/upload` | P/A | multipart field **`file`** (images→WebP variants; videos→raw store); response `data` used as URL string |
+| GET | `/uploads/{filename:.+}` | Public | lexical + `toRealPath()` symlink containment on both roots (`/app/uploads` + fallback `fileStorageLocation`); `X-Content-Type-Options: nosniff`; `.svg`/`octet-stream` forced `attachment` + `CSP: default-src 'none'; sandbox` (P0.7, VULN-06) — OP-19 fixed (`BlogEditorPage.js` preview path) |
+| POST | `/files/upload` | P/A (`@PreAuthorize("hasAnyAuthority('ROLE_PUBLISHER', 'ROLE_ADMIN')")`) | `BufferedInputStream` + Apache Tika MIME allowlist (images except `image/svg+xml`, `video/mp4`, `video/webm`, `video/quicktime`, `application/pdf`; 400 on unsupported); multipart field **`file`**; response `data` used as URL string |
 
 ## 5. Market — `/api/v1/market`
 
@@ -60,9 +60,9 @@ Public (HMAC-edge only) · Authed (any JWT) · Role-gated (`ROLE_ADMIN/PUBLISHER
 | GET | `/top-gainers` `/top-losers` `/most-active` | Public | movers cards |
 | GET | `/historical/{ticker}` | Public | 30-min cached; 503 on error |
 | GET | `/news/highlights?page&size` | Public | default size 12; login page polls 60 s, slice 15 |
-| GET | `/news/archived?page&size` | Public | ⚠ returns ACTIVE items (bug OP-15); frontend calls `/news/archive` variant on some components |
-| POST | `/news/fetch` | Authed (fallback) | `region` param ignored |
-| POST | `/news/deduplicate` | Authed (fallback) | no-op stub |
+| GET | `/news/archived?page&size` | Public | **FIXED** — returns `isArchived=true` items (`getArchivedHighlights`); dual-mapped `/archived` + `/archive` (frontend apiConfig.js keeps calling `/archived`) |
+| POST | `/news/fetch` | **ADMIN** (`@PreAuthorize("hasAuthority('ROLE_ADMIN')")`) | `region` param ignored |
+| POST | `/news/deduplicate` | **ADMIN** | no-op stub |
 | POST | `/admin/refresh-movers` `/admin/refresh-indices` | ADMIN | ApiStatusPanel buttons |
 | POST | `/admin/flush-movers` `/admin/flush-indices` | ADMIN | body `{"password"}` (PasswordDto) — JWT + BCrypt re-auth double gate → 401 on wrong password |
 | POST | `/admin/flush-permanent-data` | — | defined in `apiConfig.js` but **no UI caller** (dead export) |
@@ -75,7 +75,7 @@ Public (HMAC-edge only) · Authed (any JWT) · Role-gated (`ROLE_ADMIN/PUBLISHER
 | GET | `/api/public/sitemap/meta` | Public | `{blogs:[…], markets:[…]}` — worker hourly cron consumer (UA `Treishvaam-Worker-Crawler/1.0`, batches of 10) |
 | GET | `/api/public/sitemap/blog/{page}.xml` · `/market/{page}.xml` | Public | 10 000-URL chunks |
 | GET | `/api/public/geo/llms.txt` · `/ai-feed.md` · `/ontology.json` | Public | HMAC-signed (`CONTENT_SIGNING_KEY`), `max-age=3600`; worker KV `geo:finance:{path}` TTL 86400 |
-| GET | `/api/v1/video/internal/key/{videoId}` | Authed (fallback) | ⚠ fresh random AES-128 key per call (OP-14); the **worker** proxy `/video-key/{videoId}` fronts it with Referer allowlist + edge signature, `max-age=300` |
+| GET | `/api/v1/video/internal/key/{videoId}` | permitAll at Spring Security (protected by `AegisEdgeValidationFilter` + Worker strict Referer hostname + `^[0-9]{1,18}$`); deterministic HMAC-SHA256 16-byte AES-128 derivation (`VIDEO_KEY_MASTER_SECRET` / `CONTENT_SIGNING_KEY`); fail-closed `503`; `Cache-Control: no-store` — OP-14 closed; the **worker** proxy `/video-key/{videoId}` fronts it with Referer allowlist + edge signature, `max-age=300` |
 
 ## 7. Auth profile & preferences
 
@@ -91,6 +91,8 @@ Public (HMAC-edge only) · Authed (any JWT) · Role-gated (`ROLE_ADMIN/PUBLISHER
 |---|---|---|---|
 | POST | `/admin/actions/regenerate-sitemap` | ADMIN + ZKP | clears sitemap caches |
 | POST | `/admin/actions/analytics/heal` | ADMIN + ZKP (`X-AEGIS-ZKP` header variant) | async chunked healer |
+| GET/POST | `/api/v1/aegis/tarpit/trap` | `AegisTarpitController`, `permitAll` (Edge-gated, closes OP-05) |
+| GET / PUT | `/api/v1/admin/entities[/{entityKey}]` | `CorporateEntityAdminController`, **ADMIN + ZKP**, `^[a-z0-9_]{2,80}$`, JSON-LD `@type`/`@id` validation, `GeoPromptSanitizer`, calls `evictGeoCache()` |
 | GET | `/analytics?…` | ANALYST/ADMIN | filters: dates, geo, OS, source, client-id include/exclude → `GroupedAudienceDataDto` |
 | GET | `/analytics/filters` | same | dropdown distincts |
 | POST | `/analytics/refresh` | ADMIN | `{"startDate","endDate"}` GA4 re-sync |
@@ -104,8 +106,8 @@ Public (HMAC-edge only) · Authed (any JWT) · Role-gated (`ROLE_ADMIN/PUBLISHER
 
 ## 9. MTD Interplay (client guidance)
 
-The browser **always calls canonical paths**. The Worker: (1) blocks KV-flagged IPs (`403 {"error":"Access Denied","_aegis_integrity":"blocked-by-edge-consensus"}`), (2) rewrites tarpit-flagged IPs to `/api/v1/aegis/tarpit/trap` (⚠ no backend handler — OP-05), (3) translates protected prefixes via the KV `aegis:mtd:manifest` and signs the **translated** path. Public-exempt from translation: `/api/v1/analytics/event`, `/api/v1/aegis/telemetry`, anything containing `/posts/`, `/market/`, `/categories`. Clients must never cache translated paths beyond the manifest TTL (24 h).
+The browser **always calls canonical paths**. The Worker: (1) blocks KV-flagged IPs (`403 {"error":"Access Denied","_aegis_integrity":"blocked-by-edge-consensus"}`), (2) rewrites tarpit-flagged IPs to `/api/v1/aegis/tarpit/trap` (`AegisTarpitController`, closes OP-05), (3) translates protected prefixes via the KV `aegis:mtd:manifest` and signs the **translated** path. Public-exempt from translation: `/api/v1/analytics/event`, `/api/v1/aegis/telemetry`, anything containing `/posts/`, `/market/`, `/categories`. Clients must never cache translated paths beyond the manifest TTL (24 h).
 
 ## 10. Open Items (⚠)
 
-OP-14 video keys · OP-15 `/health` + `/news/archived` · OP-18 app-route 2-part HMAC · OP-19 `/api/uploads` missing `/v1` in some frontend previews · dead exports (`flush-permanent-data`, `refreshNewsData`) · no `editor`/`analyst` UI gating despite backend roles.
+Resolved 2026-11-25 (Batch C): OP-05 (Tarpit handler), OP-14 (deterministic HMAC-SHA256 16-byte AES-128 video keys), OP-15 (`/news/archived`), OP-18 (app-route 3-part HMAC), OP-19 (previews). Remaining genuinely open: `GET /health` falls to `authenticated()` · dead exports (`flush-permanent-data`, `refreshNewsData`) · no `editor`/`analyst` UI gate.

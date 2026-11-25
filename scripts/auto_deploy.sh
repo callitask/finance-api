@@ -203,9 +203,9 @@
 #     • Reason: Under `set +e`, a failed transcoder build previously still poisoned the SHA cache, so subsequent deploys silently skipped rebuilding — a 100% media/image/video/HLS outage risk. Exit-code gating makes the self-heal path real.
 #
 #  - EDITED (P1.2 - Tier 0 Backup Service MD5 Build Gate & Cold-Start Keycloak/Loki):
-#     � Added exit-gated MD5-gated docker compose build backup-service block right after the transcoder build (hashes ./backup; records /opt/treishvaam/.backup_last_built_sha only on exit 0).
-#     � Tier 2: explicitly added keycloak - docker compose up -d --no-deps elasticsearch rabbitmq wazuh-manager keycloak.
-#     � Tier 3C: explicitly added loki - docker compose up -d --no-deps loki promtail prometheus tempo grafana.
+#     • Added exit-gated MD5-gated docker compose build backup-service block right after the transcoder build (hashes ./backup; records /opt/treishvaam/.backup_last_built_sha only on exit 0).
+#     • Tier 2: explicitly added keycloak - docker compose up -d --no-deps elasticsearch rabbitmq wazuh-manager keycloak.
+#     • Tier 3C: explicitly added loki - docker compose up -d --no-deps loki promtail prometheus tempo grafana.
 # ==============================================================================
 
 # ── GITHUB ACTIONS EXECUTION OVERRIDE ─────────────────────────────────────────
@@ -544,8 +544,11 @@ ZKP_LAST_SHA=$(cat "$ZKP_LAST_SHA_FILE" 2>/dev/null || echo "none")
 
 if [ "$ZKP_HASH" != "$ZKP_LAST_SHA" ] || [ "$ZKP_HASH" = "unknown" ]; then
     echo "  > ZKP service changed. Compiling Go binary..."
-    docker compose build aegis-zkp-service
-    echo "$ZKP_HASH" > "$ZKP_LAST_SHA_FILE"
+    if docker compose build aegis-zkp-service; then
+        echo "$ZKP_HASH" > "$ZKP_LAST_SHA_FILE"
+    else
+        echo "  > [WARNING] ZKP service image build failed; SHA not recorded so next deploy will retry."
+    fi
 fi
 
 # --- Transcoder build (MD5-gated, P0.9) ---
@@ -597,6 +600,7 @@ echo "[Docker] Preventing S6-Overlay Host Suicide Trap..."
 # Pre-emptive SIGKILL (rm -f) prevents S6-Overlay in pid:host from 
 # receiving SIGTERM and sending kill -1 to the host daemon.
 docker rm -f wazuh-agent 2>/dev/null || true
+docker rm -f treishvaam-wazuh-manager 2>/dev/null || true
 log_telemetry "PRE_HEALING" "SUCCESS" "Pre-emptive SIGKILL sent to wazuh-agent to prevent host kernel suicide."
 
 echo "[Docker] Executing Non-Disruptive State Healing (Teardown)..."
@@ -721,3 +725,6 @@ echo "[System] Curing TCP Half-Open Runner Zombie State..."
 sudo -n systemctl restart actions.runner.* || echo "[WARNING] Failed to restart actions.runner daemon."
 echo "  > Runner Daemon bounced successfully. Pipeline ready for next job."
 echo "================================================================"
+#   - EDITED (2026-11-25 - Batch A Infra/Observability Security Parity):
+#     • Gated the Tier-0 ZKP SHA write on `docker compose build aegis-zkp-service` exit code 0 (previously written unconditionally under `set +e` even on failed builds — poisoned the change-detection cache).
+#     • Added `docker rm -f treishvaam-wazuh-manager` immediately after `docker rm -f wazuh-agent` in Section 4 (clean PID layer on fresh Tier 2 start without touching `treish_net` or using `-s`/`-v`).

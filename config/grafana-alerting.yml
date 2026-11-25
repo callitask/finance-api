@@ -36,13 +36,13 @@ groups:
       # --- Existing Phase 0 Alert ---
       - uid: high_error_rate
         title: High API Error Rate
-        condition: B
+        condition: C
         data:
           - refId: A
             relativeTimeRange:
               from: 600
               to: 0
-            datasourceUid: Prometheus
+            datasourceUid: prometheus
             model:
               expr: rate(http_server_requests_seconds_count{status=~"5.."}[1m])
               intervalMs: 1000
@@ -51,6 +51,17 @@ groups:
           - refId: B
             datasourceUid: __expr__
             model:
+              type: reduce
+              expression: A
+              reducer: sum
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              datasource:
+                type: __expr__
+                uid: __expr__
               conditions:
                 - evaluator:
                     params: [1]
@@ -61,16 +72,8 @@ groups:
                     params: []
                   reducer:
                     params: []
-                    type: sum
+                    type: last
                   type: query
-            datasource:
-              type: __expr__
-              uid: __expr__
-              expression: A
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: B
-              type: threshold
         noDataState: OK
         execErrState: Error
         for: 2m
@@ -83,13 +86,13 @@ groups:
       # --- Phase 6 Addition: Backend Error Rate (> 5%) ---
       - uid: high_backend_error_rate
         title: High Backend Error Rate
-        condition: B
+        condition: C
         data:
           - refId: A
             relativeTimeRange:
               from: 300
               to: 0
-            datasourceUid: Prometheus
+            datasourceUid: prometheus
             model:
               expr: sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) / sum(rate(http_server_requests_seconds_count[5m]))
               intervalMs: 1000
@@ -98,6 +101,17 @@ groups:
           - refId: B
             datasourceUid: __expr__
             model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              datasource:
+                type: __expr__
+                uid: __expr__
               conditions:
                 - evaluator:
                     params: [0.05]
@@ -110,14 +124,6 @@ groups:
                     params: []
                     type: last
                   type: query
-            datasource:
-              type: __expr__
-              uid: __expr__
-              expression: A
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: B
-              type: threshold
         noDataState: OK
         execErrState: Error
         for: 2m
@@ -130,13 +136,13 @@ groups:
       # --- Phase 6 Addition: API p95 Latency (> 2s) ---
       - uid: slow_api_response
         title: Slow API Response
-        condition: B
+        condition: C
         data:
           - refId: A
             relativeTimeRange:
               from: 300
               to: 0
-            datasourceUid: Prometheus
+            datasourceUid: prometheus
             model:
               expr: histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))
               intervalMs: 1000
@@ -145,6 +151,17 @@ groups:
           - refId: B
             datasourceUid: __expr__
             model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              datasource:
+                type: __expr__
+                uid: __expr__
               conditions:
                 - evaluator:
                     params: [2.0]
@@ -157,14 +174,6 @@ groups:
                     params: []
                     type: last
                   type: query
-            datasource:
-              type: __expr__
-              uid: __expr__
-              expression: A
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: B
-              type: threshold
         noDataState: OK
         execErrState: Error
         for: 5m
@@ -177,13 +186,13 @@ groups:
       # --- Phase 6 Addition: Security Key Rotation (> 90 days) ---
       - uid: secret_key_rotation_due
         title: Secret Key Rotation Due
-        condition: B
+        condition: C
         data:
           - refId: A
             relativeTimeRange:
               from: 3600
               to: 0
-            datasourceUid: Prometheus
+            datasourceUid: prometheus
             model:
               expr: (time() - node_file_mtime_seconds{path="/opt/treishvaam/key_rotation.log"})
               intervalMs: 1000
@@ -192,6 +201,17 @@ groups:
           - refId: B
             datasourceUid: __expr__
             model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              datasource:
+                type: __expr__
+                uid: __expr__
               conditions:
                 - evaluator:
                     params: [7776000]
@@ -204,14 +224,6 @@ groups:
                     params: []
                     type: last
                   type: query
-            datasource:
-              type: __expr__
-              uid: __expr__
-              expression: A
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: B
-              type: threshold
         noDataState: OK
         execErrState: Error
         for: 1h
@@ -224,59 +236,51 @@ groups:
       # --- Engine B Dead Man's Switch Alert ---
       - uid: engine_b_stuck_in_progress
         title: Engine B Deployment Stuck (Dead Man's Switch)
-        condition: C
+        condition: E
         data:
           - refId: A
             relativeTimeRange:
               from: 360
               to: 0
-            datasourceUid: Loki
+            datasourceUid: loki
             model:
               expr: |
                 count_over_time({job="engine-b-deploy", status="IN_PROGRESS"}[6m])
               queryType: range
               refId: A
-
           - refId: B
             relativeTimeRange:
               from: 300
               to: 0
-            datasourceUid: Loki
+            datasourceUid: loki
             model:
               expr: |
                 count_over_time({job="engine-b-deploy"} | json | status=~"SUCCESS|FAILURE"[5m])
               queryType: range
               refId: B
-
           - refId: C
             datasourceUid: __expr__
             model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-                - evaluator:
-                    params: [0]
-                    type: lt
-                  operator:
-                    type: and
-                  query:
-                    params: [B]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
+              type: reduce
               expression: A
-              refId: C
+              reducer: last
+              settings:
+                mode: replaceNN
+                replaceWithValue: 0
+          - refId: D
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: B
+              reducer: last
+              settings:
+                mode: replaceNN
+                replaceWithValue: 0
+          - refId: E
+            datasourceUid: __expr__
+            model:
               type: math
+              expression: "$C > 0 && $D == 0"
         noDataState: OK
         execErrState: Error
         for: 5m
@@ -286,3 +290,8 @@ groups:
             A deployment started more than 5 minutes ago but has not emitted a SUCCESS or FAILURE event. This indicates the process was killed by the OOM-Killer (SIGKILL) or suffered a kernel-level crash that prevented the EXIT trap from running. SSH to the server and verify `/opt/treishvaam/deploy_pipeline.log`.
         labels:
           severity: critical
+
+#  * - EDITED (2026-11-25 - Grafana 12.2.1 UID & Expression Fix):
+#  * Fixed `datasourceUid` case to match the provisioned lowercase UIDs (`prometheus`, `loki`) in `config/grafana-datasources.yml` — fixes "failed to build query 'A': data source not found" on all 5 rules.
+#  * Upgraded the 4 Prometheus rules (`high_error_rate`, `high_backend_error_rate`, `slow_api_response`, `secret_key_rotation_due`) to valid Grafana 12.2.1 3-step Unified Alerting pipelines: refId A Prometheus query -> refId B `__expr__` `type: reduce` (`expression: A`; reducer `sum` for `high_error_rate`, `last` for the others) -> refId C `__expr__` `type: threshold` (`expression: B`, `datasource: {type: __expr__, uid: __expr__}` inside `model:`) with original `gt` params `[1]`, `[0.05]`, `[2.0]`, `[77776000]`; `condition: C` on each rule.
+#  * Upgraded `engine_b_stuck_in_progress` to a 5-step pipeline: A (Loki `count_over_time({job="engine-b-deploy", status="IN_PROGRESS"}[6m])`, queryType range) -> B (Loki `count_over_time({job="engine-b-deploy"} | json | status=~"SUCCESS|FAILURE"[5m])`, queryType range) -> C (reduce A, replaceNN=0) -> D (reduce B, replaceNN=0) -> E (math `$C > 0 && $D == 0`); `condition: E`.

@@ -313,6 +313,7 @@ services:
     volumes:
       - ./data/mariadb:/var/lib/mysql
       - ./config/mariadb/encryption.cnf:/etc/mysql/conf.d/encryption.cnf:ro
+      - ./config/mariadb/my.cnf:/etc/mysql/conf.d/my.cnf:ro
     deploy:
       resources:
         limits:
@@ -625,9 +626,10 @@ services:
           memory: 512M
     healthcheck:
       test: ["CMD-SHELL", "/var/ossec/bin/wazuh-control status | grep 'wazuh-remoted is running' || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
+      interval: 20s
+      timeout: 10s
+      retries: 8
+      start_period: 120s
 
   wazuh-agent:
     image: wazuh/wazuh-agent:4.14.10
@@ -934,9 +936,10 @@ services:
           memory: 384M
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
+      interval: 30s
+      timeout: 25s
+      retries: 5
+      start_period: 90s
 
   backup-service:
     build: ./backup
@@ -968,3 +971,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+#  * - EDITED (2026-11-25 - treishvaam-db my.cnf Mount + Wazuh/RabbitMQ Healthcheck Tuning):
+#  * • Added `- ./config/mariadb/my.cnf:/etc/mysql/conf.d/my.cnf:ro` to `services.treishvaam-db.volumes` immediately after `encryption.cnf` — CLI `--log-bin=mariadb-bin` overrides `log_bin`, so mounting `my.cnf:ro` enforces 7-day binlog expiration (`binlog_expire_logs_seconds = 604800`) + slow-query logging cleanly.
+#  * • `wazuh-manager` healthcheck: `start_period: 120s` added (`interval: 20s`, `timeout: 10s`, `retries: 8`) — fixes tripping unhealthy during Tier 2 concurrent boot.
+#  * • `rabbitmq` healthcheck: `timeout: 25s` + `start_period: 90s` added (`interval: 30s`, `retries: 5`) — fixes "Health check exceeded timeout (10s)" while RabbitMQ 4.4.1 itself had 0 alarms (26.9% RAM).
+#  * • Applied symmetrically to both `docker-compose.yml` and `docker-compose.oci.yml` (OCI memory/heap/server-id deltas untouched).

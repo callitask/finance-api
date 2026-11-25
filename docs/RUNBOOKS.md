@@ -1,6 +1,6 @@
 # RUNBOOKS — Treishvaam `finance-api` Operational Runbooks
 
-> **Location:** `finance-api/docs/RUNBOOKS.md` · **Version:** 1.0 (2026-08-22)
+> **Location:** `finance-api/docs/RUNBOOKS.md` · **Version:** 2.0 (2026-11-25 — Batch C)
 > **Verification basis:** backend source (`scripts/`, `backup/`, `docker-compose.yml`, AEGIS filters), frontend `worker/worker.js`, Knowledge Tracker VOL 1+2. Every command is taken from the actual scripts; deviations are flagged.
 
 ---
@@ -11,20 +11,20 @@ The edge returns several distinct failure bodies. Identify the layer by the **ex
 
 | Observed response | Layer | Root cause | Diagnostic | Fix |
 |---|---|---|---|---|
-| `403` · *"Origin Access Denied - Direct IP Access Blocked"* | **L4 Edge HMAC** | Request arrived **without** `X-Aegis-Edge-Signature`/`X-Aegis-Edge-Timestamp` — direct-to-origin access (bypassing the Worker), or the Worker omitted headers | `docker logs treishvaam-backend-11 2>&1 \| grep "Direct IP"` — if `remoteAddr` is a real client IP, traffic bypassed Cloudflare (expected for scanners); if it is the tunnel, check Worker proxy path | Expected behavior for origin-bypass traffic. If legitimate traffic: verify the Worker route covers the hostname and `BACKEND_API_URL` points at the tunnel, not the public domain |
-| `403` · *"- Malformed Timestamp"* | **L4 Edge HMAC** | `X-Aegis-Edge-Timestamp` is not **epoch milliseconds** | Inspect the request headers at the Worker (`console.log` in `generateEdgeSignature`) | Sender must use `Date.now().toString()`. Known offender: the frontend app-route proxies sending `X-Aegis-Timestamp` (see §1.1) |
+| `403` · *"Origin Access Denied - Direct IP Access Blocked"* | **L4 Edge HMAC** | Request arrived **without** `X-Aegis-Edge-Signature`/`X-Aegis-Edge-Timestamp` — direct-to-origin access (bypassing the Worker), or the Worker omitted headers | `docker logs treishvaam-backend-1 2>&1 \| grep "Direct IP"` — if `remoteAddr` is a real client IP, traffic bypassed Cloudflare (expected for scanners); if it is the tunnel, check Worker proxy path | Expected behavior for origin-bypass traffic. If legitimate traffic: verify the Worker route covers the hostname and `BACKEND_API_URL` points at the tunnel, not the public domain |
+| `403` · *"- Malformed Timestamp"* | **L4 Edge HMAC** | `X-Aegis-Edge-Timestamp` is not **epoch milliseconds** | Inspect the request headers at the Worker (`console.log` in `generateEdgeSignature`) | Sender must use `Date.now().toString()` (3-part HMAC since 2026-11-25; OP-18 closed) |
 | `403` · *"- Payload Expired"* | **L4 HMAC clock drift** | `\|now − ts\| > 300 000 ms` — almost always the **backend VM clock** (Cloudflare edge clocks are reliable) | On the VM: `timedatectl status` (look for drift > 300 s); `timedatectl set-ntp true`; check `chrony`/`systemd-timesyncd` | Engine B already runs `timedatectl set-ntp true` before secret injection — if drift recurs between deploys, fix NTP reachability from the VM. Note Keycloak `timeSkew: 86400` on the frontend absorbs UI-side skew; the HMAC filter does **not** tolerate it |
-| `403` · *"- Invalid Cryptographic Signature"* | **L4 secret/path mismatch** | (a) `AEGIS_EDGE_SECRET` differs between Worker and backend; (b) signed string wrong — must be `HMAC-SHA-512(secret, backendPath.split('?')[0] + ":" + ts + ":" + clientIp)` over the **MTD-translated backend path**; (c) frontend app-route proxies sign `path:timestamp` only (2-part) — known bug | Compare `wrangler secret list`/local value vs Infisical `AEGIS_EDGE_SECRET` (64-char). Reproduce: `curl -s https://treishvaamfinance.com/llms.txt -o /dev/null -w "%{http_code}"` (Worker-signed → 200). Test direct: reproduce the signature in a shell with `openssl dgst -sha512 -hmac "$SECRET"` over the same string | Resync the secret (§2); fix senders that sign the wrong string. The app-route proxy fix is pending (open item OP-18) |
+| `403` · *"- Invalid Cryptographic Signature"* | **L4 secret/path mismatch** | (a) `AEGIS_EDGE_SECRET` differs between Worker and backend; (b) signed string wrong — must be `HMAC-SHA-512(secret, backendPath.split('?')[0] + ":" + ts + ":" + clientIp)` over the **MTD-translated backend path** | Compare `wrangler secret list`/local value vs Infisical `AEGIS_EDGE_SECRET` (64-char). Reproduce: `curl -s https://treishvaamfinance.com/llms.txt -o /dev/null -w "%{http_code}"` (Worker-signed → 200). Test direct: reproduce the signature in a shell with `openssl dgst -sha512 -hmac "$SECRET"` over the same string | Resync the secret (§2). All 5 SSR/GEO routes now use the 3-part signer (OP-18 resolved) |
 | `403` · `{"error":"Access Denied","_aegis_integrity":"blocked-by-edge-consensus"}` | **L4-ADA Edge block** (Worker KV) | IP or JA3 present in Cloudflare KV `aegis:block:{ip}` / `aegis:block:ja3:{ja3}` (written by the backend threat pipeline, TTL 86 400 s) | CF Dashboard → Workers KV → `AEGIS_THREAT_KV` → inspect the two key families. Backend side: `docker logs <backend> \| grep -i "threat"` (RabbitMQ `aegis.threat.exchange` publisher) | If a false positive: delete the KV key (`DELETE .../values/aegis:block:{ip}` via API or dashboard). Note the backend also keeps a **24 h in-memory dedup** (`CloudflareEdgeSyncService`) — restarting the backend clears it early. Do not disable the pipeline |
 | `429` · `{"error":"Request rejected"}` | **BCSM BLOCK** (L5 behavioral / consensus) | Behavioral validator scored >80 (missing/unknown JA3 +40, known-malicious JA3 strikes +60, missing biometric +30) or ≥3 BLOCK votes | Check `X-JA3-Fingerprint` at nginx (pseudo-hash `md5(ua\|tls\|cipher)` when Cloudflare doesn't supply `cf-client-ja3`); backend `ja3RiskCache` is **in-memory** — `docker logs` shows strikes | Restarting a backend replica clears in-memory strikes; legitimate clients flagged by bad JA3 data should be verified via the AI-crawler rDNS bypass list. Rate-limit 429s carry a different body (see below) |
 | `429` · `{"error":"Rate limit exceeded. Try again in 60 seconds."}` | **L7 Bucket4j** | Per-IP category bucket exhausted (`/auth/` 10 RPM · GET 200 RPM · other 60 RPM) | Redis keys `clientIp:category` (dedicated Bucket4j client) | Wait or raise limits in `RateLimitingFilter` (code change). Redis outage produces **503 fail-closed**, not 429 |
 | Deception content (fake `.env`, fake JWT, redirect loop `?d=N`) | **L3 / L9 sentinel** | Request hit a honeypot pattern **or** a canonical protected path (`/api/v1/{admin,auth,users,dashboard,analytics}`) — the MTD sentinel `"DECEPTION"` | Confirm the request went direct-to-origin or canonical: Worker-translated `/api/v1/node/{hex}` paths never trigger this | No fix needed for attackers. For legit clients: they must go through the Worker; never call canonical admin paths directly |
 | `404/401` on `/api/v1/node/{hex}` | **L9 MTD mismatch** | Stale hex — manifest rotated (daily 03:00 / Sun 04:00 / emergency) and the Worker has an old manifest | Compare manifests (§DISASTER_RECOVERY scenario 4): Redis `aegis:mtd:manifest` vs KV `aegis:mtd:manifest` | Force manifest re-sync (DR-4). Clients must never cache translated paths |
 
-### 1.1 Known-bug quick reference
-- **App-route proxies** (`app/llms.txt`, `app/ai-feed.md`, `app/ontology.json` route handlers) sign **2-part** and send `X-Aegis-Timestamp` → guaranteed 403 against the current filter. Until fixed, their KV-first fallbacks mask it.
+### 1.1 Known-bug quick reference (resolved 2026-11-25, Batch C)
+- ~~App-route proxies~~ — `app/llms.txt`, `app/ai-feed.md`, `app/ontology.json` now sign via `buildAegisSsrHeaders` 3-part (OP-18 closed).
 - **Frontend preview URLs** `/api/uploads/...` (missing `/v1`) → 404 against backend `/api/v1/uploads/**`.
-- **Worker tarpit rewrite** targets `/api/v1/aegis/tarpit/trap` — no backend handler exists (in-filter tarpitting only).
+- **Worker tarpit rewrite** targets `/api/v1/aegis/tarpit/trap` — backend handler exists now (`AegisTarpitController`).
 
 ---
 
@@ -66,7 +66,7 @@ sequenceDiagram
      sed -E "s/='(.*)'$/=\1/" >> .env
    # rotate pattern (identical to scripts/rotate_secrets.sh step 5):
    docker compose stop backend || true
-   docker compose rm -f -s -v backend || true
+   docker compose rm -f backend
    docker compose up -d --force-recreate --no-deps backend
    cp .env.template .env   # Flash & Wipe immediately
    ```
@@ -82,7 +82,7 @@ sequenceDiagram
 7. **Rollback** if verification fails: re-set the *old* value in Infisical + Worker (reverse order, same speed).
 
 > [!NOTE]
-> **What this rotation does NOT touch:** `JWT_SECRET_KEY`/`INTERNAL_API_SECRET_KEY` (use `scripts/rotate_secrets.sh` — interactive `ROTATE` confirm, backs up `.env`, logs to `key_rotation.log`, same restart pattern), the five AES field-encryption keys (breach-only, require re-encryption migration), and the PQC Dilithium keypair (regenerates in-memory on weekly rotation).
+> **What this rotation does NOT touch:** `JWT_SECRET_KEY`/`INTERNAL_API_SECRET_KEY` (use `scripts/rotate_secrets.sh` — interactive `ROTATE` confirm, backs up `.env`, logs to `key_rotation.log`, same restart pattern), the five AES field-encryption keys (breach-only, require re-encryption migration), and the PQC ML-DSA keypair (`AegisPqcKeyStore`, FIPS 204, regenerates in-memory on weekly rotation).
 
 ---
 
@@ -144,7 +144,7 @@ Rules that protect this path:
 1. **Pre-flight:** confirm the newest encrypted backup exists:
    `docker exec backup-service aws --endpoint-url http://minio:9000 s3 ls s3://treishvaam-backups/ | tail -3`
 2. **Fresh safety dump** (unencrypted, local, deleted after):
-   `docker exec treishvaam-db sh -c 'mariadb-dump --single-transaction --quick -u root -p"$MARIADB_ROOT_PASSWORD" finance_db' | gzip > /opt/treishvaam/tde_migration.sql.gz`
+   `docker exec treishvaam-db sh -c 'mysqldump --single-transaction --quick -u root --skip-ssl -p"$MYSQL_ROOT_PASSWORD" finance_db' | gzip > /opt/treishvaam/tde_migration.sql.gz`
 3. **Rotate the key in Infisical**: `MARIADB_ENCRYPTION_KEY=1;$(openssl rand -hex 32)` (prod env).
 4. **Recreate the DB container under the new key** (data volume is abandoned intentionally — do **not** reattach it):
    ```bash
@@ -154,8 +154,8 @@ Rules that protect this path:
    docker volume rm <finance-db-volume>        # identify via: docker inspect treishvaam-db
    docker compose up -d --no-deps treishvaam-db && sleep 20
    ```
-5. **Restore** the dump: `gunzip < /opt/treishvaam/tde_migration.sql.gz | docker exec -i treishvaam-db mysql -u root -p"$MARIADB_ROOT_PASSWORD" finance_db` → restart dependents (`keycloak`, `backend`, `nginx`) with `docker compose up -d --no-deps …`.
-6. **Verify & clean:** `docker exec treishvaam-db mariadb -u root -p"$MARIADB_ROOT_PASSWORD" -e "SELECT COUNT(*) FROM finance_db.blog_posts;"` · app health `curl localhost/actuator/health` · `rm /opt/treishvaam/tde_migration.sql.gz` · `cp .env.template .env` (Flash & Wipe).
+5. **Restore** the dump: `gunzip < /opt/treishvaam/tde_migration.sql.gz | docker exec -i treishvaam-db mysql --skip-ssl -u root -p"$MYSQL_ROOT_PASSWORD" finance_db` → restart dependents (`keycloak`, `backend`, `nginx`) with `docker compose up -d --no-deps …`.
+6. **Verify & clean:** `docker exec treishvaam-db mariadb --skip-ssl -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT COUNT(*) FROM finance_db.blog_posts;"` · app health `curl localhost/actuator/health` · `rm /opt/treishvaam/tde_migration.sql.gz` · `cp .env.template .env` (Flash & Wipe).
 7. **Retain the old key value** (Infisical history/backup) until you are certain no old encrypted artifacts (old backups, exported binlogs) need reading — old `.enc` backups decrypt with `BACKUP_ENCRYPTION_KEY` regardless of TDE, but **binlog replay of pre-rotation logs requires the old TDE keyfile**.
 
 ---

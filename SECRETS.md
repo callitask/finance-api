@@ -65,6 +65,11 @@ Secrets never persist unencrypted on disk. The lifecycle per deployment:
 | `CONTENT_SIGNING_KEY` | HMAC-SHA256 key for content integrity + GEO provenance (`ContentIntegrityService`, `GeoOptimizationService`) | Backend |
 | `AEGIS_DB_SIGNING_KEY` | SHA3-256 HMAC key for JDBC query signatures (`AegisQueryInterceptor`) | Backend |
 | `AEGIS_EDGE_SECRET` | 64-char HMAC-SHA-512 seed — **must byte-match the Worker secret** (`AegisEdgeValidationFilter`) | Backend |
+| `AEGIS_OPS_SECRET` | Ops token secret consumed by `GeoOptimizationService.evictGeoCache()` (sends `X-Aegis-Ops-Token` → Worker `/sys/*`) and Worker ops endpoints | Backend |
+| `WG_PRIVATE_KEY_SEED` | Canary wireguard keygen seed (injected to `aegis-canary-server` via Infisical mapping) | Backend (Infisical prod → `CANARY_WG_PRIVATE_KEY_SEED`) |
+| `CANARY_SECRET_KEY` | Thinkst canarytokens server key | Backend (Infisical prod → `aegis-canary-server`) |
+| `AEGIS_ADMIN_ZKP_PUBLIC_KEY` | Optional — resolves the admin ZKP prover public key when non-blank (`AegisZkpAdminFilter`; pre-production pinning requirement) | Backend (Infisical prod) |
+| `VIDEO_KEY_MASTER_SECRET` | Optional HLS key-derivation secret (`VideoKeyController`); defaults to `CONTENT_SIGNING_KEY` when blank | Backend (Infisical prod) |
 | `LINKEDIN_TOKEN_ENCRYPTION_KEY` | AES-256-GCM key for encrypting stored LinkedIn OAuth tokens | Backend |
 | `USER_EMAIL_ENCRYPTION_KEY` | Domain-specific AES-256-GCM key for `users.email` at rest | Backend |
 | `CONTACT_EMAIL_ENCRYPTION_KEY` | Domain-specific AES-256-GCM key for `contact_message.email` at rest | Backend |
@@ -119,6 +124,7 @@ Set via `npx wrangler secret put <NAME>` — **never** in `wrangler.toml` or the
 | Variable | Description |
 | :--- | :--- |
 | `AEGIS_EDGE_SECRET` | Cryptographic seed for HMAC-SHA-512 `X-Aegis-Edge-Signature` signing (64-char minimum). Backend `AegisEdgeValidationFilter` verifies this on every request — must match the Infisical value exactly |
+| `AEGIS_OPS_SECRET` | **Required** — Ops token for `/sys/purge-cache` & `/sys/force-update` (constant-time `X-Aegis-Ops-Token` check); Backend `GeoOptimizationService.evictGeoCache()` injects it |
 | `BACKEND_API_URL` | Cloudflare Tunnel URL to the Spring Boot backend — never the public domain |
 
 ### Agro SEO Worker (`treishvaamagro-seo-worker`)
@@ -147,6 +153,8 @@ Set in Cloudflare Dashboard → Workers & Pages → [Project] → Settings → E
 | `NEXT_PUBLIC_ADSENSE_CLIENT_ID` | Google AdSense Publisher ID (`ca-pub-XXXXXXXXXXXXXXXX`) | Yes |
 | `NEXT_PUBLIC_ENFORCE_STRICT_PRIVACY` | `true`/`false` — injects `anonymize_ip: true` into GA4 without rebuild | Yes |
 | `NEXT_PUBLIC_CHAIRMAN_PORTRAIT_URL` | Dynamic URL for team portrait (bypasses repo commits for asset swaps) | Yes |
+| `NEXT_PUBLIC_SEND_RAW_BIOMETRICS` | `true` to send raw biometric vectors (`aegis-biometrics.ts`); **default `false` — decoupled from the GA4 privacy toggle** | No (default off) |
+| `AEGIS_EDGE_SECRET` | Server-side edge-signing seed for Cloudflare Pages — must byte-match the Worker secret | Yes |
 
 **NEVER use `REACT_APP_*` prefix** — this is Next.js. Only `NEXT_PUBLIC_*` is supported. Note: `NEXT_PUBLIC_*` values are statically baked at build time — changing them requires a rebuild (an empty commit re-triggers Pages CI).
 
@@ -156,8 +164,8 @@ Set in Cloudflare Dashboard → Workers & Pages → [Project] → Settings → E
 
 | Secret Category | Rotation Frequency | Method |
 | :--- | :--- | :--- |
-| Database passwords | Every 90 days | Rotate in **Infisical first**, then run `scripts/rotate_secrets.sh` → Docker rolling restart (⚠ the script edits the local `.env` only — if Infisical is not updated, the next deploy's Flash & Wipe reverts the rotation) |
-| Cloudflare API Token | Hard TTL (current token expires **2026-12-31**) | Regenerate in CF dashboard → update Infisical → re-deploy |
+| Database passwords | Every 90 days | Rotate in **Infisical first**, then run `scripts/rotate_secrets.sh` (Infisical-First + Rule 22 Flash & Wipe — pauses for confirmation, never mutates `.env` permanently) → Docker rolling restart |
+| Cloudflare API Token | Hard TTL (current token expires **2026-12-31**) | Regenerate in CF dashboard → update Infisical → rotate by **2026-12-24** → re-deploy |
 | `AEGIS_EDGE_SECRET` | On suspected breach or every 90 days | `npx wrangler secret put AEGIS_EDGE_SECRET` per worker **and** Infisical update (both sides must match) |
 | Encryption keys (AES, HMAC) | On suspected breach only | Requires DB re-encryption migration — coordinate carefully |
 | External API keys | Immediately on vendor notification or breach | Update Infisical — auto-reloaded on next deploy |
