@@ -25,6 +25,11 @@
  * ja3, biometrics, request.getQueryString())` — passes the query string explicitly. Root cause:
  * `AegisBcsm.evaluate()` runs this validator on a newly spawned Java 21 Virtual Thread;
  * `RequestContextHolder` is non-inheritable, so the entropy check was silently skipped there.
+ *
+ * <p>- EDITED (2026-11-26 - Batch 2 §2.8 Virtual-Thread User-Agent Propagation): • Passed
+ * `request.getHeader("User-Agent")` explicitly as the 5th argument to
+ * `behavioralEngine.calculateRiskScore(...)` so AI crawler verification operates inside `AegisBcsm`
+ * virtual threads without `RequestContextHolder`.
  */
 package com.treishvaam.financeapi.security.aegis.bcsm.validators;
 
@@ -50,11 +55,16 @@ public class BehavioralValidator implements AegisValidator {
         String ja3 = request.getHeader("X-JA3-Fingerprint");
         String biometrics = request.getHeader("X-Aegis-Biometric-Hash");
 
-        // Step 0 (virtual-thread blindspot fix): pass the query string explicitly so the
-        // Shannon entropy check runs even when `RequestContextHolder` is null inside the
-        // per-task virtual thread spawned by `AegisBcsm`.
+        // Step 0 + Batch 2 (virtual-thread blindspot fix): pass query string and User-Agent
+        // explicitly so Shannon entropy and AI crawler checks run even when `RequestContextHolder`
+        // is null inside the per-task virtual thread spawned by `AegisBcsm`.
         int riskScore =
-                behavioralEngine.calculateRiskScore(ip, ja3, biometrics, request.getQueryString());
+                behavioralEngine.calculateRiskScore(
+                        ip,
+                        ja3,
+                        biometrics,
+                        request.getQueryString(),
+                        request.getHeader("User-Agent"));
 
         SecurityDecision recommendation =
                 riskScore > 80

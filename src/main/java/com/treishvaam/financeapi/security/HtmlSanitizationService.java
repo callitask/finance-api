@@ -33,7 +33,13 @@ package com.treishvaam.financeapi.security;
  * safelist so Tiptap `<s>`/`<hr>` stored content is preserved and materialized. • Behavior
  * preserved: prior safelist tags/attributes/protocol rules unchanged; YouTube-only iframe
  * enforcement and dangerous-scheme stripping still applied.
+ *
+ * <p>- EDITED (2026-11-26 - Batch 2 §2.7 video[poster] URI Scheme Hardening): • Added
+ * `http`/`https` protocols for `video[poster]` in `buildSafelist()` and stripped
+ * `javascript:`/`vbscript:`/`data:text/html` `[poster]` attributes alongside `[href]` and `[src]`
+ * in `sanitizeHtml()`.
  */
+import java.util.List;
 import java.util.Locale;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -93,6 +99,7 @@ public class HtmlSanitizationService {
                 "frameborder",
                 "title");
         safelist.addProtocols("video", "src", "http", "https");
+        safelist.addProtocols("video", "poster", "http", "https");
         safelist.addProtocols("source", "src", "http", "https");
         safelist.addProtocols("iframe", "src", "http", "https");
         return safelist;
@@ -100,7 +107,7 @@ public class HtmlSanitizationService {
 
     /**
      * Sanitize raw HTML for server-rendered post content. Returns the cleaned body fragment with
-     * non-YouTube iframes removed and dangerous href/src schemes stripped.
+     * non-YouTube iframes removed and dangerous href/src/poster schemes stripped.
      */
     public String sanitizeHtml(String rawHtml) {
         if (rawHtml == null || rawHtml.isEmpty()) {
@@ -121,24 +128,26 @@ public class HtmlSanitizationService {
                                 iframe.remove();
                             }
                         });
-        // Strip javascript:/vbscript:/data:text/html href/src on ANY element.
-        doc.select("[href], [src]")
+        // Strip javascript:/vbscript:/data:text/html href/src/poster on ANY element.
+        doc.select("[href], [src], [poster]")
                 .forEach(
                         el -> {
-                            String href = el.attr("href").trim().toLowerCase(Locale.ROOT);
-                            String src = el.attr("src").trim().toLowerCase(Locale.ROOT);
-                            if (href.startsWith("javascript:")
-                                    || href.startsWith("vbscript:")
-                                    || href.startsWith("data:text/html")) {
-                                el.removeAttr("href");
-                            }
-                            if (src.startsWith("javascript:")
-                                    || src.startsWith("vbscript:")
-                                    || src.startsWith("data:text/html")) {
-                                el.removeAttr("src");
+                            for (String attr : List.of("href", "src", "poster")) {
+                                if (el.hasAttr(attr)) {
+                                    String val = el.attr(attr).trim().toLowerCase(Locale.ROOT);
+                                    if (isDangerousUriScheme(val)) {
+                                        el.removeAttr(attr);
+                                    }
+                                }
                             }
                         });
         return doc.body().html();
+    }
+
+    private static boolean isDangerousUriScheme(String lowerTrimmedUri) {
+        return lowerTrimmedUri.startsWith("javascript:")
+                || lowerTrimmedUri.startsWith("vbscript:")
+                || lowerTrimmedUri.startsWith("data:text/html");
     }
 
     /**

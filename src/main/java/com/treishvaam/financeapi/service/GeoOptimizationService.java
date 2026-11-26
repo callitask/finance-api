@@ -15,9 +15,12 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -93,6 +96,15 @@ import org.springframework.stereotype.Service;
  * • `evictGeoCache()` now uses `this.httpClient.send(req, HttpResponse.BodyHandlers.ofString())` —
  * previously `HttpClient.newHttpClient()` was called per invocation, leaking an unclosed Java 21
  * `SelectorManager` thread per entity update (512M container).
+ *
+ * <p>- EDITED (2026-11-26 - Batch 2 §2.3 GEO Full-Node Integrity, Startup Backfill & Read
+ * Sanitization): • Added `buildEntitySigningPayload` (`jsonLdPayload|llmsTxtBlock|aiFeedChunk`),
+ * `AtomicBoolean backfillCompleted`, and idempotent `@EventListener(ApplicationReadyEvent.class)`
+ * `backfillUnsignedEntityNodes()` with per-node try/catch for multi-replica safety. • Updated
+ * `verifyNode()` to fail closed post-backfill on unsigned nodes while supporting full-node and
+ * legacy `jsonLdPayload`-only signatures during rollout. • Re-sanitized `llmsTxtBlock` and
+ * `aiFeedChunk` on read via `geoPromptSanitizer.sanitizeEntityBlock(...)`, null-guarded
+ * `post.getCreatedAt()`, and used normalized `financeDomain` for Dataset links.
  */
 @Service
 public class GeoOptimizationService {
@@ -104,6 +116,7 @@ public class GeoOptimizationService {
     private final GeoPromptSanitizer geoPromptSanitizer;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final AtomicBoolean backfillCompleted = new AtomicBoolean(false);
 
     @Value("${AEGIS_OPS_SECRET:}")
     private String aegisOpsSecret;
@@ -130,6 +143,64 @@ public class GeoOptimizationService {
                         .build();
     }
 
+    /**
+     * Canonical signing payload over full entity content
+     * (`jsonLdPayload|llmsTxtBlock|aiFeedChunk`).
+     */
+    public static String buildEntitySigningPayload(CorporateEntityNode node) {
+        if (node == null) {
+            return "||";
+        }
+        String jsonLd = node.getJsonLdPayload() != null ? node.getJsonLdPayload() : "";
+        String llms = node.getLlmsTxtBlock() != null ? node.getLlmsTxtBlock() : "";
+        String aiFeed = node.getAiFeedChunk() != null ? node.getAiFeedChunk() : "";
+        return jsonLd + "|" + llms + "|" + aiFeed;
+    }
+
+    /**
+     * Idempotently signs any unsigned `corporate_entity_graph` seed rows (such as V51 NULL rows) on
+     * startup before enforcing fail-closed verification on read.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void backfillUnsignedEntityNodes() {
+        if (!contentIntegrityService.isEnabled()) {
+            backfillCompleted.set(true);
+            return;
+        }
+        try {
+            List<CorporateEntityNode> allNodes = corporateEntityNodeRepository.findAll();
+            int signedCount = 0;
+            for (CorporateEntityNode node : allNodes) {
+                if (node.getContentSignature() == null || node.getContentSignature().isBlank()) {
+                    String sig =
+                            contentIntegrityService.computeSignature(
+                                    buildEntitySigningPayload(node));
+                    if (sig != null) {
+                        try {
+                            node.setContentSignature(sig);
+                            corporateEntityNodeRepository.save(node);
+                            signedCount++;
+                        } catch (Exception perNodeEx) {
+                            logger.warn(
+                                    "AEGIS GEO: Could not backfill signature for entity '{}' (may be updated by sibling replica): {}",
+                                    node.getEntityKey(),
+                                    perNodeEx.getMessage());
+                        }
+                    }
+                }
+            }
+            backfillCompleted.set(true);
+            if (signedCount > 0) {
+                logger.info(
+                        "AEGIS GEO: Startup backfill signed {} unsigned CorporateEntityNode row(s).",
+                        signedCount);
+            }
+        } catch (Exception e) {
+            logger.error(
+                    "AEGIS GEO: Startup entity signature backfill failed: {}", e.getMessage(), e);
+        }
+    }
+
     private String signPayload(String payload) {
         // Delegate to ContentIntegrityService (fixes UTF-8 vs Base64 key-encoding mismatch,
         // VULN-05).
@@ -138,12 +209,38 @@ public class GeoOptimizationService {
     }
 
     private boolean verifyNode(CorporateEntityNode node) {
-        if (node.getContentSignature() == null || node.getContentSignature().isBlank()) {
+        if (node == null) {
+            return false;
+        }
+        if (!contentIntegrityService.isEnabled()) {
+            return true;
+        }
+        String storedSig = node.getContentSignature();
+        if (storedSig == null || storedSig.isBlank()) {
+            if (backfillCompleted.get()) {
+                logger.warn(
+                        "AEGIS GEO: Rejecting unsigned entity node '{}' after startup backfill",
+                        node.getEntityKey());
+                return false;
+            }
             return true;
         }
         try {
-            return contentIntegrityService.verifySignature(
-                    node.getJsonLdPayload(), node.getContentSignature());
+            if (contentIntegrityService.matchesSignatureSilent(
+                    buildEntitySigningPayload(node), storedSig)) {
+                return true;
+            }
+            if (contentIntegrityService.matchesSignatureSilent(
+                    node.getJsonLdPayload(), storedSig)) {
+                logger.info(
+                        "AEGIS GEO: Accepted legacy jsonLdPayload-only signature for '{}' during rollout",
+                        node.getEntityKey());
+                return true;
+            }
+            logger.error(
+                    "AEGIS TAMPER ALERT: CorporateEntityNode '{}' failed HMAC verification!",
+                    node.getEntityKey());
+            return false;
         } catch (Exception e) {
             logger.warn(
                     "AEGIS GEO: Signature verification unavailable for {}", node.getEntityKey(), e);
@@ -165,7 +262,11 @@ public class GeoOptimizationService {
                 continue;
             }
             if (node.getLlmsTxtBlock() != null && !node.getLlmsTxtBlock().isBlank()) {
-                sb.append(node.getLlmsTxtBlock().trim()).append("\n\n");
+                String sanitizedBlock =
+                        geoPromptSanitizer.sanitizeEntityBlock(node.getLlmsTxtBlock());
+                if (sanitizedBlock != null && !sanitizedBlock.isBlank()) {
+                    sb.append(sanitizedBlock.trim()).append("\n\n");
+                }
             }
         }
         sb.append("### Access Guidelines\n");
@@ -224,7 +325,11 @@ public class GeoOptimizationService {
                 continue;
             }
             if (node.getAiFeedChunk() != null && !node.getAiFeedChunk().isBlank()) {
-                sb.append(node.getAiFeedChunk().trim()).append("\n\n");
+                String sanitizedChunk =
+                        geoPromptSanitizer.sanitizeEntityBlock(node.getAiFeedChunk());
+                if (sanitizedChunk != null && !sanitizedChunk.isBlank()) {
+                    sb.append(sanitizedChunk.trim()).append("\n\n");
+                }
             }
         }
 
@@ -283,7 +388,11 @@ public class GeoOptimizationService {
 
                     sb.append(String.format("### %s\n", sanitizedTitle));
                     sb.append(
-                            String.format("- **Published**: %s\n", post.getCreatedAt().toString()));
+                            String.format(
+                                    "- **Published**: %s\n",
+                                    (post.getCreatedAt() != null
+                                            ? post.getCreatedAt().toString()
+                                            : "N/A")));
                     sb.append(String.format("- **Author**: %s\n", sanitizedAuthor));
                     sb.append(String.format("- **Summary**: %s\n", sanitizedSummary));
 
@@ -295,11 +404,15 @@ public class GeoOptimizationService {
                                                 post.getKeywords(), 250)));
                     }
 
+                    String normalizedDomain =
+                            (financeDomain != null && !financeDomain.isBlank()
+                                    ? financeDomain.replaceAll("/+$", "")
+                                    : "https://treishvaamfinance.com");
                     sb.append(String.format("- **Canonical Path**: /blog/%s\n", canonicalSlug));
                     sb.append(
                             String.format(
-                                    "- **Data Reference**: <link rel=\"Dataset\" href=\"https://treishvaamfinance.com/blog/%s\" />\n\n",
-                                    canonicalSlug));
+                                    "- **Data Reference**: <link rel=\"Dataset\" href=\"%s/blog/%s\" />\n\n",
+                                    normalizedDomain, canonicalSlug));
                 }
             }
         } catch (Exception e) {

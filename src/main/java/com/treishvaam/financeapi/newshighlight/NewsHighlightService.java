@@ -25,11 +25,22 @@
  * <p>- DO-NOT-DELETE RULE (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the
  * institutional memory for future AI sessions. It must never be deleted, truncated, rewritten, or
  * regenerated. Future AI must append only.
+ *
+ * <p>- EDITED (2026-11-25 - Batch 1 §1.2 RestTemplate Timeouts): • Configured
+ * SimpleClientHttpRequestFactory with 5000ms connect timeout and 10000ms read timeout on
+ * RestTemplate to eliminate unbounded external API hangs.
+ *
+ * <p>- EDITED (2026-11-26 - Batch 2 §2.5 News Prompt-Injection Sanitization): • Injected
+ * `GeoPromptSanitizer` via constructor (4th parameter) and sanitized external `newsdata.io` `title`
+ * (max 300, rejecting blank) and `description` (max 1000) in `saveArticleSafe()` before MariaDB
+ * persistence while preserving Batch 1 `5000ms`/`10000ms` `RestTemplate` timeouts and
+ * SSRF/API-key-redaction guards.
  */
 package com.treishvaam.financeapi.newshighlight;
 
 import com.treishvaam.financeapi.newshighlight.dto.NewsDataArticle;
 import com.treishvaam.financeapi.newshighlight.dto.NewsDataResponse;
+import com.treishvaam.financeapi.security.GeoPromptSanitizer;
 import com.treishvaam.financeapi.service.FileStorageService;
 import com.treishvaam.financeapi.service.ImageService;
 import java.io.ByteArrayOutputStream;
@@ -57,6 +68,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -74,6 +86,7 @@ public class NewsHighlightService {
     private final NewsHighlightRepository repository;
     private final FileStorageService fileStorageService; // Kept for legacy healing if needed
     private final ImageService imageService; // NEW: Enterprise Image Authority
+    private final GeoPromptSanitizer geoPromptSanitizer;
     private final RestTemplate restTemplate;
 
     @Value("${newsdata.api.key}")
@@ -103,11 +116,16 @@ public class NewsHighlightService {
     public NewsHighlightService(
             NewsHighlightRepository repository,
             FileStorageService fileStorageService,
-            ImageService imageService) {
+            ImageService imageService,
+            GeoPromptSanitizer geoPromptSanitizer) {
         this.repository = repository;
         this.fileStorageService = fileStorageService;
         this.imageService = imageService;
-        this.restTemplate = new RestTemplate();
+        this.geoPromptSanitizer = geoPromptSanitizer;
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(5000);
+        requestFactory.setReadTimeout(10000);
+        this.restTemplate = new RestTemplate(requestFactory);
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -196,14 +214,25 @@ public class NewsHighlightService {
                 return false;
             }
             if (repository.existsByLink(normalizedLink)) return false;
-            if (apiArticle.getTitle() != null && repository.existsByTitle(apiArticle.getTitle()))
+            String sanitizedTitle =
+                    geoPromptSanitizer.sanitizeEditorialField(apiArticle.getTitle(), 300);
+            if (sanitizedTitle.isBlank()) {
                 return false;
+            }
+            if (repository.existsByTitle(sanitizedTitle)) {
+                return false;
+            }
+            String sanitizedDesc =
+                    apiArticle.getDescription() != null
+                            ? geoPromptSanitizer.sanitizeEditorialField(
+                                    apiArticle.getDescription(), 1000)
+                            : null;
 
             NewsHighlight news = new NewsHighlight();
-            news.setTitle(apiArticle.getTitle());
+            news.setTitle(sanitizedTitle);
             news.setLink(normalizedLink);
             news.setSource(formatSourceName(apiArticle.getSourceId()));
-            news.setDescription(apiArticle.getDescription());
+            news.setDescription(sanitizedDesc);
 
             if (apiArticle.getPubDate() != null) {
                 try {

@@ -271,6 +271,11 @@
 #  * • `keycloak-db` image → `mariadb:11.4`; added `command: ["mariadbd", "--ssl=0"]`.
 #  * • Both DB healthchecks updated to `MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mariadb-admin ping -h localhost -u root || exit 1` (no password on CLI).
 #  * • Behavior preserved: `--log-bin`, `--binlog-format=ROW`, `--gtid-domain-id=1`, `--log-slave-updates=ON`, memory limits untouched.
+#  *
+#  * - EDITED (2026-11-25 - Batch 1 §1.6 Grafana CVE-2026-27876 + Redis Memory/Command Hardening):
+#  * • Upgraded `grafana` image from `12.2.1` to verified `12.4.16` (preserving `user: "472:472"` and `127.0.0.1:3001:3000`).
+#  * • Added VM `--maxmemory 192mb --maxmemory-policy volatile-lru` to `treishvaam-redis` and renamed unused dangerous commands (`MODULE`, `SLAVEOF`, `REPLICAOF`, `RESTORE`, `MIGRATE`, `SAVE`, `BGSAVE`, `BGREWRITEAOF`, `SHUTDOWN`) while keeping `EVAL`/`EVALSHA`/`SCRIPT`/`CLIENT`/`KEYS` enabled for Bucket4j.
+#  * • Added VM `--maxmemory 96mb --maxmemory-policy allkeys-lru` to `redis` (`aegis-canary-redis`, no `--requirepass` on `canary_net`) and renamed `RESTORE`, `MIGRATE`, `SAVE`, `BGSAVE`, `CLIENT`, `SHUTDOWN`, `ACL`, `FCALL_RO`.
 #  */
 networks:
   treish_net:
@@ -394,6 +399,10 @@ services:
       - redis-server
       - --requirepass
       - "${REDIS_PASSWORD}"
+      - --maxmemory
+      - 192mb
+      - --maxmemory-policy
+      - volatile-lru
       - --save
       - "60"
       - "1"
@@ -420,6 +429,33 @@ services:
       - --rename-command
       - MONITOR
       - ""
+      - --rename-command
+      - MODULE
+      - ""
+      - --rename-command
+      - SLAVEOF
+      - ""
+      - --rename-command
+      - REPLICAOF
+      - ""
+      - --rename-command
+      - RESTORE
+      - ""
+      - --rename-command
+      - MIGRATE
+      - ""
+      - --rename-command
+      - SAVE
+      - ""
+      - --rename-command
+      - BGSAVE
+      - ""
+      - --rename-command
+      - BGREWRITEAOF
+      - ""
+      - --rename-command
+      - SHUTDOWN
+      - ""
     environment:
       REDISCLI_AUTH: "${REDIS_PASSWORD}"
     deploy:
@@ -440,6 +476,10 @@ services:
       - canary_net
     command:
       - redis-server
+      - --maxmemory
+      - 96mb
+      - --maxmemory-policy
+      - allkeys-lru
       - --rename-command
       - FLUSHALL
       - ""
@@ -478,6 +518,30 @@ services:
       - ""
       - --rename-command
       - FUNCTION
+      - ""
+      - --rename-command
+      - RESTORE
+      - ""
+      - --rename-command
+      - MIGRATE
+      - ""
+      - --rename-command
+      - SAVE
+      - ""
+      - --rename-command
+      - BGSAVE
+      - ""
+      - --rename-command
+      - CLIENT
+      - ""
+      - --rename-command
+      - SHUTDOWN
+      - ""
+      - --rename-command
+      - ACL
+      - ""
+      - --rename-command
+      - FCALL_RO
       - ""
     deploy:
       resources:
@@ -875,7 +939,7 @@ services:
       retries: 5
 
   grafana:
-    image: grafana/grafana:12.2.1
+    image: grafana/grafana:12.4.16
     container_name: treishvaam-grafana
     restart: always
     networks:

@@ -38,6 +38,10 @@ package com.treishvaam.financeapi.controller;
  * `"Failed to share post: " + e.getMessage()` with `"Failed to share post to LinkedIn."` and added
  * server-side SLF4J logging of the error. • Behavior preserved: 500 status on failure; error still
  * logged.
+ *
+ * <p>- EDITED (2026-11-25 - Batch 1 §1.4 Pagination & Bulk Delete Caps): • Clamped `GET
+ * /api/v1/posts` pagination (`page >= 0`, `1 <= size <= 100`). • Rejected null, empty, or >100-item
+ * `DELETE /api/v1/posts/bulk` payloads with 400 Bad Request.
  */
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -92,7 +96,9 @@ public class BlogPostController {
     public ResponseEntity<Page<BlogPost>> getAllPosts(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "9") int size) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by("updatedAt").descending());
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by("updatedAt").descending());
         return ResponseEntity.ok(blogPostService.findAllPublishedPosts(pageable));
     }
 
@@ -361,6 +367,9 @@ public class BlogPostController {
     @DeleteMapping("/bulk")
     @PreAuthorize("hasAnyAuthority('ROLE_PUBLISHER', 'ROLE_ADMIN')")
     public ResponseEntity<Void> deleteMultiplePosts(@RequestBody List<Long> postIds) {
+        if (postIds == null || postIds.isEmpty() || postIds.size() > 100) {
+            return ResponseEntity.badRequest().build();
+        }
         blogPostService.deletePostsInBulk(postIds);
         return ResponseEntity.noContent().build();
     }

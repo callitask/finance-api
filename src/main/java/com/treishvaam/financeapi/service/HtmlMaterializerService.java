@@ -3,6 +3,7 @@ package com.treishvaam.financeapi.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.treishvaam.financeapi.model.BlogPost;
+import com.treishvaam.financeapi.security.GeoPromptSanitizer;
 import com.treishvaam.financeapi.security.HtmlSanitizationService;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -56,6 +57,13 @@ import org.springframework.web.client.RestTemplate;
  * `og:image`/`twitter:image` resolution: absolute `http...` → used as-is; leading `/` → `publicUrl
  * + path`; otherwise → `publicUrl + "/api/v1/uploads/" + path`. • Behavior preserved: title
  * escaping inside `#server-content`, JSON-LD, and `window.__PRELOADED_STATE__` unchanged.
+ *
+ * <p>- EDITED (2026-11-26 - Batch 2 §2.6 Materialized Metadata Prompt Sanitization): • Injected
+ * `GeoPromptSanitizer` via constructor (4th parameter) and sanitized `post.getTitle()` (max 200)
+ * and `post.getMetaDescription()` (max 400, fallback `cleanTitle`) before writing `<title>`,
+ * `description`/OG/Twitter meta tags, `#server-content` `
+ *
+ * <h1>`, and JSON-LD `headline`.
  */
 @Service
 @Slf4j
@@ -64,15 +72,18 @@ public class HtmlMaterializerService {
     private final FileStorageService fileStorageService;
     private final ObjectMapper objectMapper;
     private final HtmlSanitizationService htmlSanitizationService;
+    private final GeoPromptSanitizer geoPromptSanitizer;
     private final RestTemplate restTemplate;
 
     public HtmlMaterializerService(
             FileStorageService fileStorageService,
             ObjectMapper objectMapper,
-            HtmlSanitizationService htmlSanitizationService) {
+            HtmlSanitizationService htmlSanitizationService,
+            GeoPromptSanitizer geoPromptSanitizer) {
         this.fileStorageService = fileStorageService;
         this.objectMapper = objectMapper;
         this.htmlSanitizationService = htmlSanitizationService;
+        this.geoPromptSanitizer = geoPromptSanitizer;
         RestTemplate timeoutRestTemplate = new RestTemplate();
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(5000);
@@ -113,22 +124,27 @@ public class HtmlMaterializerService {
             // 2. Parse
             Document doc = Jsoup.parse(htmlShell);
 
-            // 3. Inject Metadata
-            doc.title((post.getTitle() != null ? post.getTitle() : "") + " | Treishvaam Finance");
+            // 3. Inject Metadata (sanitized against OWASP LLM01:2026 & invisible controls)
+            String cleanTitle =
+                    geoPromptSanitizer.sanitizeEditorialField(
+                            post.getTitle() != null ? post.getTitle() : "", 200);
+            String cleanMetaDesc =
+                    (post.getMetaDescription() != null && !post.getMetaDescription().isBlank())
+                            ? geoPromptSanitizer.sanitizeEditorialField(
+                                    post.getMetaDescription(), 400)
+                            : cleanTitle;
+
+            doc.title(cleanTitle + " | Treishvaam Finance");
             doc.select("meta[name=description]").remove();
             doc.head()
                     .appendElement("meta")
                     .attr("name", "description")
-                    .attr(
-                            "content",
-                            post.getMetaDescription() != null
-                                    ? post.getMetaDescription()
-                                    : post.getTitle());
+                    .attr("content", cleanMetaDesc);
 
-            updateMeta(doc, "property", "og:title", post.getTitle());
-            updateMeta(doc, "property", "og:description", post.getMetaDescription());
-            updateMeta(doc, "name", "twitter:title", post.getTitle());
-            updateMeta(doc, "name", "twitter:description", post.getMetaDescription());
+            updateMeta(doc, "property", "og:title", cleanTitle);
+            updateMeta(doc, "property", "og:description", cleanMetaDesc);
+            updateMeta(doc, "name", "twitter:title", cleanTitle);
+            updateMeta(doc, "name", "twitter:description", cleanMetaDesc);
 
             if (post.getCoverImageUrl() != null) {
                 String imgUrl;
@@ -144,7 +160,7 @@ public class HtmlMaterializerService {
             }
 
             // 4. Inject JSON-LD & GEO Semantic Links
-            String jsonLd = buildJsonLd(post);
+            String jsonLd = buildJsonLd(post, cleanTitle);
             doc.head().appendElement("script").attr("type", "application/ld+json").html(jsonLd);
 
             // Explicitly broadcast GEO endpoints to any crawler hitting the raw HTML
@@ -163,7 +179,7 @@ public class HtmlMaterializerService {
             Element serverContentDiv = doc.getElementById("server-content");
             if (serverContentDiv != null) {
                 serverContentDiv.removeAttr("style");
-                String safeTitle = Entities.escape(post.getTitle());
+                String safeTitle = Entities.escape(cleanTitle);
                 String safeContent =
                         htmlSanitizationService.sanitizeHtml(
                                 post.getContent() != null ? post.getContent() : "");
@@ -208,7 +224,7 @@ public class HtmlMaterializerService {
         else doc.head().appendElement("meta").attr(attrKey, attrValue).attr("content", content);
     }
 
-    private String buildJsonLd(BlogPost post) {
+    private String buildJsonLd(BlogPost post, String cleanTitle) {
         try {
             String isoDate = post.getCreatedAt() != null ? post.getCreatedAt().toString() : "";
             String updatedDate =
@@ -216,7 +232,7 @@ public class HtmlMaterializerService {
             Map<String, Object> jsonLdMap = new HashMap<>();
             jsonLdMap.put("@context", "https://schema.org");
             jsonLdMap.put("@type", "NewsArticle");
-            jsonLdMap.put("headline", post.getTitle());
+            jsonLdMap.put("headline", cleanTitle);
             jsonLdMap.put("datePublished", isoDate);
             jsonLdMap.put("dateModified", updatedDate);
             Map<String, Object> author = new HashMap<>();

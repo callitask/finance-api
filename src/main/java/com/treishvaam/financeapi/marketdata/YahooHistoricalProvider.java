@@ -11,14 +11,31 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
+/**
+ * AI-CONTEXT:
+ *
+ * <p>Purpose: - Fetches 20-year daily historical market close prices from Yahoo Finance.
+ *
+ * <p>IMMUTABLE CHANGE HISTORY (DO NOT DELETE): - EDITED (2026-11-25 - Batch 1 §1.2 RestTemplate
+ * Timeouts): • Configured SimpleClientHttpRequestFactory with 5000ms connect timeout and 10000ms
+ * read timeout on RestTemplate to prevent thread starvation on unresponsive upstream requests.
+ */
 @Component("yahooHistoricalProvider")
 public class YahooHistoricalProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(YahooHistoricalProvider.class);
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    public YahooHistoricalProvider() {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(5000);
+        requestFactory.setReadTimeout(10000);
+        this.restTemplate = new RestTemplate(requestFactory);
+    }
 
     public List<HistoricalPrice> fetchFullHistory(String ticker) {
         long endTime = System.currentTimeMillis() / 1000;

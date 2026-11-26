@@ -9,10 +9,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Iterator;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executors;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
@@ -49,6 +48,13 @@ import org.springframework.web.multipart.MultipartFile;
  * <p>- DO-NOT-DELETE RULE (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the
  * institutional memory for future AI sessions. It must never be deleted, truncated, rewritten, or
  * regenerated. Future AI must append only.
+ *
+ * <p>- EDITED (2026-11-25 - Batch 1 §1.1 Heap OOM Closure): • Streamed MultipartFile uploads
+ * directly to tempFile via Files.copy(InputStream, Path, REPLACE_EXISTING) in
+ * saveImageAndGetMetadata() (eliminates file.getBytes() heap buffer). • Replaced 4x concurrent
+ * CompletableFuture WebP resize tasks with sequential execution so each buffer is GC-eligible
+ * immediately after MinIO upload. • Downscaled BlurHash source to 64x64 via Thumbnails.of(...)
+ * under ImageService.class lock and called image.flush() in finally.
  */
 @Service
 public class ImageService {
@@ -140,31 +146,47 @@ public class ImageService {
     // --- ENTRY POINT 1: MultipartFile (Controllers) ---
     public ImageMetadataDto saveImageAndGetMetadata(MultipartFile file) {
         if (file == null || file.isEmpty()) return null;
+        Path tempFile = null;
         try {
-            return processImageInternal(file.getBytes(), "upload_", OptimizationProfile.STANDARD);
+            tempFile = Files.createTempFile("img_proc_" + UUID.randomUUID(), ".tmp");
+            try (InputStream in = file.getInputStream()) {
+                Files.copy(in, tempFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+            return processImageFromTempFile(tempFile, "upload_", OptimizationProfile.STANDARD);
         } catch (IOException e) {
-            throw new RuntimeException("Failed to read upload bytes", e);
+            logger.error("Failed to stream upload to temp file", e);
+            throw new RuntimeException("Failed to read upload stream", e);
+        } finally {
+            deleteTempFileQuietly(tempFile);
         }
     }
 
     // --- ENTRY POINT 2: Raw Bytes (Services like NewsHighlight) ---
     public ImageMetadataDto processImage(
             byte[] imageBytes, String prefix, OptimizationProfile profile) {
-        return processImageInternal(imageBytes, prefix, profile);
+        Path tempFile = null;
+        try {
+            tempFile = Files.createTempFile("img_proc_" + UUID.randomUUID(), ".tmp");
+            Files.write(tempFile, imageBytes);
+            imageBytes = null;
+            return processImageFromTempFile(tempFile, prefix, profile);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            logger.error("Failed to process image", e);
+            throw new RuntimeException("Image processing failed", e);
+        } finally {
+            deleteTempFileQuietly(tempFile);
+        }
     }
 
     // --- CORE LOGIC ---
-    private ImageMetadataDto processImageInternal(
-            byte[] fileData, String prefix, OptimizationProfile profile) {
-        Path tempFile = null;
+    private ImageMetadataDto processImageFromTempFile(
+            Path tempFile, String prefix, OptimizationProfile profile) {
         try {
-            // 1. Write to Temp (Zero RAM Impact for analysis)
-            tempFile = Files.createTempFile("img_proc_" + UUID.randomUUID(), ".tmp");
-            Files.write(tempFile, fileData);
-
             // 2. Security Check: Validate MIME type using Apache Tika
             String detectedMime = tika.detect(tempFile.toFile());
-            if (!detectedMime.startsWith("image/")) {
+            if (detectedMime == null || !detectedMime.startsWith("image/")) {
                 logger.warn("Security Alert: Invalid image file type detected: {}", detectedMime);
                 throw new SecurityException("Invalid file type: " + detectedMime);
             }
@@ -193,28 +215,11 @@ public class ImageService {
             double qMobile =
                     (profile == OptimizationProfile.NEWS) ? 0.45 : 0.50; // Aggressive for News
 
-            // 7. Virtual Thread Execution
-            final Path sourcePath = tempFile;
-            try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-                var futures =
-                        new CompletableFuture<?>[] {
-                            CompletableFuture.runAsync(
-                                    () -> uploadResizedSafe(sourcePath, 1920, masterName, qMaster),
-                                    executor),
-                            CompletableFuture.runAsync(
-                                    () ->
-                                            uploadResizedSafe(
-                                                    sourcePath, 1200, desktopName, qDesktop),
-                                    executor),
-                            CompletableFuture.runAsync(
-                                    () -> uploadResizedSafe(sourcePath, 800, tabletName, qTablet),
-                                    executor),
-                            CompletableFuture.runAsync(
-                                    () -> uploadResizedSafe(sourcePath, 480, mobileName, qMobile),
-                                    executor)
-                        };
-                CompletableFuture.allOf(futures).join();
-            }
+            // 7. Sequential Variant Execution (each buffer is GC-eligible after MinIO upload)
+            uploadResizedSafe(tempFile, 1920, masterName, qMaster);
+            uploadResizedSafe(tempFile, 1200, desktopName, qDesktop);
+            uploadResizedSafe(tempFile, 800, tabletName, qTablet);
+            uploadResizedSafe(tempFile, 480, mobileName, qMobile);
 
             // 8. Return the Master Path
             metadata.setFullPath(masterName);
@@ -224,13 +229,15 @@ public class ImageService {
         } catch (Exception e) {
             logger.error("Failed to process image", e);
             throw new RuntimeException("Image processing failed", e);
-        } finally {
-            if (tempFile != null) {
-                try {
-                    Files.deleteIfExists(tempFile);
-                } catch (IOException e) {
-                    /* ignore */
-                }
+        }
+    }
+
+    private void deleteTempFileQuietly(Path tempFile) {
+        if (tempFile != null) {
+            try {
+                Files.deleteIfExists(tempFile);
+            } catch (IOException e) {
+                /* ignore */
             }
         }
     }
@@ -295,13 +302,20 @@ public class ImageService {
             logger.error("Metadata extraction failed", e);
         }
 
-        try (InputStream blurStream = Files.newInputStream(sourceFile)) {
-            BufferedImage image = ImageIO.read(blurStream);
+        BufferedImage image = null;
+        try {
+            synchronized (ImageService.class) {
+                image = Thumbnails.of(sourceFile.toFile()).size(64, 64).asBufferedImage();
+            }
             if (image != null) {
                 metadata.setBlurHash(BlurHash.encode(image, 4, 3));
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.error("Blurhash generation failed", e);
+        } finally {
+            if (image != null) {
+                image.flush();
+            }
         }
 
         return metadata;

@@ -24,16 +24,27 @@
  * • Updated getHistoricalAudienceData to group flat AudienceDataDto into GroupedAudienceDataDto
  * based on deviceFingerprint. • Why: Aggregates incognito and standard sessions from the same
  * device into a single hardware profile without storing raw IPs. • Date: 2026-08-05 - EDITED
- * (Incident 48/49 - Legacy Hardware Isolation): • Refactored grouping logic to isolate legacy
- * sessions via user/session ID fallbacks, preventing monolithic collapse of NULL fingerprints.
+ *
+ * <p>- EDITED (Incident 48/49 - Legacy Hardware Isolation): • Refactored grouping logic to isolate
+ * legacy sessions via user/session ID fallbacks, preventing monolithic collapse of NULL
+ * fingerprints.
+ *
+ * <p>- EDITED (2026-11-25 - Batch 1 §1.4 DoS Caps & CWE-209 Fix): • Validated date span <= 366 days
+ * (and startDate <= endDate) and capped targetClientIds/excludeClientIds at 200 items each (400 Bad
+ * Request if exceeded). • Sanitized refreshGA4Data() failure payload to generic message (CWE-209).
  */
 package com.treishvaam.financeapi.analytics;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -47,6 +58,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/analytics")
 public class AnalyticsController {
 
+    private static final Logger logger = LoggerFactory.getLogger(AnalyticsController.class);
+    private static final long MAX_DATE_SPAN_DAYS = 366L;
+    private static final int MAX_CLIENT_ID_LIST_SIZE = 200;
+
     private final AnalyticsService analyticsService;
 
     public AnalyticsController(AnalyticsService analyticsService) {
@@ -56,6 +71,17 @@ public class AnalyticsController {
     // Enterprise Parameter Sanitization: Prevents JPQL "IS NULL" filter drop
     private String sanitizeParam(String param) {
         return (param != null && !param.trim().isEmpty()) ? param.trim() : null;
+    }
+
+    private boolean isValidDateRange(LocalDate startDate, LocalDate endDate) {
+        if (startDate == null || endDate == null || startDate.isAfter(endDate)) {
+            return false;
+        }
+        return ChronoUnit.DAYS.between(startDate, endDate) <= MAX_DATE_SPAN_DAYS;
+    }
+
+    private boolean isValidClientIdList(List<String> clientIds) {
+        return clientIds == null || clientIds.size() <= MAX_CLIENT_ID_LIST_SIZE;
     }
 
     @GetMapping
@@ -76,6 +102,11 @@ public class AnalyticsController {
 
         LocalDate finalStartDate = startDate != null ? startDate : LocalDate.now().minusDays(7);
         LocalDate finalEndDate = endDate != null ? endDate : LocalDate.now();
+        if (!isValidDateRange(finalStartDate, finalEndDate)
+                || !isValidClientIdList(targetClientIds)
+                || !isValidClientIdList(excludeClientIds)) {
+            return ResponseEntity.badRequest().build();
+        }
 
         AudienceFilter filters =
                 AudienceFilter.builder()
@@ -178,6 +209,11 @@ public class AnalyticsController {
 
         LocalDate finalStartDate = startDate != null ? startDate : LocalDate.now().minusDays(7);
         LocalDate finalEndDate = endDate != null ? endDate : LocalDate.now();
+        if (!isValidDateRange(finalStartDate, finalEndDate)
+                || !isValidClientIdList(targetClientIds)
+                || !isValidClientIdList(excludeClientIds)) {
+            return ResponseEntity.badRequest().build();
+        }
 
         AudienceFilter filters =
                 AudienceFilter.builder()
@@ -199,10 +235,24 @@ public class AnalyticsController {
     @PostMapping("/refresh")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
     public ResponseEntity<?> refreshGA4Data(@RequestBody Map<String, String> payload) {
+        if (payload == null || payload.get("startDate") == null || payload.get("endDate") == null) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Invalid date range parameters."));
+        }
+        final LocalDate start;
+        final LocalDate end;
         try {
-            LocalDate start = LocalDate.parse(payload.get("startDate"));
-            LocalDate end = LocalDate.parse(payload.get("endDate"));
-
+            start = LocalDate.parse(payload.get("startDate").trim());
+            end = LocalDate.parse(payload.get("endDate").trim());
+        } catch (DateTimeParseException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Invalid date range parameters."));
+        }
+        if (!isValidDateRange(start, end)) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Date range must not exceed 366 days."));
+        }
+        try {
             analyticsService.refreshGA4Data(start, end);
             return ResponseEntity.ok()
                     .body(
@@ -210,7 +260,9 @@ public class AnalyticsController {
                                     "message",
                                     "GA4 sync completed successfully for the selected dates. Faro native data was preserved."));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+            logger.error("Failed to refresh analytics data", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to refresh analytics data. Check server logs."));
         }
     }
 }

@@ -58,6 +58,10 @@ import org.springframework.stereotype.Service;
  * Googlebot ingestion and completely eliminate 503 TTFB timeouts. - DO-NOT-DELETE RULE (ABSOLUTE):
  * This IMMUTABLE CHANGE HISTORY section acts as the institutional memory for future AI sessions. It
  * must never be deleted, truncated, rewritten, or regenerated. Future AI must append only.
+ *
+ * <p>- EDITED (2026-11-25 - Batch 1 §1.4 Negative Page Guard): • Guarded `page < 0` in
+ * `generateBlogSitemap(int)` and `generateMarketSitemap(int)` to return an empty `<urlset>` instead
+ * of throwing `IllegalArgumentException`.
  */
 @Service
 @RequiredArgsConstructor
@@ -123,6 +127,9 @@ public class SitemapService {
     }
 
     public String generateBlogSitemap(int page) {
+        if (page < 0) {
+            return buildUrlSet(List.of());
+        }
         String tenantId = TenantContext.getTenantId();
 
         // AGRO TENANT OVERRIDE (Serves static enterprise pages)
@@ -194,6 +201,9 @@ public class SitemapService {
     }
 
     public String generateMarketSitemap(int page) {
+        if (page < 0) {
+            return buildUrlSet(List.of());
+        }
         String tenantId = TenantContext.getTenantId();
         if ("agro".equals(tenantId)) {
             return buildUrlSet(new ArrayList<>()); // Agro has no market data

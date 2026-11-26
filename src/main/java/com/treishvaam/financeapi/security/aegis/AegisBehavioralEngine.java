@@ -43,6 +43,12 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  * `request.getQueryString()` directly — `RequestContextHolder` is non-inheritable, so it returned
  * null inside the per-task virtual thread spawned by `AegisBcsm` and the entropy check silently
  * skipped (virtual-thread blindspot fix).
+ *
+ * <p>- EDITED (2026-11-26 - Batch 2 §2.8 Virtual-Thread AI-Crawler Header Fix): • Added 5-arg
+ * overload `calculateRiskScore(realIp, ja3Fingerprint, biometricHash, queryString, userAgent)` with
+ * 4-arg delegating `null` for `userAgent`; updated `isVerifiedAiCrawler(realIp, explicitUserAgent)`
+ * to prefer `explicitUserAgent` over `RequestContextHolder` so AI crawler verification works inside
+ * `AegisBcsm` virtual threads.
  */
 @Service
 public class AegisBehavioralEngine {
@@ -61,14 +67,28 @@ public class AegisBehavioralEngine {
     }
 
     /**
-     * 4-arg overload (Step 0 — virtual-thread blindspot fix): accepts the current request's query
-     * string explicitly. When {@code queryString == null}, falls back to {@code
-     * RequestContextHolder} as before.
+     * 4-arg overload (Step 0 — virtual-thread blindspot fix): delegates to the 5-arg overload
+     * passing {@code null} for {@code userAgent} (preserving {@code RequestContextHolder}
+     * fallback).
      */
     public int calculateRiskScore(
             String realIp, String ja3Fingerprint, String biometricHash, String queryString) {
+        return calculateRiskScore(realIp, ja3Fingerprint, biometricHash, queryString, null);
+    }
 
-        if (isVerifiedAiCrawler(realIp)) {
+    /**
+     * 5-arg overload (Batch 2 — virtual-thread AI-crawler blindspot fix): accepts both {@code
+     * queryString} and {@code userAgent} explicitly. When either is {@code null}, falls back to
+     * {@code RequestContextHolder}.
+     */
+    public int calculateRiskScore(
+            String realIp,
+            String ja3Fingerprint,
+            String biometricHash,
+            String queryString,
+            String userAgent) {
+
+        if (isVerifiedAiCrawler(realIp, userAgent)) {
             logger.debug(
                     "AEGIS L5-BIE: Verified AI Crawler bypassed risk scoring for IP {}", realIp);
             return 0;
@@ -135,16 +155,22 @@ public class AegisBehavioralEngine {
     }
 
     /** Validates claiming AI bots via Reverse DNS to prevent User-Agent spoofing. */
-    private boolean isVerifiedAiCrawler(String realIp) {
+    private boolean isVerifiedAiCrawler(String realIp, String explicitUserAgent) {
         try {
-            ServletRequestAttributes attributes =
-                    (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-            if (attributes == null) return false;
+            String userAgent = explicitUserAgent;
+            if (userAgent == null || userAgent.isBlank()) {
+                ServletRequestAttributes attributes =
+                        (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+                if (attributes == null || attributes.getRequest() == null) {
+                    return false;
+                }
+                HttpServletRequest request = attributes.getRequest();
+                userAgent = request.getHeader("User-Agent");
+            }
 
-            HttpServletRequest request = attributes.getRequest();
-            String userAgent = request.getHeader("User-Agent");
-
-            if (userAgent == null) return false;
+            if (userAgent == null || userAgent.isBlank()) {
+                return false;
+            }
 
             boolean claimsToBeAi =
                     userAgent.contains("GPTBot")

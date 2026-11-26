@@ -28,6 +28,10 @@ package com.treishvaam.financeapi.security;
  * execution syntax (;\\s*(drop|exec...)) rather than blocking lone semicolons. • Why: Resolves a
  * 400 Bad Request false positive caused by Tiptap injecting inline CSS (style="width: 50%; float:
  * left;") during video uploads, without degrading Zero-Trust SQLi protection.
+ *
+ * <p>- EDITED (2026-11-26 - Batch 2 §2.9 ReDoS Elimination): • Replaced polynomial-backtracking
+ * `OR`/`AND` regex (#4) with bounded linear-time quantifier pattern and bounded inspected input
+ * length via `MAX_INSPECT_LENGTH = 4096` in `isSuspicious()`.
  */
 import java.time.Duration;
 import java.util.List;
@@ -42,6 +46,7 @@ import org.springframework.stereotype.Service;
 public class QuerySanitizationService {
 
     private static final Logger logger = LoggerFactory.getLogger(QuerySanitizationService.class);
+    private static final int MAX_INSPECT_LENGTH = 4096;
 
     @Autowired private RedisTemplate<String, String> redisTemplate;
 
@@ -56,8 +61,7 @@ public class QuerySanitizationService {
                             Pattern.CASE_INSENSITIVE),
                     Pattern.compile("('|(\\')|(\\\\')|(%27)|(%2527))", Pattern.CASE_INSENSITIVE),
                     Pattern.compile(
-                            "(\\bOR\\b|\\bAND\\b)\\s+([\\w\\s]+=\\s*[\\w\\s]+|'[^']*'='[^']*')",
-                            Pattern.CASE_INSENSITIVE));
+                            "(?i)\\b(?:OR|AND)\\b\\s+(?:[A-Za-z0-9_]{1,32}\\s*=\\s*[A-Za-z0-9_]{1,32}|'[^']{1,64}'\\s*=\\s*'[^']{1,64}')"));
 
     // Block list with TTL: if an IP sends SQLi, block for 1 hour
     public boolean isSuspicious(String input, String clientIp) {
@@ -69,14 +73,19 @@ public class QuerySanitizationService {
             return true; // Already flagged and blocked
         }
 
+        String bounded =
+                input.length() > MAX_INSPECT_LENGTH
+                        ? input.substring(0, MAX_INSPECT_LENGTH)
+                        : input;
+
         for (Pattern p : SQL_INJECTION_PATTERNS) {
-            if (p.matcher(input).find()) {
+            if (p.matcher(bounded).find()) {
                 // Cache the offending IP for 1 hour
                 redisTemplate.opsForValue().set(cacheKey, "1", Duration.ofHours(1));
                 logger.warn(
                         "SECURITY: Potential SQL injection from IP: {} input: {}",
                         clientIp,
-                        input.substring(0, Math.min(100, input.length())));
+                        bounded.substring(0, Math.min(100, bounded.length())));
                 return true;
             }
         }

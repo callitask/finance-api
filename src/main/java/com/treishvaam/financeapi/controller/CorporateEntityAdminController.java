@@ -16,6 +16,12 @@ package com.treishvaam.financeapi.controller;
  * both create (`upsert()`) and update paths, `llmsTxtBlock` and `aiFeedChunk` are sanitized via
  * `geoPromptSanitizer.sanitizeEntityBlock(...)` before persisting and HMAC-signing (OWASP
  * LLM01:2026).
+ *
+ * <p>- EDITED (2026-11-26 - Batch 2 §2.4 GEO Entity JSON-LD Cap, Sanitization & Full-Node Signing):
+ * • Enforced `MAX_JSON_LD_BYTES = 32_768` cap (400 Bad Request if exceeded). • Applied
+ * `geoPromptSanitizer.sanitizeJsonLdNode(parsed)` before persisting `jsonLdPayload`. • Signed full
+ * entity payload via `GeoOptimizationService.buildEntitySigningPayload(...)` on both create and
+ * update.
  */
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -24,6 +30,7 @@ import com.treishvaam.financeapi.model.CorporateEntityNode;
 import com.treishvaam.financeapi.security.ContentIntegrityService;
 import com.treishvaam.financeapi.security.GeoPromptSanitizer;
 import com.treishvaam.financeapi.service.GeoOptimizationService;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,6 +51,7 @@ public class CorporateEntityAdminController {
 
     private static final Logger logger =
             LoggerFactory.getLogger(CorporateEntityAdminController.class);
+    private static final int MAX_JSON_LD_BYTES = 32_768;
 
     private final com.treishvaam.financeapi.repository.CorporateEntityNodeRepository repository;
     private final ContentIntegrityService contentIntegrityService;
@@ -80,7 +88,12 @@ public class CorporateEntityAdminController {
         if (existing == null && payload == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
         }
+        String sanitizedJsonLd = null;
         if (payload != null) {
+            if (payload.length() > MAX_JSON_LD_BYTES
+                    || payload.getBytes(StandardCharsets.UTF_8).length > MAX_JSON_LD_BYTES) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            }
             try {
                 JsonNode parsed = objectMapper.readTree(payload);
                 if (!parsed.isObject()
@@ -88,6 +101,8 @@ public class CorporateEntityAdminController {
                         || !parsed.hasNonNull("@id")) {
                     return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
                 }
+                geoPromptSanitizer.sanitizeJsonLdNode(parsed);
+                sanitizedJsonLd = objectMapper.writeValueAsString(parsed);
             } catch (JsonProcessingException e) {
                 logger.warn("Invalid jsonLdPayload for entity '{}': malformed JSON", entityKey);
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
@@ -104,13 +119,15 @@ public class CorporateEntityAdminController {
             if (incoming.getTenantId() == null) {
                 incoming.setTenantId("global");
             }
-            // P3.4 (VULN-13b): Sanitize entity blocks before persisting + HMAC-signing
+            // P3.4 (VULN-13b): Sanitize JSON-LD & entity blocks before persisting + HMAC-signing
+            incoming.setJsonLdPayload(sanitizedJsonLd);
             incoming.setLlmsTxtBlock(
                     geoPromptSanitizer.sanitizeEntityBlock(incoming.getLlmsTxtBlock()));
             incoming.setAiFeedChunk(
                     geoPromptSanitizer.sanitizeEntityBlock(incoming.getAiFeedChunk()));
             String signature =
-                    contentIntegrityService.computeSignature(incoming.getJsonLdPayload());
+                    contentIntegrityService.computeSignature(
+                            GeoOptimizationService.buildEntitySigningPayload(incoming));
             incoming.setContentSignature(signature);
             CorporateEntityNode saved = repository.save(incoming);
             geoOptimizationService.evictGeoCache();
@@ -142,9 +159,7 @@ public class CorporateEntityAdminController {
                         ? incoming.getDescription()
                         : existing.getDescription());
         existing.setJsonLdPayload(
-                incoming.getJsonLdPayload() != null
-                        ? incoming.getJsonLdPayload()
-                        : existing.getJsonLdPayload());
+                sanitizedJsonLd != null ? sanitizedJsonLd : existing.getJsonLdPayload());
         existing.setLlmsTxtBlock(
                 incoming.getLlmsTxtBlock() != null
                         ? geoPromptSanitizer.sanitizeEntityBlock(incoming.getLlmsTxtBlock())
@@ -159,7 +174,9 @@ public class CorporateEntityAdminController {
                         : existing.getDisplayOrder());
         existing.setActive(
                 incoming.getActive() != null ? incoming.getActive() : existing.getActive());
-        String signature = contentIntegrityService.computeSignature(existing.getJsonLdPayload());
+        String signature =
+                contentIntegrityService.computeSignature(
+                        GeoOptimizationService.buildEntitySigningPayload(existing));
         existing.setContentSignature(signature);
         CorporateEntityNode saved = repository.save(existing);
         geoOptimizationService.evictGeoCache();

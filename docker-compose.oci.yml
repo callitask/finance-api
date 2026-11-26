@@ -299,6 +299,10 @@
 #  * • `keycloak-db` image → `mariadb:11.4`; added `command: ["mariadbd", "--ssl=0"]`.
 #  * • Both DB healthchecks updated to `MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mariadb-admin ping -h localhost -u root || exit 1` (no password on CLI).
 #  * • Behavior preserved: `--log-bin`, `--binlog-format=ROW`, `--gtid-domain-id=1`, `--log-slave-updates=ON`, OCI memory limits untouched.
+#  *
+#  * - EDITED (2026-11-25 - Batch 1 §1.6 Grafana CVE-2026-27876 + Redis Command Hardening):
+#  * • Upgraded `grafana` image from `12.2.1` to verified `12.4.16` (preserving `user: "472:472"` and `127.0.0.1:3001:3000`).
+#  * • Appended `--rename-command` blocks on `treishvaam-redis` (`MODULE`, `SLAVEOF`, `REPLICAOF`, `RESTORE`, `MIGRATE`, `SAVE`, `BGSAVE`, `BGREWRITEAOF`, `SHUTDOWN`) and `redis` (`RESTORE`, `MIGRATE`, `SAVE`, `BGSAVE`, `CLIENT`, `SHUTDOWN`, `ACL`, `FCALL_RO`), preserving OCI `--maxmemory` caps (`700mb`/`200mb`), `EVAL`/`EVALSHA`/`SCRIPT` on `treishvaam-redis`, and no `--requirepass` on `aegis-canary-redis`.
 #  */
 networks:
   treish_net:
@@ -453,6 +457,33 @@ services:
       - --rename-command
       - MONITOR
       - ""
+      - --rename-command
+      - MODULE
+      - ""
+      - --rename-command
+      - SLAVEOF
+      - ""
+      - --rename-command
+      - REPLICAOF
+      - ""
+      - --rename-command
+      - RESTORE
+      - ""
+      - --rename-command
+      - MIGRATE
+      - ""
+      - --rename-command
+      - SAVE
+      - ""
+      - --rename-command
+      - BGSAVE
+      - ""
+      - --rename-command
+      - BGREWRITEAOF
+      - ""
+      - --rename-command
+      - SHUTDOWN
+      - ""
     environment:
       REDISCLI_AUTH: "${REDIS_PASSWORD}"
     deploy:
@@ -515,6 +546,30 @@ services:
       - ""
       - --rename-command
       - FUNCTION
+      - ""
+      - --rename-command
+      - RESTORE
+      - ""
+      - --rename-command
+      - MIGRATE
+      - ""
+      - --rename-command
+      - SAVE
+      - ""
+      - --rename-command
+      - BGSAVE
+      - ""
+      - --rename-command
+      - CLIENT
+      - ""
+      - --rename-command
+      - SHUTDOWN
+      - ""
+      - --rename-command
+      - ACL
+      - ""
+      - --rename-command
+      - FCALL_RO
       - ""
     deploy:
       resources:
@@ -912,7 +967,7 @@ services:
       retries: 5
 
   grafana:
-    image: grafana/grafana:12.2.1
+    image: grafana/grafana:12.4.16
     container_name: treishvaam-grafana
     restart: always
     networks:

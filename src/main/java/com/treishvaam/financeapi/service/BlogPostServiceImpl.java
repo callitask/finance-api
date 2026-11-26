@@ -77,6 +77,11 @@ package com.treishvaam.financeapi.service;
  * BlogPost id={} slug='{}' failed HMAC verification!`, record `AuditLog("CONTENT_TAMPER_DETECTED",
  * "SYSTEM", "BlogPost ID: " + p.getId(), "HMAC mismatch for slug=" + p.getSlug(), "SYSTEM",
  * "FAILURE")` (fail-safe try/catch), and return `Optional.empty()` when `blockTamperedPosts=true`.
+ *
+ * <p>- EDITED (2026-11-25 - Batch 1 §1.4 Admin Summary & Bulk Cap): • Annotated `findAllForAdmin()`
+ * and `findDrafts()` with `@Transactional(readOnly = true)` and returned detached summary copies
+ * via `toAdminSummary()` (empty `content`/`customSnippet`/`metaDescription` to avoid `@Lob` bloat
+ * on list views without mutating managed entities). • Capped `deletePostsInBulk()` at 100 IDs.
  */
 import com.treishvaam.finance.messaging.MessagePublisher;
 import com.treishvaam.financeapi.config.CachingConfig;
@@ -190,12 +195,13 @@ public class BlogPostServiceImpl implements BlogPostService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<BlogPost> findAllForAdmin() {
         List<BlogPost> posts = blogPostRepository.findAllByOrderByCreatedAtDesc();
-        if (posts != null) {
-            posts.forEach(this::sanitizePostMedia);
+        if (posts == null || posts.isEmpty()) {
+            return List.of();
         }
-        return posts;
+        return posts.stream().map(this::toAdminSummary).collect(Collectors.toList());
     }
 
     @Override
@@ -244,13 +250,53 @@ public class BlogPostServiceImpl implements BlogPostService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<BlogPost> findDrafts() {
         List<BlogPost> drafts =
                 blogPostRepository.findAllByStatusOrderByUpdatedAtDesc(PostStatus.DRAFT);
-        if (drafts != null) {
-            drafts.forEach(this::sanitizePostMedia);
+        if (drafts == null || drafts.isEmpty()) {
+            return List.of();
         }
-        return drafts;
+        return drafts.stream().map(this::toAdminSummary).collect(Collectors.toList());
+    }
+
+    private BlogPost toAdminSummary(BlogPost src) {
+        BlogPost copy = new BlogPost();
+        copy.setId(src.getId());
+        copy.setVersion(src.getVersion());
+        copy.setTitle(src.getTitle());
+        copy.setSlug(src.getSlug());
+        copy.setUserFriendlySlug(src.getUserFriendlySlug());
+        copy.setContent("");
+        copy.setCustomSnippet("");
+        copy.setMetaDescription("");
+        copy.setKeywords(src.getKeywords());
+        copy.setSeoTitle(src.getSeoTitle());
+        copy.setCanonicalUrl(src.getCanonicalUrl());
+        copy.setFocusKeyword(src.getFocusKeyword());
+        copy.setDisplaySection(src.getDisplaySection());
+        copy.setAuthor(src.getAuthor());
+        copy.setCategory(src.getCategory());
+        copy.setFeatured(src.isFeatured());
+        copy.setCreatedAt(src.getCreatedAt());
+        copy.setUpdatedAt(src.getUpdatedAt());
+        copy.setTenantId(src.getTenantId());
+        if (src.getThumbnails() != null) {
+            copy.setThumbnails(new ArrayList<>(src.getThumbnails()));
+        }
+        copy.setThumbnailOrientation(src.getThumbnailOrientation());
+        copy.setCoverImageUrl(src.getCoverImageUrl());
+        copy.setCoverImageAltText(src.getCoverImageAltText());
+        if (src.getTags() != null) {
+            copy.setTags(new ArrayList<>(src.getTags()));
+        }
+        copy.setScheduledTime(src.getScheduledTime());
+        copy.setStatus(src.getStatus());
+        copy.setLayoutStyle(src.getLayoutStyle());
+        copy.setLayoutGroupId(src.getLayoutGroupId());
+        copy.setUrlArticleId(src.getUrlArticleId());
+        sanitizePostMedia(copy);
+        return copy;
     }
 
     @Override
@@ -482,16 +528,21 @@ public class BlogPostServiceImpl implements BlogPostService {
     @Transactional
     @CacheEvict(value = CachingConfig.BLOG_POST_CACHE, allEntries = true)
     public void deletePostsInBulk(List<Long> postIds) {
-        if (postIds != null && !postIds.isEmpty()) {
-            blogPostRepository.deleteByIdIn(postIds);
-            try {
-                for (Long id : postIds) {
-                    messagePublisher.publishSearchIndexEvent(id, "DELETE");
-                }
-                messagePublisher.publishSitemapRegenerateEvent();
-            } catch (Exception e) {
-                logger.error("Failed to publish bulk delete events", e);
+        if (postIds == null || postIds.isEmpty()) {
+            return;
+        }
+        if (postIds.size() > 100) {
+            throw new IllegalArgumentException(
+                    "Bulk delete supports at most 100 post IDs per request.");
+        }
+        blogPostRepository.deleteByIdIn(postIds);
+        try {
+            for (Long id : postIds) {
+                messagePublisher.publishSearchIndexEvent(id, "DELETE");
             }
+            messagePublisher.publishSitemapRegenerateEvent();
+        } catch (Exception e) {
+            logger.error("Failed to publish bulk delete events", e);
         }
     }
 

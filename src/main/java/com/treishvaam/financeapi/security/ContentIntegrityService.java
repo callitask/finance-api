@@ -39,6 +39,11 @@
  *
  * <p>- DO-NOT-DELETE RULE: This IMMUTABLE CHANGE HISTORY must never be deleted, truncated, or
  * regenerated.
+ *
+ * <p>- EDITED (2026-11-26 - Batch 2 §2.1 GEO Rollout Helpers): • Added `isEnabled()` status helper
+ * and silent constant-time `matchesSignatureSilent(payload, storedSignature)` helper so
+ * `GeoOptimizationService` can verify full-node and legacy `jsonLdPayload`-only signatures during
+ * rollout without emitting spurious tamper ERROR logs.
  */
 package com.treishvaam.financeapi.security;
 
@@ -187,6 +192,31 @@ public class ContentIntegrityService {
             logger.error("[ContentIntegrityService] Signature computation failed.", e);
             return null;
         }
+    }
+
+    /** Returns true when HMAC content signing is enabled and a valid key is loaded. */
+    public boolean isEnabled() {
+        return enabled && signingKey != null;
+    }
+
+    /**
+     * Silent constant-time signature verification for multi-format rollout checks without emitting
+     * false tamper ERROR logs on intermediate format probes.
+     */
+    public boolean matchesSignatureSilent(String payload, String storedSignature) {
+        if (!isEnabled()) {
+            return true;
+        }
+        if (storedSignature == null || storedSignature.isBlank()) {
+            return false;
+        }
+        String computed = computeSignature(payload);
+        if (computed == null) {
+            return false;
+        }
+        return MessageDigest.isEqual(
+                computed.getBytes(StandardCharsets.UTF_8),
+                storedSignature.getBytes(StandardCharsets.UTF_8));
     }
 
     /** Verify a stored signature against an arbitrary payload. */

@@ -32,12 +32,18 @@
  * <p>- EDITED (Incident 72 - High Entropy Client Hints): • Injected `platformVersion` extraction
  * logic into `processAudienceAnalytics`. • Why: Identifies true Windows 11 devices by evaluating
  * the Client Hints API string sent by the frontend, overriding the frozen User-Agent string.
+ *
+ * <p>- EDITED (2026-11-25 - Batch 1 §1.2 Async Forwarding & Batch Cap): • Removed broken
+ * private @Async self-invocation and unbounded RestTemplate; delegated to external
+ * AlloyForwardingService bean. • Enforced max 100 events / 100 measurements cap per ingest payload
+ * to prevent payload DoS.
  */
 package com.treishvaam.financeapi.controller;
 
 import com.treishvaam.financeapi.analytics.AudienceVisit;
 import com.treishvaam.financeapi.analytics.AudienceVisitRepository;
 import com.treishvaam.financeapi.dto.FaroPayload;
+import com.treishvaam.financeapi.service.AlloyForwardingService;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -45,42 +51,50 @@ import nl.basjes.parse.useragent.UserAgent;
 import nl.basjes.parse.useragent.UserAgentAnalyzer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.web.client.RestTemplateBuilder;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestTemplate;
 
 @RestController
 @RequestMapping("/api/v1/monitoring")
 public class MonitoringController {
 
     private static final Logger logger = LoggerFactory.getLogger(MonitoringController.class);
-    private static final String ALLOY_URL = "http://alloy:12347/collect";
+    private static final int MAX_INGEST_ITEMS = 100;
 
     private final AudienceVisitRepository audienceVisitRepository;
-    private final RestTemplate restTemplate;
+    private final AlloyForwardingService alloyForwardingService;
     private final UserAgentAnalyzer uaa;
 
     public MonitoringController(
             AudienceVisitRepository audienceVisitRepository,
-            RestTemplateBuilder builder,
+            AlloyForwardingService alloyForwardingService,
             UserAgentAnalyzer uaa) {
         this.audienceVisitRepository = audienceVisitRepository;
-        this.restTemplate = builder.build();
+        this.alloyForwardingService = alloyForwardingService;
         this.uaa = uaa;
     }
 
     @PostMapping("/ingest")
     public ResponseEntity<Void> ingest(
             @RequestBody FaroPayload payload, @RequestHeader Map<String, String> allHeaders) {
+
+        if (payload == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        int eventsCount = payload.getEvents() != null ? payload.getEvents().size() : 0;
+        int measurementsCount =
+                payload.getMeasurements() != null ? payload.getMeasurements().size() : 0;
+        if (eventsCount > MAX_INGEST_ITEMS || measurementsCount > MAX_INGEST_ITEMS) {
+            logger.warn(
+                    "Rejected oversized Faro ingest batch (events={}, measurements={})",
+                    eventsCount,
+                    measurementsCount);
+            return ResponseEntity.badRequest().build();
+        }
 
         String cfCountry = getHeader(allHeaders, "cf-ipcountry");
         String cfRegion = getHeader(allHeaders, "cf-region");
@@ -99,7 +113,11 @@ public class MonitoringController {
 
         processAudienceAnalytics(
                 payload, finalCountry, finalCity, finalRegion, userAgentString, refererString);
-        forwardToAlloy(payload);
+        try {
+            alloyForwardingService.forwardToAlloy(payload);
+        } catch (Exception e) {
+            logger.debug("Alloy async dispatch skipped: {}", e.getMessage());
+        }
 
         return ResponseEntity.accepted().build();
     }
@@ -119,18 +137,6 @@ public class MonitoringController {
         if (secondary != null && !secondary.isEmpty() && !"Unknown".equalsIgnoreCase(secondary))
             return secondary;
         return defaultValue;
-    }
-
-    @Async
-    private void forwardToAlloy(FaroPayload payload) {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<FaroPayload> request = new HttpEntity<>(payload, headers);
-            restTemplate.postForLocation(ALLOY_URL, request);
-        } catch (Exception e) {
-            logger.debug("Alloy forward failed: {}", e.getMessage());
-        }
     }
 
     private void processAudienceAnalytics(

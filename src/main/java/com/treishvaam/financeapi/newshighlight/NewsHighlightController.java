@@ -21,6 +21,9 @@
  * <p>- DO-NOT-DELETE RULE (ABSOLUTE): This IMMUTABLE CHANGE HISTORY section acts as the
  * institutional memory for future AI sessions. It must never be deleted, truncated, rewritten, or
  * regenerated. Future AI must append only.
+ *
+ * <p>- EDITED (2026-11-25 - Batch 1 §1.4 Pagination Caps): • Clamped `page >= 0` and `1 <= size <=
+ * 100` on `GET /highlights` and `GET /archived|/archive`.
  */
 package com.treishvaam.financeapi.newshighlight;
 
@@ -50,7 +53,9 @@ public class NewsHighlightController {
     public ResponseEntity<List<NewsHighlight>> getNewsHighlights(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "12") int size) {
-        Pageable pageable = PageRequest.of(page, size);
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        Pageable pageable = PageRequest.of(safePage, safeSize);
         Page<NewsHighlight> newsPage = newsHighlightService.getHighlights(pageable);
         return ResponseEntity.ok(newsPage.getContent());
     }
@@ -59,7 +64,9 @@ public class NewsHighlightController {
     public ResponseEntity<Page<NewsHighlight>> getArchivedNews(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        Pageable pageable = PageRequest.of(page, size);
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        Pageable pageable = PageRequest.of(safePage, safeSize);
         return ResponseEntity.ok(newsHighlightService.getArchivedHighlights(pageable));
     }
 
