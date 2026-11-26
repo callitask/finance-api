@@ -2,6 +2,7 @@ package com.treishvaam.financeapi.exception;
 
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.catalina.connector.ClientAbortException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -13,6 +14,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -33,6 +35,11 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
  * message "An unexpected internal error occurred. Reference the X-Request-ID header for
  * diagnostics." • `logger.error("Unhandled exception: ", ex)` retained (full stack trace still
  * logged server-side).
+ *
+ * <p>- EDITED (Batch 4 - Client Disconnect & Broken Pipe Log/NPE Suppression): • Added void
+ * `handleClientDisconnect()` handler for `AsyncRequestNotUsableException` and
+ * `ClientAbortException` before `handleGenericException()` so Spring MVC does not attempt a 500
+ * JSON write into recycled Tomcat output buffers.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -101,6 +108,11 @@ public class GlobalExceptionHandler {
     public void handleSecurityExceptions(Exception ex) throws Exception {
         // Rethrow so Spring Security's ExceptionTranslationFilter natively returns 401/403
         throw ex;
+    }
+
+    @ExceptionHandler({AsyncRequestNotUsableException.class, ClientAbortException.class})
+    public void handleClientDisconnect(Exception ex) {
+        logger.debug("Client disconnected before response completed: {}", ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)
