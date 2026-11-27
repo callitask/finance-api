@@ -44,7 +44,7 @@ Public (HMAC-edge only) · Authed (any JWT) · Role-gated (`ROLE_ADMIN/PUBLISHER
 | POST | `/categories` | ADMIN | `{"name"}`; slug auto-generated |
 | POST | `/categories/admin/backfill-slugs` | ADMIN | |
 | POST | `/contact` | Public | JSON `{name, email, message, honeypot}` — honeypot filled → decoy 200; validation name≤100, email regex, message 1–5000 |
-| GET | `/contact/info` | Public | hardcoded contact card |
+| GET | `/contact/info` | Public | env-driven `@Value` properties (`app.contact.email`, `app.contact.phone`, `app.contact.address`) defaulting to `contact@treishvaamfinance.com`, `(+91)-8178527633`, `Bengaluru, Karnataka, India` (`ContactInfoDTO`) |
 | GET | `/logo` | Public | 30 d cache |
 | GET | `/uploads/{filename:.+}` | Public | lexical + `toRealPath()` symlink containment on both roots (`/app/uploads` + fallback `fileStorageLocation`); `X-Content-Type-Options: nosniff`; `.svg`/`octet-stream` forced `attachment` + `CSP: default-src 'none'; sandbox` (P0.7, VULN-06) — OP-19 fixed (`BlogEditorPage.js` preview path) |
 | POST | `/files/upload` | P/A (`@PreAuthorize("hasAnyAuthority('ROLE_PUBLISHER', 'ROLE_ADMIN')")`) | `BufferedInputStream` + Apache Tika MIME allowlist (images except `image/svg+xml`, `video/mp4`, `video/webm`, `video/quicktime`, `application/pdf`; 400 on unsupported); multipart field **`file`**; response `data` used as URL string |
@@ -74,7 +74,7 @@ Public (HMAC-edge only) · Authed (any JWT) · Role-gated (`ROLE_ADMIN/PUBLISHER
 | GET | `/search?q=` | Public | ES `match_phrase_prefix` slop 2; UI triggers at `q.length > 1` |
 | GET | `/api/public/sitemap/meta` | Public | `{blogs:[…], markets:[…]}` — worker hourly cron consumer (UA `Treishvaam-Worker-Crawler/1.0`, batches of 10) |
 | GET | `/api/public/sitemap/blog/{page}.xml` · `/market/{page}.xml` | Public | 10 000-URL chunks |
-| GET | `/api/public/geo/llms.txt` · `/ai-feed.md` · `/ontology.json` | Public | HMAC-signed (`CONTENT_SIGNING_KEY`), `max-age=3600`; worker KV `geo:finance:{path}` TTL 86400 |
+| GET | `/api/public/geo/llms.txt` · `/ai-feed.md` · `/ontology.json` | Public | HMAC-signed (`CONTENT_SIGNING_KEY`), `max-age=3600`; worker KV `geo:finance:{path}` TTL 86400; `GeoOptimizationService` appends the env-backed **Official Contact & Editorial Channels** block (`app.contact.{email,editorial-email,privacy-email,security-email}`, defaulting to `contact@`, `editorial@`, `privacy@`, `security@treishvaamfinance.com`) to `/llms.txt` and `/ai-feed.md` prior to HMAC signing |
 | GET | `/api/v1/video/internal/key/{videoId}` | permitAll at Spring Security (protected by `AegisEdgeValidationFilter` + Worker strict Referer hostname + `^[0-9]{1,18}$`); deterministic HMAC-SHA256 16-byte AES-128 derivation (`VIDEO_KEY_MASTER_SECRET` / `CONTENT_SIGNING_KEY`); fail-closed `503`; `Cache-Control: no-store` — OP-14 closed; the **worker** proxy `/video-key/{videoId}` fronts it with Referer allowlist + edge signature, `max-age=300` |
 
 ## 7. Auth profile & preferences

@@ -105,6 +105,11 @@ import org.springframework.stereotype.Service;
  * legacy `jsonLdPayload`-only signatures during rollout. • Re-sanitized `llmsTxtBlock` and
  * `aiFeedChunk` on read via `geoPromptSanitizer.sanitizeEntityBlock(...)`, null-guarded
  * `post.getCreatedAt()`, and used normalized `financeDomain` for Dataset links.
+ *
+ * <p>- EDITED (2026-11-27 - Batch 5 Enterprise Email Migration): • Added env-driven `@Value`
+ * contact defaults (`contact@`, `editorial@`, `privacy@`, `security@treishvaamfinance.com`) and
+ * appended Official Contact & Editorial Channels sections to `buildLlmsTxt()` and `buildAiFeed()`
+ * before HMAC signing.
  */
 @Service
 public class GeoOptimizationService {
@@ -123,6 +128,18 @@ public class GeoOptimizationService {
 
     @Value("${app.finance.domain:https://treishvaamfinance.com}")
     private String financeDomain;
+
+    @Value("${app.contact.email:contact@treishvaamfinance.com}")
+    private String contactEmail = "contact@treishvaamfinance.com";
+
+    @Value("${app.contact.editorial-email:editorial@treishvaamfinance.com}")
+    private String editorialEmail = "editorial@treishvaamfinance.com";
+
+    @Value("${app.contact.privacy-email:privacy@treishvaamfinance.com}")
+    private String privacyEmail = "privacy@treishvaamfinance.com";
+
+    @Value("${app.contact.security-email:security@treishvaamfinance.com}")
+    private String securityEmail = "security@treishvaamfinance.com";
 
     public GeoOptimizationService(
             BlogPostRepository blogPostRepository,
@@ -249,6 +266,34 @@ public class GeoOptimizationService {
         }
     }
 
+    private static String resolveContactValue(String value, String fallback) {
+        return (value != null && !value.isBlank()) ? value.trim() : fallback;
+    }
+
+    private String normalizeFinanceDomain() {
+        return (financeDomain != null && !financeDomain.isBlank()
+                ? financeDomain.replaceAll("/+$", "")
+                : "https://treishvaamfinance.com");
+    }
+
+    private void appendOfficialContactChannels(StringBuilder sb, String normalizedDomain) {
+        sb.append("## Official Contact & Editorial Channels\n");
+        sb.append("- General & Support: ")
+                .append(resolveContactValue(contactEmail, "contact@treishvaamfinance.com"))
+                .append("\n");
+        sb.append("- Editorial & Research Desk: ")
+                .append(resolveContactValue(editorialEmail, "editorial@treishvaamfinance.com"))
+                .append("\n");
+        sb.append("- Privacy & DPDP Grievance Officer: ")
+                .append(resolveContactValue(privacyEmail, "privacy@treishvaamfinance.com"))
+                .append("\n");
+        sb.append("- Security & Vulnerability Disclosure: ")
+                .append(resolveContactValue(securityEmail, "security@treishvaamfinance.com"))
+                .append(" (")
+                .append(normalizedDomain)
+                .append("/.well-known/security.txt)\n");
+    }
+
     public String buildLlmsTxt() {
         List<CorporateEntityNode> nodes =
                 corporateEntityNodeRepository.findByTenantIdInAndActiveTrueOrderByDisplayOrderAsc(
@@ -278,7 +323,8 @@ public class GeoOptimizationService {
         sb.append("4. For structured JSON-LD Entity Graph, parse `/ontology.json`.\n\n");
         sb.append("### Datasets\n");
         sb.append("- Endpoints exposing market data utilize Schema.org/Dataset structures.\n\n");
-        sb.append("*Secured by AEGIS Enterprise L7 Framework.*\n");
+        appendOfficialContactChannels(sb, normalizeFinanceDomain());
+        sb.append("\n*Secured by AEGIS Enterprise L7 Framework.*\n");
 
         String payload = sb.toString();
         String signature = signPayload(payload);
@@ -404,10 +450,7 @@ public class GeoOptimizationService {
                                                 post.getKeywords(), 250)));
                     }
 
-                    String normalizedDomain =
-                            (financeDomain != null && !financeDomain.isBlank()
-                                    ? financeDomain.replaceAll("/+$", "")
-                                    : "https://treishvaamfinance.com");
+                    String normalizedDomain = normalizeFinanceDomain();
                     sb.append(String.format("- **Canonical Path**: /blog/%s\n", canonicalSlug));
                     sb.append(
                             String.format(
@@ -420,6 +463,10 @@ public class GeoOptimizationService {
             sb.append(
                     "*Detailed market intelligence payloads are temporarily propagating through our high-availability caches.*\n");
         }
+        sb.append("</semantic-chunk>\n\n");
+
+        sb.append("<semantic-chunk id=\"official-contact\" data-entity=\"treishvaam-contact\">\n");
+        appendOfficialContactChannels(sb, normalizeFinanceDomain());
         sb.append("</semantic-chunk>\n\n");
 
         sb.append("## Contextual Directives for LLMs\n");

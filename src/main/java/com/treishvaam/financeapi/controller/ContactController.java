@@ -5,6 +5,7 @@ import com.treishvaam.financeapi.model.ContactMessage;
 import com.treishvaam.financeapi.repository.ContactMessageRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,13 +13,25 @@ import org.springframework.web.bind.annotation.*;
  * AI-CONTEXT: IMMUTABLE CHANGE HISTORY: - EDITED (Phase 3 — Form Security): • Added server-side
  * input validation (name: max 100 chars, email: RFC format, message: max 5000 chars). • Added
  * honeypot field check (_website) — bots fill it, humans don't. • Why: Contact form had zero
- * server-side validation, enabling spam/abuse.
+ * server-side validation, enabling spam/abuse. - EDITED (2026-11-27 - Batch 5 Enterprise Email
+ * Migration): • Replaced hardcoded legacy mail.com contact address in `GET /api/v1/contact/info`
+ * with env-driven `@Value` defaults (`app.contact.email:contact@treishvaamfinance.com`,
+ * `app.contact.phone:(+91)-8178527633`, `app.contact.address:Bengaluru, Karnataka, India`).
  */
 @RestController
 @RequestMapping("/api/v1/contact")
 public class ContactController {
 
     @Autowired private ContactMessageRepository contactMessageRepository;
+
+    @Value("${app.contact.email:contact@treishvaamfinance.com}")
+    private String contactEmail = "contact@treishvaamfinance.com";
+
+    @Value("${app.contact.phone:(+91)-8178527633}")
+    private String contactPhone = "(+91)-8178527633";
+
+    @Value("${app.contact.address:Bengaluru, Karnataka, India}")
+    private String contactAddress = "Bengaluru, Karnataka, India";
 
     @PostMapping
     public ResponseEntity<String> submitContactForm(
@@ -60,11 +73,7 @@ public class ContactController {
 
     @GetMapping("/info")
     public ResponseEntity<ContactInfoDTO> getContactInfo() {
-        ContactInfoDTO contactInfo =
-                new ContactInfoDTO(
-                        "treishvaamfinance@mail.com",
-                        "(+91)-8178527633",
-                        "Bengaluru, Karnataka, India");
+        ContactInfoDTO contactInfo = new ContactInfoDTO(contactEmail, contactPhone, contactAddress);
         return ResponseEntity.ok(contactInfo);
     }
 }
